@@ -4,27 +4,23 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls } from '@/lib/supabase/storage'
 import type { Campaign, Scene } from '@/lib/types'
-import Stage      from '@/components/Stage'
-import SceneList  from '@/components/SceneList'
-import AudioPanel from '@/components/AudioPanel'
+import Stage       from '@/components/Stage'
+import SceneList   from '@/components/SceneList'
 import SceneEditor from '@/components/SceneEditor'
-
-type PanelTab = 'scenes' | 'audio'
 
 export default function AppPage() {
   const supabase = createClient()
 
-  const [userId,          setUserId]          = useState<string>('')
-  const [campaigns,       setCampaigns]       = useState<Campaign[]>([])
-  const [activeCampId,    setActiveCampId]    = useState<string>('')
-  const [scenes,          setScenes]          = useState<Scene[]>([])
-  const [activeSceneId,   setActiveSceneId]   = useState<string>('')
-  const [panelTab,        setPanelTab]        = useState<PanelTab>('scenes')
-  const [editorOpen,      setEditorOpen]      = useState(false)
-  const [editorSceneId,   setEditorSceneId]   = useState<string | null>(null)
-  const [newCampName,     setNewCampName]      = useState('')
-  const [campModalOpen,   setCampModalOpen]    = useState(false)
-  const [loading,         setLoading]         = useState(true)
+  const [userId,        setUserId]        = useState<string>('')
+  const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
+  const [activeCampId,  setActiveCampId]  = useState<string>('')
+  const [scenes,        setScenes]        = useState<Scene[]>([])
+  const [activeSceneId, setActiveSceneId] = useState<string>('')
+  const [editorOpen,    setEditorOpen]    = useState(false)
+  const [editorSceneId, setEditorSceneId] = useState<string | null>(null)
+  const [newCampName,   setNewCampName]   = useState('')
+  const [campModalOpen, setCampModalOpen] = useState(false)
+  const [loading,       setLoading]       = useState(true)
 
   // ── Auth ──────────────────────────────────────────
   useEffect(() => {
@@ -116,12 +112,12 @@ export default function AppPage() {
     })
     setActiveSceneId(saved.id)
     setEditorOpen(false)
-    // Re-resolve signed URLs for the saved scene
     resolveSceneUrls(supabase, [saved]).then(([resolved]) => {
       setScenes(prev => prev.map(s => s.id === resolved.id ? resolved : s))
     })
   }
 
+  // ── Loading screen ────────────────────────────────
   if (loading) {
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg)' }}>
@@ -155,14 +151,22 @@ export default function AppPage() {
         </select>
 
         <button className="btn btn-outline btn-sm" onClick={() => setCampModalOpen(true)}>+ New</button>
-        {activeCampId && <button className="btn btn-ghost btn-sm" onClick={deleteCampaign} style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,.4)' }}>Delete</button>}
+        {activeCampId && (
+          <button className="btn btn-ghost btn-sm" onClick={deleteCampaign} style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,.4)' }}>
+            Delete
+          </button>
+        )}
 
         <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
           {activeCampaign ? activeCampaign.name.toUpperCase() : 'SCENEFORGE'}
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {activeCampId && <button className="btn btn-red btn-sm" onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}>+ Scene</button>}
+          {activeCampId && (
+            <button className="btn btn-red btn-sm" onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}>
+              + Scene
+            </button>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">⏻</button>
         </div>
       </div>
@@ -170,63 +174,35 @@ export default function AppPage() {
       {/* ── WORKSPACE ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        {/* Stage */}
+        {/* Stage — audio mixer lives here */}
         <Stage
           scene={activeScene}
           hasCampaign={!!activeCampId}
           onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
         />
 
-        {/* Right panel */}
+        {/* Right panel — scenes only */}
         <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
 
-          {/* Icon toolbar */}
-          <div style={{ display: 'flex', alignItems: 'center', padding: '7px 10px', gap: '2px', borderBottom: '1px solid var(--border)' }}>
-            {(['scenes', 'audio'] as PanelTab[]).map(t => (
-              <button key={t} onClick={() => setPanelTab(t)} style={{
-                width: '30px', height: '30px', borderRadius: '6px', border: 'none',
-                background: panelTab === t ? 'var(--bg-raised)' : 'transparent',
-                color: panelTab === t ? 'var(--accent)' : 'var(--text-2)',
-                fontSize: t === 'scenes' ? '14px' : '14px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {t === 'scenes' ? '⬛' : '🎵'}
-              </button>
-            ))}
+          {/* Panel header */}
+          <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
+              Scenes
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>
+              {scenes.length} total
+            </span>
           </div>
 
-          {/* Tabs */}
-          <div style={{ display: 'flex', borderBottom: '2px solid var(--border)', flexShrink: 0 }}>
-            {(['scenes', 'audio'] as PanelTab[]).map(t => (
-              <button key={t} onClick={() => setPanelTab(t)} style={{
-                flex: 1, padding: '9px 4px', textAlign: 'center',
-                fontSize: '10px', fontWeight: 700, letterSpacing: '.9px', textTransform: 'uppercase',
-                color: panelTab === t ? 'var(--text)' : 'var(--text-2)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                borderBottom: `2px solid ${panelTab === t ? 'var(--accent)' : 'transparent'}`,
-                marginBottom: '-2px',
-              }}>
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {/* Panel content */}
-          {panelTab === 'scenes'
-            ? <SceneList
-                scenes={scenes}
-                activeSceneId={activeSceneId}
-                hasCampaign={!!activeCampId}
-                onSelect={setActiveSceneId}
-                onDelete={deleteScene}
-                onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
-                onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }}
-              />
-            : <AudioPanel
-                scene={activeScene}
-                onEditScene={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
-              />
-          }
+          <SceneList
+            scenes={scenes}
+            activeSceneId={activeSceneId}
+            hasCampaign={!!activeCampId}
+            onSelect={setActiveSceneId}
+            onDelete={deleteScene}
+            onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
+            onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }}
+          />
         </div>
       </div>
 
@@ -239,7 +215,7 @@ export default function AppPage() {
         <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>
           {activeScene ? activeScene.name : 'No scene selected'}
         </div>
-        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
           <div style={{
             width: '42px', height: '42px', borderRadius: '50%',
             border: '2px solid var(--border-lt)', background: 'var(--bg-raised)',
@@ -266,8 +242,10 @@ export default function AppPage() {
 
       {/* ── NEW CAMPAIGN MODAL ── */}
       {campModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.72)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
-             onClick={e => { if (e.target === e.currentTarget) setCampModalOpen(false) }}>
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.72)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setCampModalOpen(false) }}
+        >
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '10px', width: '400px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.85)' }}>
             <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 600 }}>New Campaign</span>
