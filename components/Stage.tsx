@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Scene, Track } from '@/lib/types'
 
 interface Props {
@@ -18,12 +18,42 @@ const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
 export default function Stage({ scene, hasCampaign, onEdit }: Props) {
-  const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
-  const [volumes, setVolumes] = useState<Record<string, number>>({})
-  const [playing, setPlaying] = useState<Record<string, boolean>>({})
-  const [muted,   setMuted]   = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
+  const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
+  const [volumes, setVolumes]  = useState<Record<string, number>>({})
+  const [playing, setPlaying]  = useState<Record<string, boolean>>({})
+  const [muted,   setMuted]    = useState(false)
+  const [expanded, setExpanded]   = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // ── Fullscreen ────────────────────────────────────
+  const enterFullscreen = useCallback(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    if (el.requestFullscreen)              el.requestFullscreen()
+    else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen()
+  }, [])
+
+  const exitFullscreen = useCallback(() => {
+    if (document.exitFullscreen)              document.exitFullscreen()
+    else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen()
+  }, [])
+
+  useEffect(() => {
+    function onChange() {
+      const fs = !!(document.fullscreenElement || (document as any).webkitFullscreenElement)
+      setIsFullscreen(fs)
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    document.addEventListener('webkitfullscreenchange', onChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange)
+      document.removeEventListener('webkitfullscreenchange', onChange)
+    }
+  }, [])
+
+  // ── Audio: reset + autoplay on scene change ───────
   useEffect(() => {
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
     audioRefs.current = {}
@@ -35,7 +65,6 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
     const musicTracks = scene.tracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
-
     const timer = setTimeout(() => {
       musicTracks.forEach(t => {
         const src = t.signed_url || t.url
@@ -43,7 +72,6 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         getOrCreate(t).play().catch(() => {})
       })
     }, 300)
-
     return () => clearTimeout(timer)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,56 +136,110 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
   const playingCount = Object.values(playing).filter(Boolean).length
 
   return (
-    <div style={{ flex: 1, position: 'relative', background: '#080a10', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    /*
+      KEY FIX: The wrapper has position:relative but NO overflow:hidden.
+      The background is clipped by a dedicated inner div.
+      This means the absolutely-positioned mixer is never clipped.
+    */
+    <div
+      ref={wrapperRef}
+      style={{
+        flex: 1,
+        position: 'relative',
+        background: '#080a10',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        // No overflow:hidden here — that was clipping the mixer on Android
+      }}
+    >
+      {/* ── Background clip wrapper (overflow:hidden lives here) ── */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0 }}>
+        {bgUrl && (
+          scene.bg?.type === 'video'
+            ? <video key={bgUrl} src={bgUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <img    key={bgUrl} src={bgUrl} alt=""  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        )}
+        {bgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
+        {ovUrl && (
+          scene.overlay?.type === 'video'
+            ? <video key={ovUrl} src={ovUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <img    key={ovUrl} src={ovUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        )}
+      </div>
 
-      {bgUrl && (
-        scene.bg?.type === 'video'
-          ? <video key={bgUrl} src={bgUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <img    key={bgUrl} src={bgUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-      )}
-
-      {bgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)', pointerEvents: 'none', zIndex: 2 }} />}
-
-      {ovUrl && (
-        scene.overlay?.type === 'video'
-          ? <video key={ovUrl} src={ovUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, pointerEvents: 'none' }} />
-          : <img    key={ovUrl} src={ovUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, pointerEvents: 'none' }} />
-      )}
-
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5 }}>
+      {/* ── Scene name ── */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0,
+        textAlign: 'center', padding: '14px',
+        fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500,
+        color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)',
+        pointerEvents: 'none', zIndex: 5,
+      }}>
         {scene.name}
       </div>
 
+      {/* ── No background placeholder ── */}
       {!bgUrl && (
-        <div style={{ zIndex: 1, textAlign: 'center', color: 'var(--text-3)' }}>
+        <div style={{ zIndex: 1, textAlign: 'center', color: 'var(--text-3)', position: 'relative' }}>
           <div style={{ fontSize: '40px', opacity: .2, marginBottom: '12px' }}>🖼</div>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2.5px', marginBottom: '14px' }}>No Background</div>
           <button className="btn btn-outline" onClick={onEdit}>Edit Scene</button>
         </div>
       )}
 
-      <button
-        className="btn btn-ghost btn-sm"
-        onClick={onEdit}
-        style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, minHeight: '44px', padding: '0 14px' }}
-      >
-        ⚙ Edit Scene
-      </button>
+      {/* ── Top-right controls: Fullscreen + Edit ── */}
+      <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
+        <button
+          onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+          style={{
+            height: '44px', padding: '0 14px',
+            background: 'rgba(13,14,22,0.82)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: '8px',
+            color: 'rgba(255,255,255,0.75)',
+            fontSize: '16px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+        >
+          {isFullscreen ? '✕' : '⛶'}
+        </button>
+      </div>
 
+      {/* ── Bottom-right: Edit Scene ── */}
+      {!isFullscreen && (
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onEdit}
+          style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, minHeight: '44px', padding: '0 14px' }}
+        >
+          ⚙ Edit Scene
+        </button>
+      )}
+
+      {/* ── MINI AUDIO MIXER ──
+          Now outside the overflow:hidden clip div — always visible on all devices.
+          zIndex 20 keeps it above everything.
+      ── */}
       {hasTracks && (
-        <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 20, width: '240px' }}>
-
+        <div style={{
+          position: 'absolute',
+          bottom: '14px',
+          left: '14px',
+          zIndex: 20,
+          width: '240px',
+        }}>
+          {/* Collapsed bar */}
           <div
             onClick={() => setExpanded(e => !e)}
             style={{
               background: MIXER_BG,
-              border: '1px solid rgba(255,255,255,0.12)',
+              border: '1px solid rgba(255,255,255,0.14)',
               borderRadius: expanded ? '10px 10px 0 0' : '10px',
               padding: '0 14px',
               height: '44px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
+              display: 'flex', alignItems: 'center', gap: '10px',
               cursor: 'pointer',
               userSelect: 'none',
               WebkitUserSelect: 'none',
@@ -166,34 +248,31 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1, 0.6, 0.85, 0.45, 0.7].map((h, i) => (
                 <div key={i} style={{
-                  width: '3px',
-                  borderRadius: '1px',
+                  width: '3px', borderRadius: '1px',
                   background: playingCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.2)',
                   height: `${Math.round(h * 16)}px`,
                   animation: playingCount > 0 ? `audioBar${i} ${0.6 + i * 0.15}s ease-in-out infinite alternate` : 'none',
                 }} />
               ))}
             </div>
-
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>
               Audio
             </span>
-
             {playingCount > 0 && (
               <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700 }}>
                 {playingCount} playing
               </span>
             )}
-
             <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
               {expanded ? '▲' : '▼'}
             </span>
           </div>
 
+          {/* Expanded panel */}
           {expanded && (
             <div style={{
               background: MIXER_BG_PANEL,
-              border: '1px solid rgba(255,255,255,0.12)',
+              border: '1px solid rgba(255,255,255,0.14)',
               borderTop: 'none',
               borderRadius: '0 0 10px 10px',
               overflow: 'hidden',
@@ -239,7 +318,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <button
                   onClick={e => { e.stopPropagation(); stopAll() }}
-                  style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.5px' }}
+                  style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                 >
                   ⏹ Stop All
                 </button>
@@ -266,9 +345,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
   )
 }
 
-function MiniTrackRow({
-  t, isPlaying, volume, onToggle, onVol,
-}: {
+function MiniTrackRow({ t, isPlaying, volume, onToggle, onVol }: {
   t: Track; isPlaying: boolean; volume: number
   onToggle: () => void; onVol: (v: number) => void
 }) {
@@ -287,7 +364,6 @@ function MiniTrackRow({
       >
         {isPlaying ? '⏸' : '▶'}
       </button>
-
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>
           {t.name}

@@ -118,9 +118,11 @@ export default function AppPage() {
   }
 
   // ── Loading screen ────────────────────────────────
+  // 100dvh instead of 100vh: on mobile Chrome, 100vh includes the
+  // browser chrome bar causing content to be cut off. 100dvh = actual visible height.
   if (loading) {
     return (
-      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg)' }}>
+      <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg)' }}>
         <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px' }}>SceneForge</div>
         <div style={{ width: '160px', height: '3px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
           <div style={{ height: '100%', background: 'var(--accent)', borderRadius: '2px', animation: 'loadBar 1.2s ease-in-out infinite' }} />
@@ -131,7 +133,7 @@ export default function AppPage() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* ── TOP BAR ── */}
       <div style={{
@@ -174,17 +176,14 @@ export default function AppPage() {
       {/* ── WORKSPACE ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        {/* Stage — audio mixer lives here */}
         <Stage
           scene={activeScene}
           hasCampaign={!!activeCampId}
           onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
         />
 
-        {/* Right panel — scenes only */}
+        {/* Right panel */}
         <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-
-          {/* Panel header */}
           <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
               Scenes
@@ -193,7 +192,6 @@ export default function AppPage() {
               {scenes.length} total
             </span>
           </div>
-
           <SceneList
             scenes={scenes}
             activeSceneId={activeSceneId}
