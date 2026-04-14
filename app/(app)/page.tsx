@@ -9,7 +9,6 @@ import SceneList   from '@/components/SceneList'
 import SceneEditor from '@/components/SceneEditor'
 
 function makeJoinCode(): string {
-  // e.g. "A3K9B2"
   return Math.random().toString(36).substr(2, 6).toUpperCase()
 }
 
@@ -96,6 +95,46 @@ export default function AppPage() {
     else { setSessionId(null); setJoinCode(null); setIsLive(false) }
   }, [activeCampId, loadSession])
 
+  // ── Realtime: sync scene changes from other devices ───────────
+  // When you switch scenes on your tablet, your MacBook updates too
+  useEffect(() => {
+    if (!sessionId) return
+
+    const channel = supabase
+      .channel('dm-session-' + sessionId)
+      .on(
+        'postgres_changes',
+        {
+          event:  'UPDATE',
+          schema: 'public',
+          table:  'sessions',
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            active_scene_id: string | null
+            is_live: boolean
+          }
+
+          // Another device stopped the session
+          if (!row.is_live) {
+            setIsLive(false)
+            setSessionId(null)
+            setJoinCode(null)
+            return
+          }
+
+          // Another device switched the scene — mirror it here
+          if (row.active_scene_id && row.active_scene_id !== activeSceneId) {
+            setActiveSceneId(row.active_scene_id)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const activeCampaign = campaigns.find(c => c.id === activeCampId) || null
   const activeScene    = scenes.find(s => s.id === activeSceneId)   || null
   const editorScene    = editorSceneId ? (scenes.find(s => s.id === editorSceneId) || null) : null
@@ -108,7 +147,6 @@ export default function AppPage() {
     if (!activeCampId || !userId) return
 
     if (sessionId && isLive) {
-      // Already live — just open the share modal
       setShareModalOpen(true)
       return
     }
@@ -148,7 +186,7 @@ export default function AppPage() {
     setJoinCode(null)
   }
 
-  // ── Scene selection — also syncs to live session ──────────────
+  // ── Scene selection — syncs to live session + other devices ──
   async function handleSelectScene(id: string) {
     setActiveSceneId(id)
     if (isLive && sessionId) {
@@ -206,7 +244,6 @@ export default function AppPage() {
       const exists = prev.find(s => s.id === saved.id)
       return exists ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, saved]
     })
-    // Also sync to live session if the saved scene becomes the active one
     handleSelectScene(saved.id)
     setEditorOpen(false)
     resolveSceneUrls(supabase, [saved]).then(([resolved]) => {
@@ -262,7 +299,6 @@ export default function AppPage() {
             </button>
           )}
 
-          {/* ── LIVE PRESENTING CONTROLS ── */}
           {activeCampId && !isLive && (
             <button
               className="btn btn-ghost btn-sm"
@@ -272,9 +308,9 @@ export default function AppPage() {
               ▶ Start Presenting
             </button>
           )}
+
           {activeCampId && isLive && (
             <>
-              {/* Live indicator — click to see join URL */}
               <button
                 onClick={() => setShareModalOpen(true)}
                 style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', color: 'var(--accent)', fontSize: '11px', fontWeight: 700 }}
@@ -304,7 +340,6 @@ export default function AppPage() {
           onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
         />
 
-        {/* Right panel */}
         <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
@@ -352,7 +387,6 @@ export default function AppPage() {
           onClick={e => { if (e.target === e.currentTarget) setShareModalOpen(false) }}>
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '12px', width: '440px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.9)', overflow: 'hidden' }}>
 
-            {/* Header */}
             <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block' }} />
@@ -363,10 +397,9 @@ export default function AppPage() {
 
             <div style={{ padding: '22px 24px' }}>
               <div style={{ marginBottom: '18px', fontSize: '12px', color: 'var(--text-2)', lineHeight: 1.6 }}>
-                Open this URL on your tablet or any other device. The scene updates instantly when you change it here.
+                Open this URL on any device to view the scene. You can switch scenes from <strong style={{ color: 'var(--text)' }}>any logged-in device</strong> and it updates everywhere instantly.
               </div>
 
-              {/* URL box */}
               <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px', marginBottom: '10px' }}>
                 <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>Viewer URL</div>
                 <div style={{ fontSize: '12px', color: 'var(--text)', wordBreak: 'break-all', fontFamily: 'monospace', lineHeight: 1.5 }}>
@@ -374,7 +407,6 @@ export default function AppPage() {
                 </div>
               </div>
 
-              {/* Join code */}
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '18px' }}>
                 <div style={{ flex: 1, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 14px', textAlign: 'center' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '4px' }}>Join Code</div>
