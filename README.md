@@ -4,21 +4,13 @@ TTRPG Scene Director — Next.js 15 + Supabase + Vercel
 
 ## Stack
 
-| Layer    | Service                                       |
-|----------|-----------------------------------------------|
-| Frontend | Next.js 15 (App Router, TypeScript)           |
+| Layer    | Service                                        |
+|----------|------------------------------------------------|
+| Frontend | Next.js 15 (App Router, TypeScript)            |
 | Database | Supabase PostgreSQL (campaigns, scenes, tracks)|
 | Storage  | Supabase Storage (`scene-media` bucket)        |
-| Auth     | Supabase Auth (magic link / email OTP)         |
+| Auth     | Supabase Auth (email + password)               |
 | Hosting  | Vercel                                         |
-
-## Supabase Project
-
-- **Project:** sceneforge
-- **URL:** https://wfndtpyrpdulqulvlnuq.supabase.co
-- **Region:** us-east-1
-
-All migrations (tables + RLS + storage bucket) have already been applied.
 
 ---
 
@@ -38,8 +30,13 @@ npm install
 cp .env.local.example .env.local
 ```
 
-The `.env.local.example` already contains the correct values for this project.
-Just rename it — no changes needed.
+Open `.env.local` and fill in your Supabase project URL and anon key.
+Find these at: **Supabase Dashboard → Project Settings → API**
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
 
 ### 3. Run the dev server
 
@@ -49,36 +46,16 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-You'll be redirected to `/login`. Enter your email to receive a magic link.
-
 ---
 
 ## Deploy to Vercel
 
-### Option A — One-click from GitHub (recommended)
-
 1. Push this repo to GitHub
-2. Go to [vercel.com/new](https://vercel.com/new)
-3. Import your GitHub repo
-4. Add these environment variables in Vercel's dashboard:
-
-| Variable                        | Value                                         |
-|---------------------------------|-----------------------------------------------|
-| `NEXT_PUBLIC_SUPABASE_URL`      | `https://wfndtpyrpdulqulvlnuq.supabase.co`   |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | *(from `.env.local.example`)*                 |
-
-5. Click **Deploy**. Done.
-
-### Option B — Vercel CLI
-
-```bash
-npm i -g vercel
-vercel
-# Follow prompts, then add env vars:
-vercel env add NEXT_PUBLIC_SUPABASE_URL
-vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY
-vercel --prod
-```
+2. Go to [vercel.com/new](https://vercel.com/new) and import your repo
+3. Add environment variables in Vercel's dashboard:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Click **Deploy**
 
 ---
 
@@ -110,8 +87,8 @@ tracks
   scene_id      uuid → scenes
   kind          text  (music | ml2 | ml3 | ambience)
   name          text
-  url           text   -- external URL
-  storage_path  text   -- Supabase Storage path
+  url           text
+  storage_path  text
   file_name     text
   loop          boolean
   volume        numeric
@@ -119,17 +96,13 @@ tracks
   created_at    timestamptz
 ```
 
-All tables have Row Level Security — users only access their own data.
+All tables use Row Level Security — users only access their own data.
 
 ## Storage
 
-Bucket: `scene-media` (private, 500 MB per file)
-
-Files are stored at `{user_id}/{timestamp}-{random}.{ext}`.
-Signed URLs are generated at runtime (1-hour expiry) so files are
-never publicly accessible without a valid session.
-
-Accepted types: JPG, PNG, WebP, GIF, MP4, WebM, MOV, MP3, OGG, WAV, FLAC, AAC, M4A
+Bucket: `scene-media` (private, 500 MB per file)  
+Files stored at `{user_id}/{timestamp}-{random}.{ext}`  
+Signed URLs generated at runtime (1-hour expiry).
 
 ---
 
@@ -142,9 +115,9 @@ sceneforge/
 │   │   ├── layout.tsx        # Server: checks auth
 │   │   └── page.tsx          # Main SceneForge UI
 │   ├── login/
-│   │   └── page.tsx          # Magic link login
+│   │   └── page.tsx          # Email + password login
 │   ├── auth/callback/
-│   │   └── route.ts          # OAuth/OTP callback
+│   │   └── route.ts          # Auth callback handler
 │   ├── globals.css
 │   └── layout.tsx
 ├── components/
