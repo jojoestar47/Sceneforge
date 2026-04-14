@@ -8,6 +8,11 @@ import Stage       from '@/components/Stage'
 import SceneList   from '@/components/SceneList'
 import SceneEditor from '@/components/SceneEditor'
 
+function makeJoinCode(): string {
+  // e.g. "A3K9B2"
+  return Math.random().toString(36).substr(2, 6).toUpperCase()
+}
+
 export default function AppPage() {
   const supabase = createClient()
 
@@ -22,19 +27,22 @@ export default function AppPage() {
   const [campModalOpen, setCampModalOpen] = useState(false)
   const [loading,       setLoading]       = useState(true)
 
-  // ── Auth ──────────────────────────────────────────
+  // ── Session / Live Presenting ──────────────────────────────────
+  const [sessionId,      setSessionId]      = useState<string | null>(null)
+  const [joinCode,       setJoinCode]       = useState<string | null>(null)
+  const [isLive,         setIsLive]         = useState(false)
+  const [shareModalOpen, setShareModalOpen] = useState(false)
+
+  // ── Auth ──────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setUserId(user.id)
     })
   }, [])
 
-  // ── Load campaigns ────────────────────────────────
+  // ── Load campaigns ────────────────────────────────────────────
   const loadCampaigns = useCallback(async () => {
-    const { data } = await supabase
-      .from('campaigns')
-      .select('*')
-      .order('created_at')
+    const { data } = await supabase.from('campaigns').select('*').order('created_at')
     if (data) setCampaigns(data)
   }, [])
 
@@ -42,7 +50,7 @@ export default function AppPage() {
     loadCampaigns().finally(() => setLoading(false))
   }, [loadCampaigns])
 
-  // ── Load scenes when campaign changes ─────────────
+  // ── Load scenes when campaign changes ─────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
     const { data } = await supabase
       .from('scenes')
@@ -62,11 +70,96 @@ export default function AppPage() {
     else              { setScenes([]) }
   }, [activeCampId, loadScenes])
 
+  // ── Load existing live session when campaign changes ──────────
+  const loadSession = useCallback(async (campId: string) => {
+    const { data } = await supabase
+      .from('sessions')
+      .select('id, join_code, active_scene_id, is_live')
+      .eq('campaign_id', campId)
+      .eq('is_live', true)
+      .maybeSingle()
+
+    if (data) {
+      setSessionId(data.id)
+      setJoinCode(data.join_code)
+      setIsLive(true)
+      if (data.active_scene_id) setActiveSceneId(data.active_scene_id)
+    } else {
+      setSessionId(null)
+      setJoinCode(null)
+      setIsLive(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeCampId) loadSession(activeCampId)
+    else { setSessionId(null); setJoinCode(null); setIsLive(false) }
+  }, [activeCampId, loadSession])
+
   const activeCampaign = campaigns.find(c => c.id === activeCampId) || null
   const activeScene    = scenes.find(s => s.id === activeSceneId)   || null
   const editorScene    = editorSceneId ? (scenes.find(s => s.id === editorSceneId) || null) : null
+  const viewerUrl      = typeof window !== 'undefined' && joinCode
+    ? `${window.location.origin}/view/${joinCode}`
+    : null
 
-  // ── Campaign CRUD ─────────────────────────────────
+  // ── Session: Start / Stop Presenting ─────────────────────────
+  async function startPresenting() {
+    if (!activeCampId || !userId) return
+
+    if (sessionId && isLive) {
+      // Already live — just open the share modal
+      setShareModalOpen(true)
+      return
+    }
+
+    // Deactivate any old sessions for this campaign first
+    await supabase
+      .from('sessions')
+      .update({ is_live: false })
+      .eq('campaign_id', activeCampId)
+
+    const code = makeJoinCode()
+    const { data } = await supabase
+      .from('sessions')
+      .insert({
+        campaign_id:     activeCampId,
+        join_code:       code,
+        active_scene_id: activeSceneId || null,
+        is_live:         true,
+        created_by:      userId,
+      })
+      .select('id, join_code')
+      .single()
+
+    if (data) {
+      setSessionId(data.id)
+      setJoinCode(data.join_code)
+      setIsLive(true)
+      setShareModalOpen(true)
+    }
+  }
+
+  async function stopPresenting() {
+    if (!sessionId) return
+    await supabase.from('sessions').update({ is_live: false }).eq('id', sessionId)
+    setIsLive(false)
+    setSessionId(null)
+    setJoinCode(null)
+  }
+
+  // ── Scene selection — also syncs to live session ──────────────
+  async function handleSelectScene(id: string) {
+    setActiveSceneId(id)
+    if (isLive && sessionId) {
+      await supabase
+        .from('sessions')
+        .update({ active_scene_id: id })
+        .eq('id', sessionId)
+    }
+  }
+
+  // ── Campaign CRUD ─────────────────────────────────────────────
   async function createCampaign() {
     if (!newCampName.trim()) return
     const { data } = await supabase
@@ -89,6 +182,9 @@ export default function AppPage() {
     setCampaigns(prev => prev.filter(c => c.id !== activeCampId))
     setActiveCampId('')
     setScenes([])
+    setIsLive(false)
+    setSessionId(null)
+    setJoinCode(null)
   }
 
   async function signOut() {
@@ -96,7 +192,7 @@ export default function AppPage() {
     window.location.href = '/login'
   }
 
-  // ── Scene CRUD ────────────────────────────────────
+  // ── Scene CRUD ────────────────────────────────────────────────
   async function deleteScene(id: string) {
     const sc = scenes.find(s => s.id === id)
     if (!sc || !confirm(`Delete scene "${sc.name}"?`)) return
@@ -110,16 +206,15 @@ export default function AppPage() {
       const exists = prev.find(s => s.id === saved.id)
       return exists ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, saved]
     })
-    setActiveSceneId(saved.id)
+    // Also sync to live session if the saved scene becomes the active one
+    handleSelectScene(saved.id)
     setEditorOpen(false)
     resolveSceneUrls(supabase, [saved]).then(([resolved]) => {
       setScenes(prev => prev.map(s => s.id === resolved.id ? resolved : s))
     })
   }
 
-  // ── Loading screen ────────────────────────────────
-  // 100dvh instead of 100vh: on mobile Chrome, 100vh includes the
-  // browser chrome bar causing content to be cut off. 100dvh = actual visible height.
+  // ── Loading screen ────────────────────────────────────────────
   if (loading) {
     return (
       <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg)' }}>
@@ -136,11 +231,8 @@ export default function AppPage() {
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* ── TOP BAR ── */}
-      <div style={{
-        height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px',
-        flexShrink: 0, position: 'relative', zIndex: 10,
-      }}>
+      <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
+
         <span style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '16px', color: 'var(--accent)', flexShrink: 0 }}>A</span>
 
         <select
@@ -169,13 +261,43 @@ export default function AppPage() {
               + Scene
             </button>
           )}
+
+          {/* ── LIVE PRESENTING CONTROLS ── */}
+          {activeCampId && !isLive && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={startPresenting}
+              style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}
+            >
+              ▶ Start Presenting
+            </button>
+          )}
+          {activeCampId && isLive && (
+            <>
+              {/* Live indicator — click to see join URL */}
+              <button
+                onClick={() => setShareModalOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', color: 'var(--accent)', fontSize: '11px', fontWeight: 700 }}
+              >
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--accent)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block' }} />
+                LIVE · {joinCode}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={stopPresenting}
+                style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,0.4)' }}
+              >
+                ⏹ Stop
+              </button>
+            </>
+          )}
+
           <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">⏻</button>
         </div>
       </div>
 
       {/* ── WORKSPACE ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-
         <Stage
           scene={activeScene}
           hasCampaign={!!activeCampId}
@@ -185,18 +307,14 @@ export default function AppPage() {
         {/* Right panel */}
         <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
-              Scenes
-            </span>
-            <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>
-              {scenes.length} total
-            </span>
+            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
+            <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{scenes.length} total</span>
           </div>
           <SceneList
             scenes={scenes}
             activeSceneId={activeSceneId}
             hasCampaign={!!activeCampId}
-            onSelect={setActiveSceneId}
+            onSelect={handleSelectScene}
             onDelete={deleteScene}
             onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
             onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }}
@@ -205,22 +323,12 @@ export default function AppPage() {
       </div>
 
       {/* ── BOTTOM BAR ── */}
-      <div style={{
-        height: '54px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', padding: '0 16px',
-        flexShrink: 0, position: 'relative',
-      }}>
+      <div style={{ height: '54px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 16px', flexShrink: 0, position: 'relative' }}>
         <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>
           {activeScene ? activeScene.name : 'No scene selected'}
         </div>
         <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-          <div style={{
-            width: '42px', height: '42px', borderRadius: '50%',
-            border: '2px solid var(--border-lt)', background: 'var(--bg-raised)',
-            color: 'var(--accent)', fontFamily: "'Cinzel',serif",
-            fontSize: '11px', fontWeight: 600, letterSpacing: '1px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>SF</div>
+          <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', color: 'var(--accent)', fontFamily: "'Cinzel',serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>SF</div>
         </div>
         <div style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-3)' }}>
           {scenes.length} scene{scenes.length !== 1 ? 's' : ''}
@@ -238,12 +346,77 @@ export default function AppPage() {
         />
       )}
 
+      {/* ── SHARE / LIVE MODAL ── */}
+      {shareModalOpen && joinCode && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShareModalOpen(false) }}>
+          <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '12px', width: '440px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.9)', overflow: 'hidden' }}>
+
+            {/* Header */}
+            <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block' }} />
+                <span style={{ fontWeight: 600, fontSize: '14px' }}>Session Live</span>
+              </div>
+              <button onClick={() => setShareModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '16px', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ padding: '22px 24px' }}>
+              <div style={{ marginBottom: '18px', fontSize: '12px', color: 'var(--text-2)', lineHeight: 1.6 }}>
+                Open this URL on your tablet or any other device. The scene updates instantly when you change it here.
+              </div>
+
+              {/* URL box */}
+              <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>Viewer URL</div>
+                <div style={{ fontSize: '12px', color: 'var(--text)', wordBreak: 'break-all', fontFamily: 'monospace', lineHeight: 1.5 }}>
+                  {viewerUrl}
+                </div>
+              </div>
+
+              {/* Join code */}
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '18px' }}>
+                <div style={{ flex: 1, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '4px' }}>Join Code</div>
+                  <div style={{ fontFamily: "'Cinzel',serif", fontSize: '22px', letterSpacing: '6px', color: 'var(--accent)', fontWeight: 600 }}>{joinCode}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  className="btn btn-ghost"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => { if (viewerUrl) navigator.clipboard?.writeText(viewerUrl) }}
+                >
+                  Copy URL
+                </button>
+                <button
+                  className="btn btn-red"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => { if (viewerUrl) window.open(viewerUrl, '_blank') }}
+                >
+                  Open Viewer ↗
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: '0 24px 18px', display: 'flex', justifyContent: 'center' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,0.3)' }}
+                onClick={() => { stopPresenting(); setShareModalOpen(false) }}
+              >
+                ⏹ Stop Presenting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── NEW CAMPAIGN MODAL ── */}
       {campModalOpen && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.72)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
-          onClick={e => { if (e.target === e.currentTarget) setCampModalOpen(false) }}
-        >
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.72)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setCampModalOpen(false) }}>
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '10px', width: '400px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.85)' }}>
             <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 600 }}>New Campaign</span>
@@ -267,6 +440,13 @@ export default function AppPage() {
           </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes livePulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%       { opacity: 0.4; transform: scale(0.85); }
+        }
+      `}</style>
     </div>
   )
 }
