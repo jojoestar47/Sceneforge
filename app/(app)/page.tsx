@@ -3,13 +3,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls } from '@/lib/supabase/storage'
-import type { Campaign, Scene } from '@/lib/types'
+import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
 import Stage       from '@/components/Stage'
 import SceneList   from '@/components/SceneList'
 import SceneEditor from '@/components/SceneEditor'
 
 function makeJoinCode(): string {
   return Math.random().toString(36).substr(2, 6).toUpperCase()
+}
+
+interface ActiveCharacters {
+  left:  Character | null
+  right: Character | null
 }
 
 export default function AppPage() {
@@ -26,6 +31,10 @@ export default function AppPage() {
   const [campModalOpen, setCampModalOpen] = useState(false)
   const [loading,       setLoading]       = useState(true)
   const [copied,        setCopied]        = useState(false)
+
+  // ── Characters ────────────────────────────────────────────────
+  const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
+  const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, right: null })
 
   // ── Session / Live Presenting ──────────────────────────────────
   const [sessionId,      setSessionId]      = useState<string | null>(null)
@@ -46,38 +55,47 @@ export default function AppPage() {
     if (data) setCampaigns(data)
   }, [])
 
-  useEffect(() => {
-    loadCampaigns().finally(() => setLoading(false))
-  }, [loadCampaigns])
+  useEffect(() => { loadCampaigns().finally(() => setLoading(false)) }, [loadCampaigns])
 
-  // ── Load scenes when campaign changes ─────────────────────────
+  // ── Load scenes ───────────────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
     const { data } = await supabase
-      .from('scenes')
-      .select('*, tracks(*)')
-      .eq('campaign_id', campId)
-      .order('order_index')
+      .from('scenes').select('*, tracks(*)').eq('campaign_id', campId).order('order_index')
     if (data) {
       const resolved = await resolveSceneUrls(supabase, data as Scene[])
       setScenes(resolved)
-    } else {
-      setScenes([])
-    }
+    } else setScenes([])
   }, [])
 
   useEffect(() => {
     if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId) }
-    else              { setScenes([]) }
+    else setScenes([])
   }, [activeCampId, loadScenes])
 
-  // ── Load existing live session when campaign changes ──────────
+  // ── Load campaign characters ──────────────────────────────────
+  useEffect(() => {
+    if (!activeCampId) { setCampaignCharacters([]); return }
+    supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
+      .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
+  }, [activeCampId])
+
+  // ── Load scene characters when active scene changes ───────────
+  useEffect(() => {
+    if (!activeSceneId) { setActiveCharacters({ left: null, right: null }); return }
+    supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', activeSceneId)
+      .then(({ data }) => {
+        if (!data) return
+        const left  = data.find(r => r.position === 'left')?.character  as Character | undefined
+        const right = data.find(r => r.position === 'right')?.character as Character | undefined
+        setActiveCharacters({ left: left || null, right: right || null })
+      })
+  }, [activeSceneId])
+
+  // ── Load existing live session ────────────────────────────────
   const loadSession = useCallback(async (campId: string) => {
-    const { data } = await supabase
-      .from('sessions')
-      .select('id, join_code, active_scene_id, is_live')
-      .eq('campaign_id', campId)
-      .eq('is_live', true)
-      .maybeSingle()
+    const { data } = await supabase.from('sessions')
+      .select('id, join_code, active_scene_id, is_live, character_state')
+      .eq('campaign_id', campId).eq('is_live', true).maybeSingle()
     if (data) {
       setSessionId(data.id); setJoinCode(data.join_code); setIsLive(true)
       if (data.active_scene_id) setActiveSceneId(data.active_scene_id)
@@ -91,31 +109,43 @@ export default function AppPage() {
     else { setSessionId(null); setJoinCode(null); setIsLive(false) }
   }, [activeCampId, loadSession])
 
-  // ── Realtime: sync scene changes from other devices ───────────
+  // ── Realtime: sync from other devices ────────────────────────
   useEffect(() => {
     if (!sessionId) return
-    const channel = supabase
-      .channel('dm-session-' + sessionId)
+    const channel = supabase.channel('dm-session-' + sessionId)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` },
         (payload) => {
-          const row = payload.new as { active_scene_id: string | null; is_live: boolean }
+          const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null }
           if (!row.is_live) { setIsLive(false); setSessionId(null); setJoinCode(null); return }
           if (row.active_scene_id && row.active_scene_id !== activeSceneId)
             setActiveSceneId(row.active_scene_id)
+          // Sync character state from other device
+          if (row.character_state) syncCharacterState(row.character_state)
         }
-      )
-      .subscribe()
+      ).subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function syncCharacterState(state: CharacterState) {
+    const leftChar  = state.left  ? campaignCharacters.find(c => c.id === state.left)  || null : null
+    const rightChar = state.right ? campaignCharacters.find(c => c.id === state.right) || null : null
+    // If not found in local cache, fetch from DB
+    const fetchIfNeeded = async (id: string | null): Promise<Character | null> => {
+      if (!id) return null
+      const found = campaignCharacters.find(c => c.id === id)
+      if (found) return found
+      const { data } = await supabase.from('characters').select('*').eq('id', id).single()
+      return data as Character | null
+    }
+    const [l, r] = await Promise.all([fetchIfNeeded(state.left), fetchIfNeeded(state.right)])
+    setActiveCharacters({ left: l, right: r })
+  }
 
   const activeCampaign = campaigns.find(c => c.id === activeCampId) || null
   const activeScene    = scenes.find(s => s.id === activeSceneId)   || null
   const editorScene    = editorSceneId ? (scenes.find(s => s.id === editorSceneId) || null) : null
-  const viewerUrl      = typeof window !== 'undefined' && joinCode
-    ? `${window.location.origin}/view/${joinCode}` : null
-  const qrUrl          = viewerUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}&margin=12`
-    : null
+  const viewerUrl      = typeof window !== 'undefined' && joinCode ? `${window.location.origin}/view/${joinCode}` : null
+  const qrUrl          = viewerUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}&margin=12` : null
 
   // ── Session: Start / Stop Presenting ─────────────────────────
   async function startPresenting() {
@@ -123,11 +153,12 @@ export default function AppPage() {
     if (sessionId && isLive) { setShareModalOpen(true); return }
     await supabase.from('sessions').update({ is_live: false }).eq('campaign_id', activeCampId)
     const code = makeJoinCode()
-    const { data } = await supabase
-      .from('sessions')
-      .insert({ campaign_id: activeCampId, join_code: code, active_scene_id: activeSceneId || null, is_live: true, created_by: userId })
-      .select('id, join_code')
-      .single()
+    const cs: CharacterState = { left: activeCharacters.left?.id || null, right: activeCharacters.right?.id || null }
+    const { data } = await supabase.from('sessions').insert({
+      campaign_id: activeCampId, join_code: code,
+      active_scene_id: activeSceneId || null, is_live: true,
+      created_by: userId, character_state: cs,
+    }).select('id, join_code').single()
     if (data) { setSessionId(data.id); setJoinCode(data.join_code); setIsLive(true); setShareModalOpen(true) }
   }
 
@@ -137,12 +168,28 @@ export default function AppPage() {
     setIsLive(false); setSessionId(null); setJoinCode(null)
   }
 
+  // ── Scene + character selection ───────────────────────────────
   async function handleSelectScene(id: string) {
     setActiveSceneId(id)
-    if (isLive && sessionId)
-      await supabase.from('sessions').update({ active_scene_id: id }).eq('id', sessionId)
+    if (isLive && sessionId) {
+      // Load scene characters to include in session update
+      const { data: sc } = await supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', id)
+      const left  = sc?.find(r => r.position === 'left')?.character  as Character | undefined
+      const right = sc?.find(r => r.position === 'right')?.character as Character | undefined
+      const cs: CharacterState = { left: left?.id || null, right: right?.id || null }
+      await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
+    }
   }
 
+  async function handleCharactersChange(chars: ActiveCharacters) {
+    setActiveCharacters(chars)
+    if (isLive && sessionId) {
+      const cs: CharacterState = { left: chars.left?.id || null, right: chars.right?.id || null }
+      await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
+    }
+  }
+
+  // ── Campaign CRUD ─────────────────────────────────────────────
   async function createCampaign() {
     if (!newCampName.trim()) return
     const { data } = await supabase.from('campaigns').insert({ name: newCampName.trim(), user_id: userId }).select('*').single()
@@ -171,14 +218,18 @@ export default function AppPage() {
     setScenes(prev => { const e = prev.find(s => s.id === saved.id); return e ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, saved] })
     handleSelectScene(saved.id)
     setEditorOpen(false)
-    resolveSceneUrls(supabase, [saved]).then(([r]) => { setScenes(prev => prev.map(s => s.id === r.id ? r : s)) })
+    resolveSceneUrls(supabase, [saved]).then(([r]) => setScenes(prev => prev.map(s => s.id === r.id ? r : s)))
+    // Reload campaign characters in case a new one was created
+    if (activeCampId) {
+      supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
+        .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
+    }
   }
 
   function copyUrl() {
     if (!viewerUrl) return
     navigator.clipboard?.writeText(viewerUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
   if (loading) return (
@@ -209,9 +260,7 @@ export default function AppPage() {
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
           {activeCampId && <button className="btn btn-red btn-sm" onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}>+ Scene</button>}
           {activeCampId && !isLive && (
-            <button className="btn btn-ghost btn-sm" onClick={startPresenting} style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}>
-              ▶ Start Presenting
-            </button>
+            <button className="btn btn-ghost btn-sm" onClick={startPresenting} style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}>▶ Start Presenting</button>
           )}
           {activeCampId && isLive && (
             <>
@@ -228,18 +277,20 @@ export default function AppPage() {
 
       {/* ── WORKSPACE ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <Stage scene={activeScene} hasCampaign={!!activeCampId} onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }} />
+        <Stage
+          scene={activeScene}
+          hasCampaign={!!activeCampId}
+          onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
+          characters={activeCharacters}
+          campaignCharacters={campaignCharacters}
+          onCharactersChange={handleCharactersChange}
+        />
         <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
             <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{scenes.length} total</span>
           </div>
-          <SceneList
-            scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId}
-            onSelect={handleSelectScene} onDelete={deleteScene}
-            onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
-            onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }}
-          />
+          <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} />
         </div>
       </div>
 
@@ -262,8 +313,6 @@ export default function AppPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}
           onClick={e => { if (e.target === e.currentTarget) setShareModalOpen(false) }}>
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '12px', width: '460px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.9)', overflow: 'hidden' }}>
-
-            {/* Header */}
             <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
@@ -271,61 +320,32 @@ export default function AppPage() {
               </div>
               <button onClick={() => setShareModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '16px', cursor: 'pointer' }}>✕</button>
             </div>
-
-            {/* Body: QR code + join info side by side */}
             <div style={{ padding: '22px 24px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-
-              {/* QR code */}
               <div style={{ flexShrink: 0, textAlign: 'center' }}>
-                {qrUrl && (
-                  <div style={{ background: '#fff', borderRadius: '10px', padding: '8px', display: 'inline-block', lineHeight: 0 }}>
-                    <img
-                      src={qrUrl}
-                      alt="Scan to open viewer"
-                      width={160} height={160}
-                      style={{ display: 'block', borderRadius: '4px' }}
-                    />
-                  </div>
-                )}
-                <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text-3)', letterSpacing: '0.5px' }}>
-                  Scan with tablet
-                </div>
+                {qrUrl && <div style={{ background: '#fff', borderRadius: '10px', padding: '8px', display: 'inline-block', lineHeight: 0 }}>
+                  <img src={qrUrl} alt="Scan to open viewer" width={160} height={160} style={{ display: 'block', borderRadius: '4px' }} />
+                </div>}
+                <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text-3)', letterSpacing: '0.5px' }}>Scan with tablet</div>
               </div>
-
-              {/* Right side: code + URL */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: '12px', color: 'var(--text-2)', lineHeight: 1.6, marginBottom: '14px' }}>
-                  Scan the QR code or open the URL on any device. Switch scenes from <strong style={{ color: 'var(--text)' }}>any logged-in device</strong> and it updates everywhere instantly.
+                  Scan the QR code or open the URL on any device. Switch scenes from <strong style={{ color: 'var(--text)' }}>any logged-in device</strong>.
                 </div>
-
-                {/* Join code */}
                 <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 14px', marginBottom: '10px', textAlign: 'center' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '4px' }}>Join Code</div>
                   <div style={{ fontFamily: "'Cinzel',serif", fontSize: '20px', letterSpacing: '6px', color: 'var(--accent)', fontWeight: 600 }}>{joinCode}</div>
                 </div>
-
-                {/* URL */}
                 <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', marginBottom: '12px' }}>
                   <div style={{ fontSize: '10px', color: 'var(--text)', wordBreak: 'break-all', fontFamily: 'monospace', lineHeight: 1.5 }}>{viewerUrl}</div>
                 </div>
-
-                {/* Buttons */}
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center', fontSize: '11px' }} onClick={copyUrl}>
-                    {copied ? '✓ Copied!' : 'Copy URL'}
-                  </button>
-                  <button className="btn btn-red" style={{ flex: 1, justifyContent: 'center', fontSize: '11px' }} onClick={() => { if (viewerUrl) window.open(viewerUrl, '_blank') }}>
-                    Open Viewer ↗
-                  </button>
+                  <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center', fontSize: '11px' }} onClick={copyUrl}>{copied ? '✓ Copied!' : 'Copy URL'}</button>
+                  <button className="btn btn-red" style={{ flex: 1, justifyContent: 'center', fontSize: '11px' }} onClick={() => { if (viewerUrl) window.open(viewerUrl, '_blank') }}>Open Viewer ↗</button>
                 </div>
               </div>
             </div>
-
-            {/* Footer */}
             <div style={{ padding: '0 24px 16px', display: 'flex', justifyContent: 'center', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,0.3)' }} onClick={() => { stopPresenting(); setShareModalOpen(false) }}>
-                ⏹ Stop Presenting
-              </button>
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,0.3)' }} onClick={() => { stopPresenting(); setShareModalOpen(false) }}>⏹ Stop Presenting</button>
             </div>
           </div>
         </div>
@@ -352,9 +372,7 @@ export default function AppPage() {
         </div>
       )}
 
-      <style>{`
-        @keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.85)} }
-      `}</style>
+      <style>{`@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}`}</style>
     </div>
   )
 }

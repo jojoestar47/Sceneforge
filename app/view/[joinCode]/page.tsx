@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Scene, Track } from '@/lib/types'
+import type { Scene, Track, Character, CharacterState } from '@/lib/types'
+import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -19,27 +20,18 @@ type Status = 'loading' | 'waiting' | 'live' | 'ended'
 const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
-// ── AudioContext unlock ───────────────────────────────────────────
-// On iOS/Android, new Audio() elements created in async callbacks
-// (like Realtime) are blocked even after the first user gesture.
-// The fix: unlock the global AudioContext on first tap.
-// After that, ALL future play() calls work without a gesture.
+// AudioContext unlock for Android/iOS
 let _audioCtx: AudioContext | null = null
-
 function unlockAudioContext() {
   try {
     const AC = window.AudioContext || (window as any).webkitAudioContext
     if (!AC) return
     if (!_audioCtx) _audioCtx = new AC()
     if (_audioCtx.state === 'suspended') _audioCtx.resume()
-    // Play a 1-sample silent buffer — this is what actually "unlocks" the
-    // audio system for all subsequent play() calls on this origin
     const buf = _audioCtx.createBuffer(1, 1, 22050)
     const src = _audioCtx.createBufferSource()
-    src.buffer = buf
-    src.connect(_audioCtx.destination)
-    src.start(0)
-  } catch (_) { /* ignore — AudioContext not available */ }
+    src.buffer = buf; src.connect(_audioCtx.destination); src.start(0)
+  } catch (_) {}
 }
 
 export default function ViewerPage() {
@@ -47,8 +39,22 @@ export default function ViewerPage() {
   const joinCode = (params.joinCode as string).toUpperCase()
   const supabase = createClient()
 
-  const [status,    setStatus]   = useState<Status>('loading')
-  const [scene,     setScene]    = useState<Scene | null>(null)
+  const [status, setStatus] = useState<Status>('loading')
+  const [scene,  setScene]  = useState<Scene | null>(null)
+
+  // ── Characters ────────────────────────────────────────────────
+  const [characters, setCharacters] = useState<{ left: Character | null; right: Character | null }>({ left: null, right: null })
+
+  async function loadCharactersFromState(state: CharacterState | null) {
+    if (!state) { setCharacters({ left: null, right: null }); return }
+    const fetchChar = async (id: string | null): Promise<Character | null> => {
+      if (!id) return null
+      const { data } = await supabase.from('characters').select('*').eq('id', id).single()
+      return data as Character | null
+    }
+    const [l, r] = await Promise.all([fetchChar(state.left), fetchChar(state.right)])
+    setCharacters({ left: l, right: r })
+  }
 
   // ── Audio ─────────────────────────────────────────────────────
   const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
@@ -64,25 +70,16 @@ export default function ViewerPage() {
   const [isFs, setIsFs] = useState(false)
 
   useEffect(() => {
-    function onChange() {
-      setIsFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement))
-    }
+    function onChange() { setIsFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement)) }
     document.addEventListener('fullscreenchange', onChange)
     document.addEventListener('webkitfullscreenchange', onChange)
-    return () => {
-      document.removeEventListener('fullscreenchange', onChange)
-      document.removeEventListener('webkitfullscreenchange', onChange)
-    }
+    return () => { document.removeEventListener('fullscreenchange', onChange); document.removeEventListener('webkitfullscreenchange', onChange) }
   }, [])
 
   function toggleFs() {
-    const el = wrapperRef.current
-    if (!el) return
-    if (isFs) {
-      document.exitFullscreen?.() || (document as any).webkitExitFullscreen?.()
-    } else {
-      el.requestFullscreen?.() || (el as any).webkitRequestFullscreen?.()
-    }
+    const el = wrapperRef.current; if (!el) return
+    if (isFs) { document.exitFullscreen?.() || (document as any).webkitExitFullscreen?.() }
+    else { el.requestFullscreen?.() || (el as any).webkitRequestFullscreen?.() }
   }
 
   // ── Audio helpers ─────────────────────────────────────────────
@@ -90,9 +87,7 @@ export default function ViewerPage() {
     if (!audioRefs.current[t.id]) {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
       const a   = new Audio(src)
-      a.loop    = t.loop
-      a.volume  = t.volume
-      a.muted   = muted
+      a.loop = t.loop; a.volume = t.volume; a.muted = muted
       a.addEventListener('play',  () => setPlaying(p => ({ ...p, [t.id]: true  })))
       a.addEventListener('pause', () => setPlaying(p => ({ ...p, [t.id]: false })))
       audioRefs.current[t.id] = a
@@ -105,110 +100,60 @@ export default function ViewerPage() {
     const a = getOrCreate(t)
     if (a.paused) { a.play().catch(() => {}) } else { a.pause() }
   }
+  function setVol(t: Track, val: number) { const a = getOrCreate(t); a.volume = val; setVolumes(v => ({ ...v, [t.id]: val })) }
+  function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
+  function toggleMute() { const next = !muted; setMuted(next); Object.values(audioRefs.current).forEach(a => (a.muted = next)) }
 
-  function setVol(t: Track, val: number) {
-    const a = getOrCreate(t)
-    a.volume = val
-    setVolumes(v => ({ ...v, [t.id]: val }))
-  }
-
-  function stopAll() {
-    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
-  }
-
-  function toggleMute() {
-    const next = !muted
-    setMuted(next)
-    Object.values(audioRefs.current).forEach(a => (a.muted = next))
-  }
-
-  // ── COMBINED reset + autoplay effect ─────────────────────────
-  // IMPORTANT: these MUST be in one effect.
-  // If split into two effects on the same dep (scene?.id), React runs them
-  // in definition order — so whichever was defined first runs first.
-  // Previously reset ran AFTER autoplay and killed everything it just started.
-  // One combined effect: reset first, then play.
+  // ── Combined reset + autoplay ─────────────────────────────────
   useEffect(() => {
-    // 1. Stop and clear all audio from the previous scene
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
-    audioRefs.current = {}
-    setVolumes({})
-    setPlaying({})
+    audioRefs.current = {}; setVolumes({}); setPlaying({})
 
-    // 2. Autoplay music for the new scene
     if (!scene?.tracks?.length) return
-    const musicTracks = scene.tracks.filter(
-      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
-    )
+    const musicTracks = scene.tracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
     if (!musicTracks.length) return
 
     if (hasInteracted.current) {
-      // AudioContext already unlocked — play directly
-      musicTracks.forEach(t => {
-        const a = getOrCreate(t)
-        if (a.paused) a.play().catch(() => {})
-      })
+      musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
       return
     }
-
-    // First scene load — try autoplay
-    getOrCreate(musicTracks[0])
-      .play()
+    getOrCreate(musicTracks[0]).play()
       .then(() => {
-        hasInteracted.current = true
-        setNeedsTap(false)
+        hasInteracted.current = true; setNeedsTap(false)
         musicTracks.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
       })
-      .catch(() => {
-        // Browser blocked autoplay — show tap overlay
-        setNeedsTap(true)
-      })
+      .catch(() => setNeedsTap(true))
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── First tap — unlocks AudioContext + starts music ───────────
   function handleFirstTap() {
-    hasInteracted.current = true
-    setNeedsTap(false)
-
-    // Unlock the global AudioContext so ALL future play() calls
-    // work without needing another user gesture (key for Android/iOS)
+    hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
-
-    const musicTracks = (scene?.tracks || []).filter(
-      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
-    )
-    musicTracks.forEach(t => {
-      const a = getOrCreate(t)
-      if (a.paused) a.play().catch(() => {})
-    })
+    const musicTracks = (scene?.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+    musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
   }
 
-  // ── Load scene by ID ──────────────────────────────────────────
+  // ── Load scene ────────────────────────────────────────────────
   const loadScene = useCallback(async (sceneId: string | null) => {
     if (!sceneId) { setScene(null); setStatus('live'); return }
-    const { data } = await supabase
-      .from('scenes')
-      .select('*, tracks(*)')
-      .eq('id', sceneId)
-      .single()
+    const { data } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId).single()
     if (data) { setScene(data as Scene); setStatus('live') }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load session ──────────────────────────────────────────────
   const loadSession = useCallback(async () => {
-    const { data } = await supabase
-      .from('sessions')
-      .select('id, active_scene_id, is_live')
-      .eq('join_code', joinCode)
-      .maybeSingle()
+    const { data } = await supabase.from('sessions')
+      .select('id, active_scene_id, is_live, character_state')
+      .eq('join_code', joinCode).maybeSingle()
     if (!data)         { setStatus('waiting'); return }
     if (!data.is_live) { setStatus('ended');   return }
-    await loadScene(data.active_scene_id)
+    await Promise.all([
+      loadScene(data.active_scene_id),
+      loadCharactersFromState(data.character_state as CharacterState | null),
+    ])
   }, [joinCode, loadScene]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadSession() }, [loadSession])
 
-  // Poll every 6s when waiting
   useEffect(() => {
     if (status !== 'waiting') return
     const t = setInterval(loadSession, 6000)
@@ -217,15 +162,15 @@ export default function ViewerPage() {
 
   // ── Realtime ──────────────────────────────────────────────────
   useEffect(() => {
-    const ch = supabase
-      .channel('viewer-' + joinCode)
+    const ch = supabase.channel('viewer-' + joinCode)
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'sessions',
         filter: `join_code=eq.${joinCode}`,
       }, (payload) => {
-        const row = payload.new as { active_scene_id: string | null; is_live: boolean }
+        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null }
         if (!row.is_live) { setStatus('ended'); return }
         loadScene(row.active_scene_id)
+        loadCharactersFromState(row.character_state)
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -290,6 +235,22 @@ export default function ViewerPage() {
         )}
       </div>
 
+      {/* ── Characters ── */}
+      {characters.left && (
+        <CharacterDisplay
+          character={characters.left}
+          position="left"
+          imageUrl={characterImageUrl(characters.left)}
+        />
+      )}
+      {characters.right && (
+        <CharacterDisplay
+          character={characters.right}
+          position="right"
+          imageUrl={characterImageUrl(characters.right)}
+        />
+      )}
+
       {/* Scene name */}
       {scene && (
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Cinzel',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5 }}>
@@ -309,35 +270,28 @@ export default function ViewerPage() {
         {isFs ? '✕' : '⛶'}
       </button>
 
-      {/* ── TAP TO START AUDIO ── */}
+      {/* Tap to start audio overlay */}
       {needsTap && (
         <div onClick={handleFirstTap} style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'rgba(7,8,16,0.65)' }}>
           <div style={{ textAlign: 'center', padding: '28px 36px', background: MIXER_BG, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}>
             <div style={{ fontSize: '52px', marginBottom: '16px' }}>🎵</div>
-            <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>
-              Tap to Start Audio
-            </div>
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1px' }}>
-              Tap anywhere on this card
-            </div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>Tap to Start Audio</div>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1px' }}>Tap anywhere on this card</div>
           </div>
         </div>
       )}
 
-      {/* ── AUDIO MIXER ── */}
+      {/* Audio Mixer */}
       {allTracks.length > 0 && (
         <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 20, width: '240px' }}>
           <div onClick={() => setMixerOpen(o => !o)} style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
-              {[1,0.6,0.85,0.45,0.7].map((h,i) => (
-                <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />
-              ))}
+              {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>Audio</span>
             {playingCount > 0 && <span style={{ fontSize: '10px', color: '#e53535', fontWeight: 700 }}>{playingCount} playing</span>}
             <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>{mixerOpen ? '▲' : '▼'}</span>
           </div>
-
           {mixerOpen && (
             <div style={{ background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
               {music.length > 0 && (
@@ -381,10 +335,7 @@ const fsStyle: React.CSSProperties = {
   position: 'relative',
 }
 
-function TrackRow({ t, isPlaying, volume, onToggle, onVol }: {
-  t: Track; isPlaying: boolean; volume: number
-  onToggle: () => void; onVol: (v: number) => void
-}) {
+function TrackRow({ t, isPlaying, volume, onToggle, onVol }: { t: Track; isPlaying: boolean; volume: number; onToggle: () => void; onVol: (v: number) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
       <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#e53535' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#e53535' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -8,10 +8,10 @@ export interface Campaign {
 
 export interface MediaRef {
   type: 'image' | 'video'
-  url?: string            // external URL
-  storage_path?: string   // Supabase Storage path (user_id/filename)
+  url?: string
+  storage_path?: string
   file_name?: string
-  signed_url?: string     // populated at runtime, not stored in DB
+  signed_url?: string
 }
 
 export interface Scene {
@@ -34,17 +34,46 @@ export interface Track {
   scene_id: string
   kind: 'music' | 'ml2' | 'ml3' | 'ambience'
   name: string
-  url?: string            // external URL
-  storage_path?: string   // Supabase Storage path
+  url?: string
+  storage_path?: string
   file_name?: string
-  signed_url?: string     // populated at runtime
+  signed_url?: string
   loop: boolean
   volume: number
   order_index: number
   created_at: string
 }
 
-// Editor draft — mirrors Scene but without DB-only fields
+// ── Characters ────────────────────────────────────────────────
+
+export interface Character {
+  id: string
+  campaign_id: string
+  name: string
+  url?: string            // external URL
+  storage_path?: string   // Supabase Storage path
+  file_name?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SceneCharacter {
+  id: string
+  scene_id: string
+  character_id: string
+  position: 'left' | 'right'
+  created_at: string
+  character?: Character   // joined
+}
+
+// Live character state stored in sessions.character_state
+export interface CharacterState {
+  left:  string | null   // character ID or null
+  right: string | null
+}
+
+// ── Editor draft types ────────────────────────────────────────
+
 export type SceneDraft = Omit<Scene, 'created_at' | 'updated_at' | 'tracks'> & {
   tracks_music:    TrackDraft[]
   tracks_ml2:      TrackDraft[]

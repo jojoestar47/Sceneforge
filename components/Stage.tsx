@@ -1,12 +1,22 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Scene, Track } from '@/lib/types'
+import type { Scene, Track, Character } from '@/lib/types'
+import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
+
+interface ActiveCharacters {
+  left:  Character | null
+  right: Character | null
+}
 
 interface Props {
-  scene: Scene | null
-  hasCampaign: boolean
-  onEdit: () => void
+  scene:              Scene | null
+  hasCampaign:        boolean
+  onEdit:             () => void
+  // Character props (DM only — undefined on viewer)
+  characters?:        ActiveCharacters
+  campaignCharacters?: Character[]
+  onCharactersChange?: (c: ActiveCharacters) => void
 }
 
 function mediaUrl(m: Scene['bg']): string | null {
@@ -17,33 +27,37 @@ function mediaUrl(m: Scene['bg']): string | null {
 const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
-export default function Stage({ scene, hasCampaign, onEdit }: Props) {
+export default function Stage({
+  scene, hasCampaign, onEdit,
+  characters, campaignCharacters, onCharactersChange,
+}: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
+  // ── Audio ────────────────────────────────────────────────────
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
   const [volumes, setVolumes]  = useState<Record<string, number>>({})
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
-  const [expanded, setExpanded]   = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // ── Fullscreen ────────────────────────────────────
   const enterFullscreen = useCallback(() => {
     const el = wrapperRef.current
     if (!el) return
-    if (el.requestFullscreen)              el.requestFullscreen()
+    if (el.requestFullscreen) el.requestFullscreen()
     else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen()
   }, [])
 
   const exitFullscreen = useCallback(() => {
-    if (document.exitFullscreen)              document.exitFullscreen()
+    if (document.exitFullscreen) document.exitFullscreen()
     else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen()
   }, [])
 
   useEffect(() => {
     function onChange() {
-      const fs = !!(document.fullscreenElement || (document as any).webkitFullscreenElement)
-      setIsFullscreen(fs)
+      setIsFullscreen(!!(document.fullscreenElement || (document as any).webkitFullscreenElement))
     }
     document.addEventListener('fullscreenchange', onChange)
     document.addEventListener('webkitfullscreenchange', onChange)
@@ -53,7 +67,27 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
     }
   }, [])
 
-  // ── Audio: reset + autoplay on scene change ───────
+  // ── Character picker state (DM only) ─────────────────────────
+  const [pickerSlot, setPickerSlot]   = useState<'left' | 'right' | null>(null)
+  const [charSearch, setCharSearch]   = useState('')
+
+  const filteredChars = (campaignCharacters || []).filter(c =>
+    !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
+  )
+
+  function pickCharacter(c: Character) {
+    if (!pickerSlot || !onCharactersChange || !characters) return
+    onCharactersChange({ ...characters, [pickerSlot]: c })
+    setPickerSlot(null)
+    setCharSearch('')
+  }
+
+  function removeCharacter(slot: 'left' | 'right') {
+    if (!onCharactersChange || !characters) return
+    onCharactersChange({ ...characters, [slot]: null })
+  }
+
+  // ── Audio: combined reset + autoplay ─────────────────────────
   useEffect(() => {
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
     audioRefs.current = {}
@@ -61,7 +95,6 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
     setPlaying({})
 
     if (!scene?.tracks?.length) return
-
     const musicTracks = scene.tracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
@@ -78,9 +111,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
   function getOrCreate(t: Track): HTMLAudioElement {
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
-      a.loop   = t.loop
-      a.volume = t.volume
-      a.muted  = muted
+      a.loop = t.loop; a.volume = t.volume; a.muted = muted
       a.addEventListener('play',  () => setPlaying(p => ({ ...p, [t.id]: true  })))
       a.addEventListener('pause', () => setPlaying(p => ({ ...p, [t.id]: false })))
       audioRefs.current[t.id] = a
@@ -91,26 +122,15 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
 
   function toggleTrack(t: Track) {
     const a = getOrCreate(t)
-    if (a.paused) {
-      a.play().catch(() => {})
-    } else {
-      a.pause()
-    }
+    if (a.paused) { a.play().catch(() => {}) } else { a.pause() }
   }
-
   function setVol(t: Track, val: number) {
-    const a = getOrCreate(t)
-    a.volume = val
+    const a = getOrCreate(t); a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
   }
-
-  function stopAll() {
-    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
-  }
-
+  function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
   function handleMute() {
-    const next = !muted
-    setMuted(next)
+    const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
   }
 
@@ -134,26 +154,14 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
   const amb          = allTracks.filter(t => t.kind === 'ambience')
   const hasTracks    = allTracks.length > 0
   const playingCount = Object.values(playing).filter(Boolean).length
+  const hasDMControls = !!onCharactersChange
 
   return (
-    /*
-      KEY FIX: The wrapper has position:relative but NO overflow:hidden.
-      The background is clipped by a dedicated inner div.
-      This means the absolutely-positioned mixer is never clipped.
-    */
     <div
       ref={wrapperRef}
-      style={{
-        flex: 1,
-        position: 'relative',
-        background: '#080a10',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        // No overflow:hidden here — that was clipping the mixer on Android
-      }}
+      style={{ flex: 1, position: 'relative', background: '#080a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      {/* ── Background clip wrapper (overflow:hidden lives here) ── */}
+      {/* ── Background (clipped) ── */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0 }}>
         {bgUrl && (
           scene.bg?.type === 'video'
@@ -168,14 +176,24 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         )}
       </div>
 
+      {/* ── Characters ── */}
+      {characters?.left && (
+        <CharacterDisplay
+          character={characters.left}
+          position="left"
+          imageUrl={characterImageUrl(characters.left)}
+        />
+      )}
+      {characters?.right && (
+        <CharacterDisplay
+          character={characters.right}
+          position="right"
+          imageUrl={characterImageUrl(characters.right)}
+        />
+      )}
+
       {/* ── Scene name ── */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0,
-        textAlign: 'center', padding: '14px',
-        fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500,
-        color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)',
-        pointerEvents: 'none', zIndex: 5,
-      }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5 }}>
         {scene.name}
       </div>
 
@@ -188,144 +206,153 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         </div>
       )}
 
-      {/* ── Top-right controls: Fullscreen + Edit ── */}
+      {/* ── Top-right: fullscreen + edit ── */}
       <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
-        <button
-          onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-          style={{
-            height: '44px', padding: '0 14px',
-            background: 'rgba(13,14,22,0.82)',
-            border: '1px solid rgba(255,255,255,0.14)',
-            borderRadius: '8px',
-            color: 'rgba(255,255,255,0.75)',
-            fontSize: '16px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-        >
+        <button onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+          style={{ height: '44px', padding: '0 14px', background: 'rgba(13,14,22,0.82)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '8px', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {isFullscreen ? '✕' : '⛶'}
         </button>
       </div>
 
       {/* ── Bottom-right: Edit Scene ── */}
       {!isFullscreen && (
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={onEdit}
-          style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, minHeight: '44px', padding: '0 14px' }}
-        >
+        <button className="btn btn-ghost btn-sm" onClick={onEdit}
+          style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, minHeight: '44px', padding: '0 14px' }}>
           ⚙ Edit Scene
         </button>
       )}
 
-      {/* ── MINI AUDIO MIXER ──
-          Now outside the overflow:hidden clip div — always visible on all devices.
-          zIndex 20 keeps it above everything.
-      ── */}
+      {/* ── DM Character Slots ──────────────────────────────────
+          Two small slot buttons at bottom-center for live character control.
+          Only shown when onCharactersChange is provided (DM view).
+      ──────────────────────────────────────────────────────── */}
+      {hasDMControls && (
+        <div style={{ position: 'absolute', bottom: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 20, display: 'flex', gap: '8px' }}>
+          {(['left', 'right'] as const).map(slot => {
+            const char = characters?.[slot] ?? null
+            const imgUrl = char ? characterImageUrl(char) : null
+            return (
+              <div key={slot} style={{ position: 'relative' }}>
+                {/* Slot button */}
+                <button
+                  onClick={() => setPickerSlot(pickerSlot === slot ? null : slot)}
+                  title={char ? `Change ${slot} character` : `Add ${slot} character`}
+                  style={{
+                    width: '44px', height: '44px', borderRadius: '8px',
+                    border: `1px solid ${char ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.14)'}`,
+                    background: char ? 'rgba(201,168,76,0.08)' : MIXER_BG,
+                    cursor: 'pointer', overflow: 'hidden',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: 0,
+                  }}
+                >
+                  {imgUrl
+                    ? <img src={imgUrl} alt={char!.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{slot === 'left' ? 'L' : 'R'}+</span>
+                  }
+                </button>
+
+                {/* Remove button on hover */}
+                {char && (
+                  <button
+                    onClick={e => { e.stopPropagation(); removeCharacter(slot) }}
+                    style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent)', border: 'none', color: '#fff', fontSize: '9px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, zIndex: 2 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Character Picker Popup ─────────────────────────────── */}
+      {pickerSlot && hasDMControls && (
+        <div style={{ position: 'absolute', bottom: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}>
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>
+              {pickerSlot === 'left' ? 'Left' : 'Right'} Character
+            </span>
+            <button onClick={() => setPickerSlot(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+          </div>
+          <div style={{ padding: '8px 12px' }}>
+            <input
+              autoFocus
+              placeholder="Search characters…"
+              value={charSearch}
+              onChange={e => setCharSearch(e.target.value)}
+              style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 10px', color: '#fff', fontSize: '12px', outline: 'none' }}
+            />
+          </div>
+          <div style={{ maxHeight: '200px', overflowY: 'auto', padding: '0 8px 8px' }}>
+            {filteredChars.length === 0 && (
+              <div style={{ padding: '12px', textAlign: 'center', fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>
+                {campaignCharacters?.length === 0 ? 'No characters yet — add them in the scene editor' : 'No matches'}
+              </div>
+            )}
+            {filteredChars.map(c => {
+              const img = characterImageUrl(c)
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => pickCharacter(c)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left', transition: 'background .1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div style={{ width: '36px', height: '36px', borderRadius: '6px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {img
+                      ? <img src={img} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: '16px' }}>🧑</span>
+                    }
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>{c.name}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Click away to close picker */}
+      {pickerSlot && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 25 }} onClick={() => setPickerSlot(null)} />
+      )}
+
+      {/* ── Audio Mixer ── */}
       {hasTracks && (
-        <div style={{
-          position: 'absolute',
-          bottom: '14px',
-          left: '14px',
-          zIndex: 20,
-          width: '240px',
-        }}>
-          {/* Collapsed bar */}
-          <div
-            onClick={() => setExpanded(e => !e)}
-            style={{
-              background: MIXER_BG,
-              border: '1px solid rgba(255,255,255,0.14)',
-              borderRadius: expanded ? '10px 10px 0 0' : '10px',
-              padding: '0 14px',
-              height: '44px',
-              display: 'flex', alignItems: 'center', gap: '10px',
-              cursor: 'pointer',
-              userSelect: 'none',
-              WebkitUserSelect: 'none',
-            }}
-          >
+        <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 20, width: '240px' }}>
+          <div onClick={() => setExpanded(e => !e)}
+            style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: expanded ? '10px 10px 0 0' : '10px', padding: '0 14px', height: '44px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1, 0.6, 0.85, 0.45, 0.7].map((h, i) => (
-                <div key={i} style={{
-                  width: '3px', borderRadius: '1px',
-                  background: playingCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.2)',
-                  height: `${Math.round(h * 16)}px`,
-                  animation: playingCount > 0 ? `audioBar${i} ${0.6 + i * 0.15}s ease-in-out infinite alternate` : 'none',
-                }} />
+                <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.2)', height: `${Math.round(h * 16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6 + i * 0.15}s ease-in-out infinite alternate` : 'none' }} />
               ))}
             </div>
-            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>
-              Audio
-            </span>
-            {playingCount > 0 && (
-              <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700 }}>
-                {playingCount} playing
-              </span>
-            )}
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
-              {expanded ? '▲' : '▼'}
-            </span>
+            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>Audio</span>
+            {playingCount > 0 && <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700 }}>{playingCount} playing</span>}
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>{expanded ? '▲' : '▼'}</span>
           </div>
 
-          {/* Expanded panel */}
           {expanded && (
-            <div style={{
-              background: MIXER_BG_PANEL,
-              border: '1px solid rgba(255,255,255,0.14)',
-              borderTop: 'none',
-              borderRadius: '0 0 10px 10px',
-              overflow: 'hidden',
-            }}>
+            <div style={{ background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
               {music.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>
-                    🎵 Music
-                  </div>
-                  {music.map(t => (
-                    <MiniTrackRow
-                      key={t.id} t={t}
-                      isPlaying={!!playing[t.id]}
-                      volume={volumes[t.id] ?? t.volume}
-                      onToggle={() => toggleTrack(t)}
-                      onVol={v => setVol(t, v)}
-                    />
-                  ))}
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
+                  {music.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
-
-              {music.length > 0 && amb.length > 0 && (
-                <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />
-              )}
-
+              {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>
-                    🌊 Ambience
-                  </div>
-                  {amb.map(t => (
-                    <MiniTrackRow
-                      key={t.id} t={t}
-                      isPlaying={!!playing[t.id]}
-                      volume={volumes[t.id] ?? t.volume}
-                      onToggle={() => toggleTrack(t)}
-                      onVol={v => setVol(t, v)}
-                    />
-                  ))}
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
+                  {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
-
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <button
-                  onClick={e => { e.stopPropagation(); stopAll() }}
-                  style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  ⏹ Stop All
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); handleMute() }}
-                  style={{ width: '44px', height: '44px', background: muted ? 'var(--accent-bg)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? 'var(--accent)' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
+                <button onClick={e => { e.stopPropagation(); stopAll() }} style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>⏹ Stop All</button>
+                <button onClick={e => { e.stopPropagation(); handleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'var(--accent-bg)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? 'var(--accent)' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {muted ? '🔇' : '🔊'}
                 </button>
               </div>
@@ -335,46 +362,25 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
       )}
 
       <style>{`
-        @keyframes audioBar0 { from { height: 4px  } to { height: 16px } }
-        @keyframes audioBar1 { from { height: 8px  } to { height: 5px  } }
-        @keyframes audioBar2 { from { height: 13px } to { height: 6px  } }
-        @keyframes audioBar3 { from { height: 5px  } to { height: 14px } }
-        @keyframes audioBar4 { from { height: 11px } to { height: 4px  } }
+        @keyframes audioBar0{from{height:4px}to{height:16px}}
+        @keyframes audioBar1{from{height:8px}to{height:5px}}
+        @keyframes audioBar2{from{height:13px}to{height:6px}}
+        @keyframes audioBar3{from{height:5px}to{height:14px}}
+        @keyframes audioBar4{from{height:11px}to{height:4px}}
       `}</style>
     </div>
   )
 }
 
-function MiniTrackRow({ t, isPlaying, volume, onToggle, onVol }: {
-  t: Track; isPlaying: boolean; volume: number
-  onToggle: () => void; onVol: (v: number) => void
-}) {
+function MiniTrackRow({ t, isPlaying, volume, onToggle, onVol }: { t: Track; isPlaying: boolean; volume: number; onToggle: () => void; onVol: (v: number) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-      <button
-        onClick={e => { e.stopPropagation(); onToggle() }}
-        style={{
-          width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0,
-          border: `1px solid ${isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
-          background: isPlaying ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
-          color: isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.5)',
-          fontSize: '12px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-      >
+      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)', color: isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isPlaying ? '⏸' : '▶'}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>
-          {t.name}
-        </div>
-        <input
-          type="range" min={0} max={1} step={0.01} value={volume}
-          onClick={e => e.stopPropagation()}
-          onTouchStart={e => e.stopPropagation()}
-          onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }}
-          style={{ width: '100%', height: '20px', accentColor: 'var(--accent)', cursor: 'pointer', touchAction: 'none' }}
-        />
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{t.name}</div>
+        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: 'var(--accent)', cursor: 'pointer', touchAction: 'none' }} />
       </div>
     </div>
   )
