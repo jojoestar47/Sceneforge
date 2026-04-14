@@ -14,14 +14,19 @@ function mediaUrl(m: Scene['bg']): string | null {
   return m.signed_url || m.url || null
 }
 
+// Solid dark background — no backdropFilter which breaks on Android Chrome
+// when the parent has overflow:hidden
+const MIXER_BG       = 'rgba(13,14,22,0.96)'
+const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
+
 export default function Stage({ scene, hasCampaign, onEdit }: Props) {
-  const audioRefs = useRef<Record<string, HTMLAudioElement>>({})
+  const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [playing, setPlaying] = useState<Record<string, boolean>>({})
-  const [muted, setMuted]     = useState(false)
+  const [muted,   setMuted]   = useState(false)
   const [expanded, setExpanded] = useState(false)
 
-  // Reset audio when scene changes + autoplay music
+  // Reset + autoplay on scene change
   useEffect(() => {
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
     audioRefs.current = {}
@@ -38,8 +43,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
       musicTracks.forEach(t => {
         const src = t.signed_url || t.url
         if (!src) return
-        const a = getOrCreate(t)
-        a.play().catch(() => {})
+        getOrCreate(t).play().catch(() => {})
       })
     }, 300)
 
@@ -48,8 +52,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
 
   function getOrCreate(t: Track): HTMLAudioElement {
     if (!audioRefs.current[t.id]) {
-      const src = t.signed_url || t.url || ''
-      const a = new Audio(src)
+      const a = new Audio(t.signed_url || t.url || '')
       a.loop   = t.loop
       a.volume = t.volume
       a.muted  = muted
@@ -63,13 +66,11 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
 
   function toggleTrack(t: Track) {
     const a = getOrCreate(t)
-    if (a.paused) a.play().catch(() => {})
-    else          a.pause()
+    if (a.paused) a.play().catch(() => {}) else a.pause()
   }
 
   function setVol(t: Track, val: number) {
-    const a = getOrCreate(t)
-    a.volume = val
+    const a = getOrCreate(t); a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
   }
 
@@ -78,8 +79,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
   }
 
   function handleMute() {
-    const next = !muted
-    setMuted(next)
+    const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
   }
 
@@ -96,12 +96,12 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
     )
   }
 
-  const bgUrl  = mediaUrl(scene.bg)
-  const ovUrl  = mediaUrl(scene.overlay)
-  const allTracks  = scene.tracks || []
-  const music      = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
-  const amb        = allTracks.filter(t => t.kind === 'ambience')
-  const hasTracks  = allTracks.length > 0
+  const bgUrl        = mediaUrl(scene.bg)
+  const ovUrl        = mediaUrl(scene.overlay)
+  const allTracks    = scene.tracks || []
+  const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+  const amb          = allTracks.filter(t => t.kind === 'ambience')
+  const hasTracks    = allTracks.length > 0
   const playingCount = Object.values(playing).filter(Boolean).length
 
   return (
@@ -111,19 +111,17 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
       {bgUrl && (
         scene.bg?.type === 'video'
           ? <video key={bgUrl} src={bgUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <img    key={bgUrl} src={bgUrl} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <img    key={bgUrl} src={bgUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       )}
 
       {/* Vignette */}
-      {bgUrl && (
-        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)', pointerEvents: 'none', zIndex: 2 }} />
-      )}
+      {bgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)', pointerEvents: 'none', zIndex: 2 }} />}
 
       {/* Overlay */}
       {ovUrl && (
         scene.overlay?.type === 'video'
           ? <video key={ovUrl} src={ovUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, pointerEvents: 'none' }} />
-          : <img    key={ovUrl} src={ovUrl} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, pointerEvents: 'none' }} />
+          : <img    key={ovUrl} src={ovUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, pointerEvents: 'none' }} />
       )}
 
       {/* Scene name */}
@@ -140,65 +138,91 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         </div>
       )}
 
-      {/* Edit button */}
-      <button className="btn btn-ghost btn-sm" onClick={onEdit} style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 6 }}>
+      {/* Edit button — larger touch target on mobile */}
+      <button
+        className="btn btn-ghost btn-sm"
+        onClick={onEdit}
+        style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, minHeight: '44px', padding: '0 14px' }}
+      >
         ⚙ Edit Scene
       </button>
 
-      {/* ── MINI AUDIO MIXER ── */}
+      {/* ── MINI AUDIO MIXER ────────────────────────────────────────
+          Fixed issues for Android Chrome:
+          - No backdropFilter (breaks inside overflow:hidden on Android)
+          - Solid opaque background instead
+          - 44px minimum touch targets
+          - touchAction on sliders to prevent scroll conflicts
+          - Higher zIndex (20) to ensure visibility
+      ──────────────────────────────────────────────────────────── */}
       {hasTracks && (
-        <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 6, minWidth: '200px', maxWidth: '260px' }}>
+        <div style={{
+          position: 'absolute',
+          bottom: '14px',
+          left: '14px',
+          zIndex: 20,
+          width: '240px',
+        }}>
 
-          {/* Collapsed bar */}
+          {/* Collapsed bar — 44px tall for touch */}
           <div
             onClick={() => setExpanded(e => !e)}
             style={{
-              background: 'rgba(20,22,34,0.88)',
-              border: '1px solid var(--border-lt)',
-              borderRadius: expanded ? '8px 8px 0 0' : '8px',
-              padding: '8px 12px',
-              display: 'flex', alignItems: 'center', gap: '8px',
-              cursor: 'pointer', backdropFilter: 'blur(10px)',
-              transition: 'border-radius .15s',
+              background: MIXER_BG,
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: expanded ? '10px 10px 0 0' : '10px',
+              padding: '0 14px',
+              height: '44px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: 'pointer',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
             }}
           >
-            {/* Animated equalizer bars */}
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '14px', flexShrink: 0 }}>
+            {/* Equalizer bars */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1, 0.6, 0.85, 0.45, 0.7].map((h, i) => (
                 <div key={i} style={{
-                  width: '3px', borderRadius: '1px',
-                  background: playingCount > 0 ? 'var(--accent)' : 'var(--text-3)',
-                  height: `${h * 14}px`,
+                  width: '3px',
+                  borderRadius: '1px',
+                  background: playingCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.2)',
+                  height: `${Math.round(h * 16)}px`,
                   animation: playingCount > 0 ? `audioBar${i} ${0.6 + i * 0.15}s ease-in-out infinite alternate` : 'none',
                 }} />
               ))}
             </div>
-            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', flex: 1 }}>
+
+            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>
               Audio
             </span>
+
             {playingCount > 0 && (
-              <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}>
+              <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700 }}>
                 {playingCount} playing
               </span>
             )}
-            <span style={{ fontSize: '10px', color: 'var(--text-3)', marginLeft: '4px' }}>
+
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
               {expanded ? '▲' : '▼'}
             </span>
           </div>
 
-          {/* Expanded mixer */}
+          {/* Expanded panel */}
           {expanded && (
             <div style={{
-              background: 'rgba(20,22,34,0.92)',
-              border: '1px solid var(--border-lt)',
+              background: MIXER_BG_PANEL,
+              border: '1px solid rgba(255,255,255,0.12)',
               borderTop: 'none',
-              borderRadius: '0 0 8px 8px',
-              backdropFilter: 'blur(10px)',
+              borderRadius: '0 0 10px 10px',
               overflow: 'hidden',
             }}>
+
+              {/* Music tracks */}
               {music.length > 0 && (
-                <div style={{ padding: '8px 12px 4px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>
+                <div style={{ padding: '10px 14px 6px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>
                     🎵 Music
                   </div>
                   {music.map(t => (
@@ -215,12 +239,13 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
               )}
 
               {music.length > 0 && amb.length > 0 && (
-                <div style={{ height: '1px', background: 'var(--border)', margin: '0 12px' }} />
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />
               )}
 
+              {/* Ambience tracks */}
               {amb.length > 0 && (
-                <div style={{ padding: '8px 12px 4px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>
+                <div style={{ padding: '10px 14px 6px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>
                     🌊 Ambience
                   </div>
                   {amb.map(t => (
@@ -236,17 +261,33 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
                 </div>
               )}
 
-              {/* Controls */}
-              <div style={{ padding: '6px 12px 8px', display: 'flex', gap: '6px', borderTop: '1px solid var(--border)' }}>
+              {/* Stop / Mute row */}
+              <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <button
                   onClick={e => { e.stopPropagation(); stopAll() }}
-                  style={{ flex: 1, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text-2)', fontSize: '10px', fontWeight: 600, padding: '4px', cursor: 'pointer' }}
+                  style={{
+                    flex: 1, height: '44px',
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '6px',
+                    color: 'rgba(255,255,255,0.6)',
+                    fontSize: '11px', fontWeight: 700,
+                    cursor: 'pointer', letterSpacing: '0.5px',
+                  }}
                 >
                   ⏹ Stop All
                 </button>
                 <button
                   onClick={e => { e.stopPropagation(); handleMute() }}
-                  style={{ width: '28px', background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '4px', color: muted ? 'var(--accent)' : 'var(--text-2)', fontSize: '13px', cursor: 'pointer' }}
+                  style={{
+                    width: '44px', height: '44px',
+                    background: muted ? 'var(--accent-bg)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${muted ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '6px',
+                    color: muted ? 'var(--accent)' : 'rgba(255,255,255,0.6)',
+                    fontSize: '18px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
                 >
                   {muted ? '🔇' : '🔊'}
                 </button>
@@ -256,13 +297,12 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         </div>
       )}
 
-      {/* Keyframe animations */}
       <style>{`
-        @keyframes audioBar0 { from { height: 4px  } to { height: 14px } }
+        @keyframes audioBar0 { from { height: 4px  } to { height: 16px } }
         @keyframes audioBar1 { from { height: 8px  } to { height: 5px  } }
-        @keyframes audioBar2 { from { height: 12px } to { height: 6px  } }
-        @keyframes audioBar3 { from { height: 5px  } to { height: 13px } }
-        @keyframes audioBar4 { from { height: 10px } to { height: 4px  } }
+        @keyframes audioBar2 { from { height: 13px } to { height: 6px  } }
+        @keyframes audioBar3 { from { height: 5px  } to { height: 14px } }
+        @keyframes audioBar4 { from { height: 11px } to { height: 4px  } }
       `}</style>
     </div>
   )
@@ -275,29 +315,41 @@ function MiniTrackRow({
   onToggle: () => void; onVol: (v: number) => void
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+
+      {/* Play/pause — 44×44 touch target */}
       <button
         onClick={e => { e.stopPropagation(); onToggle() }}
         style={{
-          width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0,
-          border: `1px solid ${isPlaying ? 'var(--accent)' : 'var(--border)'}`,
-          background: isPlaying ? 'var(--accent-bg)' : 'transparent',
-          color: isPlaying ? 'var(--accent)' : 'var(--text-2)',
-          fontSize: '7px', cursor: 'pointer',
+          width: '44px', height: '44px',
+          borderRadius: '50%', flexShrink: 0,
+          border: `1px solid ${isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
+          background: isPlaying ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+          color: isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.5)',
+          fontSize: '12px', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
         {isPlaying ? '⏸' : '▶'}
       </button>
+
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '10px', color: 'var(--text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '3px' }}>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>
           {t.name}
         </div>
+        {/* touchAction:none prevents the range input from triggering page scroll on Android */}
         <input
           type="range" min={0} max={1} step={0.01} value={volume}
           onClick={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()}
           onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }}
-          style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '3px' }}
+          style={{
+            width: '100%',
+            height: '20px',        // tall hit area for touch
+            accentColor: 'var(--accent)',
+            cursor: 'pointer',
+            touchAction: 'none',   // prevents scroll conflict on Android
+          }}
         />
       </div>
     </div>
