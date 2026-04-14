@@ -12,8 +12,8 @@ type AudioState = { playing: boolean; loop: boolean; volume: number }
 
 export default function AudioPanel({ scene, onEditScene }: Props) {
   const audioRefs = useRef<Record<string, HTMLAudioElement>>({})
-  const [states, setStates]   = useState<Record<string, AudioState>>({})
-  const [muted, setMuted]     = useState(false)
+  const [states, setStates] = useState<Record<string, AudioState>>({})
+  const [muted, setMuted]   = useState(false)
 
   // Stop all audio when scene changes
   useEffect(() => {
@@ -30,7 +30,6 @@ export default function AudioPanel({ scene, onEditScene }: Props) {
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
 
-    // Small delay to let the browser settle after scene switch
     const timer = setTimeout(() => {
       musicTracks.forEach(t => {
         const src = t.signed_url || t.url
@@ -158,7 +157,6 @@ export default function AudioPanel({ scene, onEditScene }: Props) {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ flex: 1, overflowY: 'auto' }}>
 
-        {/* Music */}
         <div style={{ borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px 8px', gap: '8px' }}>
             <span>🎵</span>
@@ -170,7 +168,6 @@ export default function AudioPanel({ scene, onEditScene }: Props) {
             : <div style={{ padding: '4px 12px 8px', fontSize: '11px', color: 'var(--text-3)' }}>No music tracks</div>}
         </div>
 
-        {/* Ambience */}
         <div style={{ borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px 8px', gap: '8px' }}>
             <span>🌊</span>
@@ -192,7 +189,6 @@ export default function AudioPanel({ scene, onEditScene }: Props) {
         </div>
       </div>
 
-      {/* Mute + status */}
       <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button onClick={handleMute} style={{ background: 'none', border: 'none', fontSize: '16px', cursor: 'pointer', color: 'var(--text-2)' }}>
           {muted ? '🔇' : '🔊'}

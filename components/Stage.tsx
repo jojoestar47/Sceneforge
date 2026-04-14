@@ -98,10 +98,10 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
 
   const bgUrl  = mediaUrl(scene.bg)
   const ovUrl  = mediaUrl(scene.overlay)
-  const allTracks = scene.tracks || []
-  const music  = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
-  const amb    = allTracks.filter(t => t.kind === 'ambience')
-  const hasTracks = allTracks.length > 0
+  const allTracks  = scene.tracks || []
+  const music      = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+  const amb        = allTracks.filter(t => t.kind === 'ambience')
+  const hasTracks  = allTracks.length > 0
   const playingCount = Object.values(playing).filter(Boolean).length
 
   return (
@@ -145,7 +145,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         ⚙ Edit Scene
       </button>
 
-      {/* ── MINI AUDIO MIXER ───────────────────────────── */}
+      {/* ── MINI AUDIO MIXER ── */}
       {hasTracks && (
         <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 6, minWidth: '200px', maxWidth: '260px' }}>
 
@@ -162,7 +162,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
               transition: 'border-radius .15s',
             }}
           >
-            {/* Animated bars when playing */}
+            {/* Animated equalizer bars */}
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '14px', flexShrink: 0 }}>
               {[1, 0.6, 0.85, 0.45, 0.7].map((h, i) => (
                 <div key={i} style={{
@@ -186,7 +186,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
             </span>
           </div>
 
-          {/* Expanded panel */}
+          {/* Expanded mixer */}
           {expanded && (
             <div style={{
               background: 'rgba(20,22,34,0.92)',
@@ -196,7 +196,6 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
               backdropFilter: 'blur(10px)',
               overflow: 'hidden',
             }}>
-              {/* Music tracks */}
               {music.length > 0 && (
                 <div style={{ padding: '8px 12px 4px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>
@@ -215,12 +214,10 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
                 </div>
               )}
 
-              {/* Divider */}
               {music.length > 0 && amb.length > 0 && (
                 <div style={{ height: '1px', background: 'var(--border)', margin: '0 12px' }} />
               )}
 
-              {/* Ambience tracks */}
               {amb.length > 0 && (
                 <div style={{ padding: '8px 12px 4px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>
@@ -239,7 +236,7 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
                 </div>
               )}
 
-              {/* Controls row */}
+              {/* Controls */}
               <div style={{ padding: '6px 12px 8px', display: 'flex', gap: '6px', borderTop: '1px solid var(--border)' }}>
                 <button
                   onClick={e => { e.stopPropagation(); stopAll() }}
@@ -259,13 +256,13 @@ export default function Stage({ scene, hasCampaign, onEdit }: Props) {
         </div>
       )}
 
-      {/* Keyframe animations for audio bars */}
+      {/* Keyframe animations */}
       <style>{`
-        @keyframes audioBar0 { from { height: 4px } to { height: 14px } }
-        @keyframes audioBar1 { from { height: 8px } to { height: 5px  } }
-        @keyframes audioBar2 { from { height: 12px} to { height: 6px  } }
-        @keyframes audioBar3 { from { height: 5px } to { height: 13px } }
-        @keyframes audioBar4 { from { height: 10px} to { height: 4px  } }
+        @keyframes audioBar0 { from { height: 4px  } to { height: 14px } }
+        @keyframes audioBar1 { from { height: 8px  } to { height: 5px  } }
+        @keyframes audioBar2 { from { height: 12px } to { height: 6px  } }
+        @keyframes audioBar3 { from { height: 5px  } to { height: 13px } }
+        @keyframes audioBar4 { from { height: 10px } to { height: 4px  } }
       `}</style>
     </div>
   )
