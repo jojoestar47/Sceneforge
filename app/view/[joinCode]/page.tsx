@@ -19,6 +19,29 @@ type Status = 'loading' | 'waiting' | 'live' | 'ended'
 const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
+// ── AudioContext unlock ───────────────────────────────────────────
+// On iOS/Android, new Audio() elements created in async callbacks
+// (like Realtime) are blocked even after the first user gesture.
+// The fix: unlock the global AudioContext on first tap.
+// After that, ALL future play() calls work without a gesture.
+let _audioCtx: AudioContext | null = null
+
+function unlockAudioContext() {
+  try {
+    const AC = window.AudioContext || (window as any).webkitAudioContext
+    if (!AC) return
+    if (!_audioCtx) _audioCtx = new AC()
+    if (_audioCtx.state === 'suspended') _audioCtx.resume()
+    // Play a 1-sample silent buffer — this is what actually "unlocks" the
+    // audio system for all subsequent play() calls on this origin
+    const buf = _audioCtx.createBuffer(1, 1, 22050)
+    const src = _audioCtx.createBufferSource()
+    src.buffer = buf
+    src.connect(_audioCtx.destination)
+    src.start(0)
+  } catch (_) { /* ignore — AudioContext not available */ }
+}
+
 export default function ViewerPage() {
   const params   = useParams()
   const joinCode = (params.joinCode as string).toUpperCase()
@@ -29,12 +52,12 @@ export default function ViewerPage() {
 
   // ── Audio ─────────────────────────────────────────────────────
   const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
-  const hasInteracted         = useRef(false)   // tracks browser autoplay permission
+  const hasInteracted         = useRef(false)
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [playing, setPlaying] = useState<Record<string, boolean>>({})
   const [muted,   setMuted]   = useState(false)
   const [mixerOpen, setMixerOpen] = useState(false)
-  const [needsTap,  setNeedsTap]  = useState(false)  // autoplay blocked overlay
+  const [needsTap,  setNeedsTap]  = useState(false)
 
   // ── Fullscreen ────────────────────────────────────────────────
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -99,20 +122,28 @@ export default function ViewerPage() {
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
   }
 
-  // ── Autoplay music on scene load ──────────────────────────────
-  // Browsers block autoplay until first user interaction.
-  // We try autoplay — if it's blocked we show a "tap to start" overlay.
-  // Once the user taps once, all future scene switches autoplay fine.
+  // ── COMBINED reset + autoplay effect ─────────────────────────
+  // IMPORTANT: these MUST be in one effect.
+  // If split into two effects on the same dep (scene?.id), React runs them
+  // in definition order — so whichever was defined first runs first.
+  // Previously reset ran AFTER autoplay and killed everything it just started.
+  // One combined effect: reset first, then play.
   useEffect(() => {
-    if (!scene?.tracks?.length) return
+    // 1. Stop and clear all audio from the previous scene
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
+    audioRefs.current = {}
+    setVolumes({})
+    setPlaying({})
 
+    // 2. Autoplay music for the new scene
+    if (!scene?.tracks?.length) return
     const musicTracks = scene.tracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
     if (!musicTracks.length) return
 
     if (hasInteracted.current) {
-      // Already had user interaction — autoplay is allowed
+      // AudioContext already unlocked — play directly
       musicTracks.forEach(t => {
         const a = getOrCreate(t)
         if (a.paused) a.play().catch(() => {})
@@ -120,34 +151,29 @@ export default function ViewerPage() {
       return
     }
 
-    // Try playing the first track as a test
-    const first = musicTracks[0]
-    getOrCreate(first)
+    // First scene load — try autoplay
+    getOrCreate(musicTracks[0])
       .play()
       .then(() => {
-        // Autoplay allowed (desktop or user already interacted elsewhere)
         hasInteracted.current = true
-        musicTracks.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
         setNeedsTap(false)
+        musicTracks.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
       })
       .catch(() => {
-        // Autoplay blocked by browser — show tap overlay
+        // Browser blocked autoplay — show tap overlay
         setNeedsTap(true)
       })
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Reset audio when scene changes ───────────────────────────
-  useEffect(() => {
-    Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
-    audioRefs.current = {}
-    setVolumes({})
-    setPlaying({})
-  }, [scene?.id])
-
-  // ── First tap handler — unlocks audio + starts music ─────────
+  // ── First tap — unlocks AudioContext + starts music ───────────
   function handleFirstTap() {
     hasInteracted.current = true
     setNeedsTap(false)
+
+    // Unlock the global AudioContext so ALL future play() calls
+    // work without needing another user gesture (key for Android/iOS)
+    unlockAudioContext()
+
     const musicTracks = (scene?.tracks || []).filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
@@ -279,29 +305,13 @@ export default function ViewerPage() {
       )}
 
       {/* Fullscreen button */}
-      <button
-        onClick={toggleFs}
-        style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
+      <button onClick={toggleFs} style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isFs ? '✕' : '⛶'}
       </button>
 
-      {/* ── TAP TO START AUDIO OVERLAY ───────────────────────────
-          Shown when browser blocks autoplay (always on first load
-          on mobile — iOS/Android require a user gesture first).
-          Tap anywhere to unlock audio and start music.
-      ──────────────────────────────────────────────────────────── */}
+      {/* ── TAP TO START AUDIO ── */}
       {needsTap && (
-        <div
-          onClick={handleFirstTap}
-          style={{
-            position: 'absolute', inset: 0, zIndex: 40,
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer',
-            background: 'rgba(7,8,16,0.65)',
-          }}
-        >
+        <div onClick={handleFirstTap} style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'rgba(7,8,16,0.65)' }}>
           <div style={{ textAlign: 'center', padding: '28px 36px', background: MIXER_BG, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}>
             <div style={{ fontSize: '52px', marginBottom: '16px' }}>🎵</div>
             <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>
@@ -317,10 +327,7 @@ export default function ViewerPage() {
       {/* ── AUDIO MIXER ── */}
       {allTracks.length > 0 && (
         <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 20, width: '240px' }}>
-          <div
-            onClick={() => setMixerOpen(o => !o)}
-            style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}
-          >
+          <div onClick={() => setMixerOpen(o => !o)} style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1,0.6,0.85,0.45,0.7].map((h,i) => (
                 <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />
@@ -347,9 +354,7 @@ export default function ViewerPage() {
                 </div>
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <button onClick={e => { e.stopPropagation(); stopAll() }} style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
-                  ⏹ Stop All
-                </button>
+                <button onClick={e => { e.stopPropagation(); stopAll() }} style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>⏹ Stop All</button>
                 <button onClick={e => { e.stopPropagation(); toggleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? '#e53535' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? '#e53535' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {muted ? '🔇' : '🔊'}
                 </button>
@@ -371,8 +376,7 @@ export default function ViewerPage() {
 }
 
 const fsStyle: React.CSSProperties = {
-  width: '100dvw', height: '100dvh',
-  background: '#070810',
+  width: '100dvw', height: '100dvh', background: '#070810',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   position: 'relative',
 }
@@ -383,20 +387,12 @@ function TrackRow({ t, isPlaying, volume, onToggle, onVol }: {
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-      <button
-        onClick={e => { e.stopPropagation(); onToggle() }}
-        style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#e53535' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#e53535' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
+      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#e53535' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#e53535' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isPlaying ? '⏸' : '▶'}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{t.name}</div>
-        <input type="range" min={0} max={1} step={0.01} value={volume}
-          onClick={e => e.stopPropagation()}
-          onTouchStart={e => e.stopPropagation()}
-          onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }}
-          style={{ width: '100%', height: '20px', accentColor: '#e53535', cursor: 'pointer', touchAction: 'none' }}
-        />
+        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#e53535', cursor: 'pointer', touchAction: 'none' }} />
       </div>
     </div>
   )
