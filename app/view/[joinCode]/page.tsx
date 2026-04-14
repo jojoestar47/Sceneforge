@@ -5,8 +5,6 @@ import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Scene, Track } from '@/lib/types'
 
-// ── Public URL helper ─────────────────────────────────────────────
-// Viewer has no auth — uses public bucket URLs instead of signed URLs
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
 function pubUrl(media: { url?: string; storage_path?: string } | null | undefined): string | null {
@@ -26,30 +24,31 @@ export default function ViewerPage() {
   const joinCode = (params.joinCode as string).toUpperCase()
   const supabase = createClient()
 
-  const [status,    setStatus]    = useState<Status>('loading')
-  const [scene,     setScene]     = useState<Scene | null>(null)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [status,    setStatus]   = useState<Status>('loading')
+  const [scene,     setScene]    = useState<Scene | null>(null)
 
-  // ── Audio (independent from DM) ───────────────────────────────
-  const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
-  const [volumes, setVolumes]  = useState<Record<string, number>>({})
-  const [playing, setPlaying]  = useState<Record<string, boolean>>({})
-  const [muted,   setMuted]    = useState(false)
+  // ── Audio ─────────────────────────────────────────────────────
+  const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
+  const hasInteracted         = useRef(false)   // tracks browser autoplay permission
+  const [volumes, setVolumes] = useState<Record<string, number>>({})
+  const [playing, setPlaying] = useState<Record<string, boolean>>({})
+  const [muted,   setMuted]   = useState(false)
   const [mixerOpen, setMixerOpen] = useState(false)
+  const [needsTap,  setNeedsTap]  = useState(false)  // autoplay blocked overlay
 
   // ── Fullscreen ────────────────────────────────────────────────
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [isFs, setIsFs] = useState(false)
 
   useEffect(() => {
-    function onFsChange() {
+    function onChange() {
       setIsFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement))
     }
-    document.addEventListener('fullscreenchange', onFsChange)
-    document.addEventListener('webkitfullscreenchange', onFsChange)
+    document.addEventListener('fullscreenchange', onChange)
+    document.addEventListener('webkitfullscreenchange', onChange)
     return () => {
-      document.removeEventListener('fullscreenchange', onFsChange)
-      document.removeEventListener('webkitfullscreenchange', onFsChange)
+      document.removeEventListener('fullscreenchange', onChange)
+      document.removeEventListener('webkitfullscreenchange', onChange)
     }
   }, [])
 
@@ -62,84 +61,6 @@ export default function ViewerPage() {
       el.requestFullscreen?.() || (el as any).webkitRequestFullscreen?.()
     }
   }
-
-  // ── Load scene by ID ──────────────────────────────────────────
-  const loadScene = useCallback(async (sceneId: string | null) => {
-    if (!sceneId) { setScene(null); setStatus('live'); return }
-
-    const { data } = await supabase
-      .from('scenes')
-      .select('*, tracks(*)')
-      .eq('id', sceneId)
-      .single()
-
-    if (data) {
-      setScene(data as Scene)
-      setStatus('live')
-    }
-  }, [])
-
-  // ── Load session + subscribe ──────────────────────────────────
-  const loadSession = useCallback(async () => {
-    const { data } = await supabase
-      .from('sessions')
-      .select('id, active_scene_id, is_live')
-      .eq('join_code', joinCode)
-      .maybeSingle()
-
-    if (!data) {
-      setStatus('waiting')
-      return
-    }
-
-    if (!data.is_live) {
-      setStatus('ended')
-      return
-    }
-
-    setSessionId(data.id)
-    await loadScene(data.active_scene_id)
-  }, [joinCode, loadScene])
-
-  useEffect(() => {
-    loadSession()
-  }, [loadSession])
-
-  // Poll every 6s when waiting so we detect when DM starts presenting
-  useEffect(() => {
-    if (status !== 'waiting') return
-    const t = setInterval(loadSession, 6000)
-    return () => clearInterval(t)
-  }, [status, loadSession])
-
-  // ── Realtime: listen for scene changes ────────────────────────
-  useEffect(() => {
-    const channel = supabase
-      .channel('viewer-' + joinCode)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `join_code=eq.${joinCode}` },
-        (payload) => {
-          const row = payload.new as { active_scene_id: string | null; is_live: boolean }
-          if (!row.is_live) {
-            setStatus('ended')
-            return
-          }
-          loadScene(row.active_scene_id)
-        }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [joinCode, loadScene])
-
-  // ── Reset audio when scene changes ───────────────────────────
-  useEffect(() => {
-    Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
-    audioRefs.current = {}
-    setVolumes({})
-    setPlaying({})
-  }, [scene?.id])
 
   // ── Audio helpers ─────────────────────────────────────────────
   function getOrCreate(t: Track): HTMLAudioElement {
@@ -178,6 +99,112 @@ export default function ViewerPage() {
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
   }
 
+  // ── Autoplay music on scene load ──────────────────────────────
+  // Browsers block autoplay until first user interaction.
+  // We try autoplay — if it's blocked we show a "tap to start" overlay.
+  // Once the user taps once, all future scene switches autoplay fine.
+  useEffect(() => {
+    if (!scene?.tracks?.length) return
+
+    const musicTracks = scene.tracks.filter(
+      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
+    )
+    if (!musicTracks.length) return
+
+    if (hasInteracted.current) {
+      // Already had user interaction — autoplay is allowed
+      musicTracks.forEach(t => {
+        const a = getOrCreate(t)
+        if (a.paused) a.play().catch(() => {})
+      })
+      return
+    }
+
+    // Try playing the first track as a test
+    const first = musicTracks[0]
+    getOrCreate(first)
+      .play()
+      .then(() => {
+        // Autoplay allowed (desktop or user already interacted elsewhere)
+        hasInteracted.current = true
+        musicTracks.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
+        setNeedsTap(false)
+      })
+      .catch(() => {
+        // Autoplay blocked by browser — show tap overlay
+        setNeedsTap(true)
+      })
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Reset audio when scene changes ───────────────────────────
+  useEffect(() => {
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
+    audioRefs.current = {}
+    setVolumes({})
+    setPlaying({})
+  }, [scene?.id])
+
+  // ── First tap handler — unlocks audio + starts music ─────────
+  function handleFirstTap() {
+    hasInteracted.current = true
+    setNeedsTap(false)
+    const musicTracks = (scene?.tracks || []).filter(
+      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
+    )
+    musicTracks.forEach(t => {
+      const a = getOrCreate(t)
+      if (a.paused) a.play().catch(() => {})
+    })
+  }
+
+  // ── Load scene by ID ──────────────────────────────────────────
+  const loadScene = useCallback(async (sceneId: string | null) => {
+    if (!sceneId) { setScene(null); setStatus('live'); return }
+    const { data } = await supabase
+      .from('scenes')
+      .select('*, tracks(*)')
+      .eq('id', sceneId)
+      .single()
+    if (data) { setScene(data as Scene); setStatus('live') }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load session ──────────────────────────────────────────────
+  const loadSession = useCallback(async () => {
+    const { data } = await supabase
+      .from('sessions')
+      .select('id, active_scene_id, is_live')
+      .eq('join_code', joinCode)
+      .maybeSingle()
+    if (!data)         { setStatus('waiting'); return }
+    if (!data.is_live) { setStatus('ended');   return }
+    await loadScene(data.active_scene_id)
+  }, [joinCode, loadScene]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { loadSession() }, [loadSession])
+
+  // Poll every 6s when waiting
+  useEffect(() => {
+    if (status !== 'waiting') return
+    const t = setInterval(loadSession, 6000)
+    return () => clearInterval(t)
+  }, [status, loadSession])
+
+  // ── Realtime ──────────────────────────────────────────────────
+  useEffect(() => {
+    const ch = supabase
+      .channel('viewer-' + joinCode)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'sessions',
+        filter: `join_code=eq.${joinCode}`,
+      }, (payload) => {
+        const row = payload.new as { active_scene_id: string | null; is_live: boolean }
+        if (!row.is_live) { setStatus('ended'); return }
+        loadScene(row.active_scene_id)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [joinCode, loadScene]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const allTracks    = scene?.tracks || []
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
@@ -186,61 +213,43 @@ export default function ViewerPage() {
   const ovUrl        = pubUrl(scene?.overlay)
 
   // ── Status screens ────────────────────────────────────────────
-  if (status === 'loading') {
-    return (
-      <div style={fullscreenStyle}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px', marginBottom: '14px' }}>
-            SceneForge
-          </div>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '2px' }}>
-            Connecting…
-          </div>
-        </div>
+  if (status === 'loading') return (
+    <div style={fsStyle}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px', marginBottom: '14px' }}>SceneForge</div>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '2px' }}>Connecting…</div>
       </div>
-    )
-  }
+    </div>
+  )
 
-  if (status === 'waiting') {
-    return (
-      <div style={fullscreenStyle}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .3 }}>🎭</div>
-          <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.5)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '10px' }}>
-            Waiting for DM
-          </div>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', letterSpacing: '1px' }}>
-            Session code: {joinCode}
-          </div>
-          <div style={{ marginTop: '8px', display: 'flex', gap: '4px', justifyContent: 'center' }}>
-            {[0,1,2].map(i => (
-              <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e53535', animation: `dot ${0.8}s ease-in-out ${i * 0.2}s infinite alternate`, opacity: .4 }} />
-            ))}
-          </div>
+  if (status === 'waiting') return (
+    <div style={fsStyle}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .3 }}>🎭</div>
+        <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.5)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '10px' }}>Waiting for DM</div>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', letterSpacing: '1px' }}>Session code: {joinCode}</div>
+        <div style={{ marginTop: '10px', display: 'flex', gap: '5px', justifyContent: 'center' }}>
+          {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e53535', animation: `dot .8s ease-in-out ${i*.2}s infinite alternate`, opacity: .4 }} />)}
         </div>
-        <style>{`@keyframes dot { from{opacity:.2;transform:scale(.8)} to{opacity:1;transform:scale(1.1)} }`}</style>
       </div>
-    )
-  }
+      <style>{`@keyframes dot{from{opacity:.2;transform:scale(.8)}to{opacity:1;transform:scale(1.1)}}`}</style>
+    </div>
+  )
 
-  if (status === 'ended') {
-    return (
-      <div style={fullscreenStyle}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .2 }}>⚔️</div>
-          <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.4)', letterSpacing: '4px', textTransform: 'uppercase' }}>
-            Session Ended
-          </div>
-        </div>
+  if (status === 'ended') return (
+    <div style={fsStyle}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .2 }}>⚔️</div>
+        <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.4)', letterSpacing: '4px', textTransform: 'uppercase' }}>Session Ended</div>
       </div>
-    )
-  }
+    </div>
+  )
 
   // ── Live viewer ───────────────────────────────────────────────
   return (
-    <div ref={wrapperRef} style={{ ...fullscreenStyle, overflow: 'hidden' }}>
+    <div ref={wrapperRef} style={{ ...fsStyle, overflow: 'hidden' }}>
 
-      {/* Background clip layer */}
+      {/* Background */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0 }}>
         {bgUrl && (
           scene?.bg?.type === 'video'
@@ -257,18 +266,11 @@ export default function ViewerPage() {
 
       {/* Scene name */}
       {scene && (
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0,
-          textAlign: 'center', padding: '18px',
-          fontFamily: "'Cinzel',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500,
-          color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)',
-          pointerEvents: 'none', zIndex: 5,
-        }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Cinzel',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5 }}>
           {scene.name}
         </div>
       )}
 
-      {/* No scene yet */}
       {!scene && (
         <div style={{ zIndex: 1, textAlign: 'center', color: 'rgba(255,255,255,0.2)', position: 'relative' }}>
           <div style={{ fontSize: '44px', opacity: .3, marginBottom: '12px' }}>🎭</div>
@@ -276,29 +278,52 @@ export default function ViewerPage() {
         </div>
       )}
 
-      {/* Top-right: fullscreen toggle */}
-      <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
-        <button
-          onClick={toggleFs}
-          style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          title={isFs ? 'Exit Fullscreen' : 'Fullscreen'}
-        >
-          {isFs ? '✕' : '⛶'}
-        </button>
-      </div>
+      {/* Fullscreen button */}
+      <button
+        onClick={toggleFs}
+        style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        {isFs ? '✕' : '⛶'}
+      </button>
 
-      {/* ── AUDIO MIXER (independent) ── */}
+      {/* ── TAP TO START AUDIO OVERLAY ───────────────────────────
+          Shown when browser blocks autoplay (always on first load
+          on mobile — iOS/Android require a user gesture first).
+          Tap anywhere to unlock audio and start music.
+      ──────────────────────────────────────────────────────────── */}
+      {needsTap && (
+        <div
+          onClick={handleFirstTap}
+          style={{
+            position: 'absolute', inset: 0, zIndex: 40,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer',
+            background: 'rgba(7,8,16,0.65)',
+          }}
+        >
+          <div style={{ textAlign: 'center', padding: '28px 36px', background: MIXER_BG, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}>
+            <div style={{ fontSize: '52px', marginBottom: '16px' }}>🎵</div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Tap to Start Audio
+            </div>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1px' }}>
+              Tap anywhere on this card
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── AUDIO MIXER ── */}
       {allTracks.length > 0 && (
         <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 20, width: '240px' }}>
-
-          {/* Collapsed bar */}
           <div
             onClick={() => setMixerOpen(o => !o)}
             style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
-              {[1, 0.6, 0.85, 0.45, 0.7].map((h, i) => (
-                <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h * 16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6 + i * 0.15}s ease-in-out infinite alternate` : 'none' }} />
+              {[1,0.6,0.85,0.45,0.7].map((h,i) => (
+                <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />
               ))}
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>Audio</span>
@@ -306,7 +331,6 @@ export default function ViewerPage() {
             <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>{mixerOpen ? '▲' : '▼'}</span>
           </div>
 
-          {/* Expanded */}
           {mixerOpen && (
             <div style={{ background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
               {music.length > 0 && (
@@ -336,24 +360,20 @@ export default function ViewerPage() {
       )}
 
       <style>{`
-        @keyframes audioBar0 { from{height:4px}  to{height:16px} }
-        @keyframes audioBar1 { from{height:8px}  to{height:5px}  }
-        @keyframes audioBar2 { from{height:13px} to{height:6px}  }
-        @keyframes audioBar3 { from{height:5px}  to{height:14px} }
-        @keyframes audioBar4 { from{height:11px} to{height:4px}  }
+        @keyframes audioBar0{from{height:4px}to{height:16px}}
+        @keyframes audioBar1{from{height:8px}to{height:5px}}
+        @keyframes audioBar2{from{height:13px}to{height:6px}}
+        @keyframes audioBar3{from{height:5px}to{height:14px}}
+        @keyframes audioBar4{from{height:11px}to{height:4px}}
       `}</style>
     </div>
   )
 }
 
-// ── Shared helpers ────────────────────────────────────────────────
-const fullscreenStyle: React.CSSProperties = {
-  width: '100dvw',
-  height: '100dvh',
+const fsStyle: React.CSSProperties = {
+  width: '100dvw', height: '100dvh',
   background: '#070810',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
   position: 'relative',
 }
 
@@ -371,7 +391,12 @@ function TrackRow({ t, isPlaying, volume, onToggle, onVol }: {
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{t.name}</div>
-        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#e53535', cursor: 'pointer', touchAction: 'none' }} />
+        <input type="range" min={0} max={1} step={0.01} value={volume}
+          onClick={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()}
+          onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }}
+          style={{ width: '100%', height: '20px', accentColor: '#e53535', cursor: 'pointer', touchAction: 'none' }}
+        />
       </div>
     </div>
   )
