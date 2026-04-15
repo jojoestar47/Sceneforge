@@ -96,6 +96,12 @@ export default function Stage({
   // ── Character picker state (DM only) ─────────────────────────
   const [pickerSlot, setPickerSlot]   = useState<'left' | 'center' | 'right' | null>(null)
   const [charSearch, setCharSearch]   = useState('')
+  // Track whether this device has touch so we can disable autoFocus (which
+  // opens the keyboard on Android and resizes the stage, hiding the popup).
+  const isTouchDevice = useRef(false)
+  useEffect(() => {
+    isTouchDevice.current = navigator.maxTouchPoints > 0
+  }, [])
 
   const filteredChars = (campaignCharacters || []).filter(c =>
     !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
@@ -302,6 +308,7 @@ export default function Stage({
                 {/* Slot button */}
                 <button
                   onClick={() => setPickerSlot(pickerSlot === slot ? null : slot)}
+                  onTouchEnd={e => { e.preventDefault(); setPickerSlot(prev => prev === slot ? null : slot) }}
                   title={char ? `Change ${slot} character` : `Add ${slot} character`}
                   style={{
                     width: '44px', height: '44px', borderRadius: '8px',
@@ -309,7 +316,7 @@ export default function Stage({
                     background: char ? 'rgba(201,168,76,0.08)' : MIXER_BG,
                     cursor: 'pointer', overflow: 'hidden',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: 0,
+                    padding: 0, touchAction: 'manipulation',
                   }}
                 >
                   {imgUrl
@@ -322,7 +329,8 @@ export default function Stage({
                 {char && (
                   <button
                     onClick={e => { e.stopPropagation(); removeCharacter(slot) }}
-                    style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent)', border: 'none', color: '#fff', fontSize: '9px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, zIndex: 2 }}
+                    onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); removeCharacter(slot) }}
+                    style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent)', border: 'none', color: '#fff', fontSize: '9px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, zIndex: 2, touchAction: 'manipulation' }}
                   >
                     ✕
                   </button>
@@ -344,7 +352,7 @@ export default function Stage({
           </div>
           <div style={{ padding: '8px 12px' }}>
             <input
-              autoFocus
+              autoFocus={!isTouchDevice.current}
               placeholder="Search characters…"
               value={charSearch}
               onChange={e => setCharSearch(e.target.value)}

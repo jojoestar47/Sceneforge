@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Scene } from '@/lib/types'
 
 interface Props {
@@ -21,12 +21,18 @@ export default function SceneList({
   const [q, setQ] = useState('')
   const [dragId,     setDragId]     = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
+  // Disable HTML5 drag on touch devices — Android Chrome intercepts taps as
+  // drag-initiations, grays out elements, and gets stuck in drag mode.
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 0)
+  }, [])
 
   const filtered = scenes.filter(s =>
     !q || s.name.toLowerCase().includes(q.toLowerCase())
   )
 
-  const canDrag = !q && !!onReorder
+  const canDrag = !q && !!onReorder && !isTouchDevice
 
   function mediaUrl(m: Scene['bg']): string | null {
     if (!m) return null
@@ -162,13 +168,17 @@ export default function SceneList({
               {/* Delete */}
               <button
                 onClick={e => { e.stopPropagation(); onDelete(sc.id) }}
+                onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); onDelete(sc.id) }}
                 style={{
                   position: 'absolute', top: '6px', right: '30px',
                   background: 'none', border: 'none', color: 'var(--accent)',
-                  fontSize: '11px', cursor: 'pointer', opacity: 0, transition: 'opacity .1s', zIndex: 2,
+                  fontSize: '11px', cursor: 'pointer',
+                  opacity: isTouchDevice ? 0.5 : 0,
+                  transition: 'opacity .1s', zIndex: 2,
+                  touchAction: 'manipulation',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = isTouchDevice ? '0.5' : '0')}
                 className="scene-del"
               >
                 ✕
