@@ -43,10 +43,15 @@ export default function ViewerPage() {
   const [scene,  setScene]  = useState<Scene | null>(null)
 
   // ── Characters ────────────────────────────────────────────────
-  const [characters, setCharacters] = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
+  const [characters,   setCharacters]   = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
+  const [viewerScales, setViewerScales] = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
-    if (!state) { setCharacters({ left: null, center: null, right: null }); return }
+    if (!state) {
+      setCharacters({ left: null, center: null, right: null })
+      setViewerScales({ left: 1, center: 1, right: 1 })
+      return
+    }
     const fetchChar = async (id: string | null): Promise<Character | null> => {
       if (!id) return null
       const { data } = await supabase.from('characters').select('*').eq('id', id).single()
@@ -54,6 +59,11 @@ export default function ViewerPage() {
     }
     const [l, c, r] = await Promise.all([fetchChar(state.left), fetchChar(state.center), fetchChar(state.right)])
     setCharacters({ left: l, center: c, right: r })
+    setViewerScales({
+      left:   state.leftScale   ?? 1,
+      center: state.centerScale ?? 1,
+      right:  state.rightScale  ?? 1,
+    })
   }, [supabase])
 
   // ── Audio ─────────────────────────────────────────────────────
@@ -252,6 +262,7 @@ export default function ViewerPage() {
           character={characters.left}
           position="left"
           imageUrl={characterImageUrl(characters.left)}
+          scale={viewerScales.left}
         />
       )}
       {characters.center && (
@@ -259,6 +270,7 @@ export default function ViewerPage() {
           character={characters.center}
           position="center"
           imageUrl={characterImageUrl(characters.center)}
+          scale={viewerScales.center}
         />
       )}
       {characters.right && (
@@ -266,6 +278,7 @@ export default function ViewerPage() {
           character={characters.right}
           position="right"
           imageUrl={characterImageUrl(characters.right)}
+          scale={viewerScales.right}
         />
       )}
 
