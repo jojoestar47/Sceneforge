@@ -39,6 +39,7 @@ export default function AppPage() {
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
+  const [slotScales,         setSlotScales]         = useState({ left: 1, center: 1, right: 1 })
   const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, center: null, right: null })
   // Ref so the Realtime callback always reads the current roster without
   // needing campaignCharacters in the effect's dependency array (which would
@@ -113,14 +114,19 @@ export default function AppPage() {
   // in the editor; only those appear in the stage slot picker.
   useEffect(() => {
     setActiveCharacters({ left: null, center: null, right: null })
-    if (!activeSceneId) { setSceneRosterChars([]); return }
+    if (!activeSceneId) { setSceneRosterChars([]); setSlotScales({ left: 1, center: 1, right: 1 }); return }
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', activeSceneId)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); return }
-        const chars = data.map(r => r.character as Character).filter(Boolean)
-        setSceneRosterChars(chars)
+        if (!data) { setSceneRosterChars([]); setSlotScales({ left: 1, center: 1, right: 1 }); return }
+        setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+        const scales = { left: 1, center: 1, right: 1 }
+        data.forEach(r => {
+          if (r.position === 'left' || r.position === 'center' || r.position === 'right')
+            scales[r.position] = r.scale ?? 1
+        })
+        setSlotScales(scales)
       })
   }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -184,7 +190,7 @@ export default function AppPage() {
     if (sessionId && isLive) { setShareModalOpen(true); return }
     await supabase.from('sessions').update({ is_live: false }).eq('campaign_id', activeCampId)
     const code = makeJoinCode()
-    const cs: CharacterState = { left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null }
+    const cs: CharacterState = { left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null, leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right }
     const { data } = await supabase.from('sessions').insert({
       campaign_id: activeCampId, join_code: code,
       active_scene_id: activeSceneId || null, is_live: true,
@@ -205,7 +211,7 @@ export default function AppPage() {
     if (isLive && sessionId) {
       // Clear character state when switching scenes — DM places characters
       // manually on the stage rather than auto-loading saved assignments.
-      const cs: CharacterState = { left: null, center: null, right: null }
+      const cs: CharacterState = { left: null, center: null, right: null, leftScale: 1, centerScale: 1, rightScale: 1 }
       await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
     }
   }
@@ -213,7 +219,7 @@ export default function AppPage() {
   async function handleCharactersChange(chars: ActiveCharacters) {
     setActiveCharacters(chars)
     if (isLive && sessionId) {
-      const cs: CharacterState = { left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null }
+      const cs: CharacterState = { left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null, leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
   }
@@ -253,14 +259,20 @@ export default function AppPage() {
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
         .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
     }
-    // Refresh this scene's roster — the editor may have changed which characters
-    // are assigned, so the stage slot picker needs to reflect the new list.
+    // Refresh this scene's roster and slot scales — the editor may have changed
+    // character assignments or scale values.
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', saved.id)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); return }
+        if (!data) { setSceneRosterChars([]); setSlotScales({ left: 1, center: 1, right: 1 }); return }
         setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+        const scales = { left: 1, center: 1, right: 1 }
+        data.forEach(r => {
+          if (r.position === 'left' || r.position === 'center' || r.position === 'right')
+            scales[r.position] = r.scale ?? 1
+        })
+        setSlotScales(scales)
       })
   }
 

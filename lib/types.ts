@@ -68,9 +68,12 @@ export interface SceneCharacter {
 
 // Live character state stored in sessions.character_state
 export interface CharacterState {
-  left:   string | null   // character ID or null
-  center: string | null
-  right:  string | null
+  left:        string | null   // character ID or null
+  center:      string | null
+  right:       string | null
+  leftScale:   number          // display scale (0.5 – 1.5), default 1.0
+  centerScale: number
+  rightScale:  number
 }
 
 // ── Editor draft types ────────────────────────────────────────

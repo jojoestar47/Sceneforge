@@ -10,12 +10,19 @@ interface ActiveCharacters {
   right:  Character | null
 }
 
+interface SlotScales {
+  left:   number
+  center: number
+  right:  number
+}
+
 interface Props {
   scene:              Scene | null
   hasCampaign:        boolean
   onEdit:             () => void
   // Character props (DM only — undefined on viewer)
   characters?:        ActiveCharacters
+  slotScales?:        SlotScales
   campaignCharacters?: Character[]
   onCharactersChange?: (c: ActiveCharacters) => void
 }
@@ -30,7 +37,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
 export default function Stage({
   scene, hasCampaign, onEdit,
-  characters, campaignCharacters, onCharactersChange,
+  characters, slotScales, campaignCharacters, onCharactersChange,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -195,6 +202,7 @@ export default function Stage({
           character={characters.left}
           position="left"
           imageUrl={characterImageUrl(characters.left)}
+          scale={slotScales?.left ?? 1}
         />
       )}
       {characters?.center && (
@@ -202,6 +210,7 @@ export default function Stage({
           character={characters.center}
           position="center"
           imageUrl={characterImageUrl(characters.center)}
+          scale={slotScales?.center ?? 1}
         />
       )}
       {characters?.right && (
@@ -209,6 +218,7 @@ export default function Stage({
           character={characters.right}
           position="right"
           imageUrl={characterImageUrl(characters.right)}
+          scale={slotScales?.right ?? 1}
         />
       )}
 

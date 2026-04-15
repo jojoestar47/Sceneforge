@@ -29,9 +29,12 @@ interface Draft {
   bg: MediaRef | null; overlay: MediaRef | null; tracks: TrackDraft[]
   _bgFile?: File; _ovFile?: File
   // Characters
-  characterLeft:   Character | null
-  characterCenter: Character | null
-  characterRight:  Character | null
+  characterLeft:        Character | null
+  characterCenter:      Character | null
+  characterRight:       Character | null
+  characterLeftScale:   number
+  characterCenterScale: number
+  characterRightScale:  number
 }
 
 function blankDraft(scene: Scene | null): Draft {
@@ -44,6 +47,7 @@ function blankDraft(scene: Scene | null): Draft {
     bg: scene?.bg || null, overlay: scene?.overlay || null,
     tracks: [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
     characterLeft: null, characterCenter: null, characterRight: null,
+    characterLeftScale: 1, characterCenterScale: 1, characterRightScale: 1,
   }
 }
 
@@ -84,16 +88,24 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       .finally(() => setCharsLoading(false))
   }, [campaignId])
 
-  // Load scene's current character assignments
+  // Load scene's current character assignments (including scale)
   useEffect(() => {
     if (!scene?.id) return
     supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', scene.id)
       .then(({ data }) => {
         if (!data) return
-        const left   = data.find(r => r.position === 'left')?.character   as Character | undefined
-        const center = data.find(r => r.position === 'center')?.character as Character | undefined
-        const right  = data.find(r => r.position === 'right')?.character  as Character | undefined
-        setDraft(d => ({ ...d, characterLeft: left || null, characterCenter: center || null, characterRight: right || null }))
+        const leftRow   = data.find(r => r.position === 'left')
+        const centerRow = data.find(r => r.position === 'center')
+        const rightRow  = data.find(r => r.position === 'right')
+        setDraft(d => ({
+          ...d,
+          characterLeft:        (leftRow?.character   as Character | undefined) || null,
+          characterCenter:      (centerRow?.character as Character | undefined) || null,
+          characterRight:       (rightRow?.character  as Character | undefined) || null,
+          characterLeftScale:   leftRow?.scale   ?? 1,
+          characterCenterScale: centerRow?.scale ?? 1,
+          characterRightScale:  rightRow?.scale  ?? 1,
+        }))
       })
   }, [scene?.id])
 
@@ -184,9 +196,9 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       // Scene characters — delete existing, re-insert
       await supabase.from('scene_characters').delete().eq('scene_id', sceneId!)
       const charInserts = []
-      if (draft.characterLeft)   charInserts.push({ scene_id: sceneId!, character_id: draft.characterLeft.id,   position: 'left'   })
-      if (draft.characterCenter) charInserts.push({ scene_id: sceneId!, character_id: draft.characterCenter.id, position: 'center' })
-      if (draft.characterRight)  charInserts.push({ scene_id: sceneId!, character_id: draft.characterRight.id,  position: 'right'  })
+      if (draft.characterLeft)   charInserts.push({ scene_id: sceneId!, character_id: draft.characterLeft.id,   position: 'left',   scale: draft.characterLeftScale   })
+      if (draft.characterCenter) charInserts.push({ scene_id: sceneId!, character_id: draft.characterCenter.id, position: 'center', scale: draft.characterCenterScale })
+      if (draft.characterRight)  charInserts.push({ scene_id: sceneId!, character_id: draft.characterRight.id,  position: 'right',  scale: draft.characterRightScale  })
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
       const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId!).single()
@@ -252,14 +264,16 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                 {/* CHARACTERS */}
                 <Section title="Characters">
                   {(['left', 'center', 'right'] as const).map(slot => {
-                    const current = slot === 'left' ? draft.characterLeft : slot === 'center' ? draft.characterCenter : draft.characterRight
-                    const imgUrl  = current ? characterImageUrl(current) : null
+                    const current     = slot === 'left' ? draft.characterLeft   : slot === 'center' ? draft.characterCenter   : draft.characterRight
+                    const scaleKey    = slot === 'left' ? 'characterLeftScale'  : slot === 'center' ? 'characterCenterScale'  : 'characterRightScale'
+                    const scaleValue  = slot === 'left' ? draft.characterLeftScale : slot === 'center' ? draft.characterCenterScale : draft.characterRightScale
+                    const imgUrl      = current ? characterImageUrl(current) : null
                     const isPickerOpen = charPickerSlot === slot
                     const isNewOpen    = newCharSlot === slot
                     return (
                       <div key={slot}>
                         {/* Slot row */}
-                        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid var(--border)', gap: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 0', borderBottom: current ? 'none' : '1px solid var(--border)', gap: '14px' }}>
                           {/* Thumbnail / empty state */}
                           <div style={{ width: '52px', height: '52px', borderRadius: '8px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {imgUrl
@@ -285,6 +299,23 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                             </button>
                           </div>
                         </div>
+
+                        {/* Scale slider — only shown when a character is assigned */}
+                        {current && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0 12px', borderBottom: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', flexShrink: 0 }}>Scale</span>
+                            <input
+                              type="range"
+                              min={0.5} max={1.5} step={0.05}
+                              value={scaleValue}
+                              onChange={e => setDraft(d => ({ ...d, [scaleKey]: Number(e.target.value) }))}
+                              style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '11px', color: 'var(--text-2)', width: '36px', textAlign: 'right', flexShrink: 0 }}>
+                              {Math.round(scaleValue * 100)}%
+                            </span>
+                          </div>
+                        )}
 
                         {/* Character picker */}
                         {isPickerOpen && (

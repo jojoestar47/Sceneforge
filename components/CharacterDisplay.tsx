@@ -14,9 +14,10 @@ interface Props {
   character: Character
   position: 'left' | 'center' | 'right'
   imageUrl: string | null
+  scale?: number  // 0.5 – 1.5, default 1.0
 }
 
-export default function CharacterDisplay({ character, position, imageUrl }: Props) {
+export default function CharacterDisplay({ character, position, imageUrl, scale = 1 }: Props) {
   const positionStyle =
     position === 'left'   ? { left: '8%' } :
     position === 'right'  ? { right: '8%' } :
@@ -28,7 +29,7 @@ export default function CharacterDisplay({ character, position, imageUrl }: Prop
         position: 'absolute',
         bottom: 0,
         ...positionStyle,
-        height: '88%',
+        height: `${88 * scale}%`,
         width: '22%',
         minWidth: '120px',
         maxWidth: '280px',
