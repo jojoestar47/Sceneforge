@@ -197,12 +197,32 @@ export default function ViewerPage() {
     return () => { supabase.removeChannel(ch) }
   }, [joinCode, loadScene, loadCharactersFromState])
 
+  // ── Scene crossfade (two stable layers) ─────────────────────
+  interface VBgLayer { scene: Scene | null; opacity: number }
+  const [vLayerA, setVLayerA] = useState<VBgLayer>({ scene: null, opacity: 0 })
+  const [vLayerB, setVLayerB] = useState<VBgLayer>({ scene: null, opacity: 0 })
+  const vFrontRef      = useRef<'a' | 'b'>('a')
+  const vPrevSceneId   = useRef<string | null>(null)
+
+  if (scene?.id !== vPrevSceneId.current) {
+    vPrevSceneId.current = scene?.id ?? null
+    if (scene) {
+      if (vFrontRef.current === 'a') {
+        setVLayerB({ scene, opacity: 1 })
+        setVLayerA(prev => ({ ...prev, opacity: 0 }))
+        vFrontRef.current = 'b'
+      } else {
+        setVLayerA({ scene, opacity: 1 })
+        setVLayerB(prev => ({ ...prev, opacity: 0 }))
+        vFrontRef.current = 'a'
+      }
+    }
+  }
+
   const allTracks    = scene?.tracks || []
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
   const playingCount = Object.values(playing).filter(Boolean).length
-  const bgUrl        = pubUrl(scene?.bg)
-  const ovUrl        = pubUrl(scene?.overlay)
 
   // ── Status screens ────────────────────────────────────────────
   if (status === 'loading') return (
@@ -241,19 +261,40 @@ export default function ViewerPage() {
   return (
     <div ref={wrapperRef} style={{ ...fsStyle, overflow: 'hidden' }}>
 
-      {/* Background */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0 }}>
-        {bgUrl && (
-          scene?.bg?.type === 'video'
-            ? <video key={bgUrl} src={bgUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <img    key={bgUrl} src={bgUrl} alt=""  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-        )}
-        {bgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-        {ovUrl && (
-          scene?.overlay?.type === 'video'
-            ? <video key={ovUrl} src={ovUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <img    key={ovUrl} src={ovUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-        )}
+      {/* Background layer A */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+        {vLayerA.scene && (() => {
+          const lBg = pubUrl(vLayerA.scene.bg);  const lOv = pubUrl(vLayerA.scene.overlay)
+          return (<>
+            {lBg && (vLayerA.scene.bg?.type === 'video'
+              ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            )}
+            {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
+            {lOv && (vLayerA.scene.overlay?.type === 'video'
+              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            )}
+          </>)
+        })()}
+      </div>
+
+      {/* Background layer B */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+        {vLayerB.scene && (() => {
+          const lBg = pubUrl(vLayerB.scene.bg);  const lOv = pubUrl(vLayerB.scene.overlay)
+          return (<>
+            {lBg && (vLayerB.scene.bg?.type === 'video'
+              ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            )}
+            {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
+            {lOv && (vLayerB.scene.overlay?.type === 'video'
+              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            )}
+          </>)
+        })()}
       </div>
 
       {/* ── Characters ── */}
@@ -284,7 +325,7 @@ export default function ViewerPage() {
 
       {/* Scene name */}
       {scene && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Cinzel',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5 }}>
+        <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Cinzel',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
           {scene.name}
         </div>
       )}
@@ -355,6 +396,7 @@ export default function ViewerPage() {
         @keyframes audioBar2{from{height:13px}to{height:6px}}
         @keyframes audioBar3{from{height:5px}to{height:14px}}
         @keyframes audioBar4{from{height:11px}to{height:4px}}
+        @keyframes sceneFadeIn{from{opacity:0}to{opacity:1}}
       `}</style>
     </div>
   )
