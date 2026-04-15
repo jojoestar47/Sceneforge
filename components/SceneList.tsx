@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { Scene } from '@/lib/types'
 
 interface Props {
@@ -23,10 +23,11 @@ export default function SceneList({
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   // Disable HTML5 drag on touch devices — Android Chrome intercepts taps as
   // drag-initiations, grays out elements, and gets stuck in drag mode.
-  const [isTouchDevice, setIsTouchDevice] = useState(false)
-  useEffect(() => {
-    setIsTouchDevice(navigator.maxTouchPoints > 0)
-  }, [])
+  // Lazy initializer runs once at mount so draggable is never true on touch,
+  // even during the first render (no useEffect delay).
+  const [isTouchDevice] = useState(() =>
+    typeof window !== 'undefined' && navigator.maxTouchPoints > 0
+  )
 
   const filtered = scenes.filter(s =>
     !q || s.name.toLowerCase().includes(q.toLowerCase())
