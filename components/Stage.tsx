@@ -113,6 +113,11 @@ export default function Stage({
   useEffect(() => {
     isTouchDevice.current = navigator.maxTouchPoints > 0
   }, [])
+  // Timestamp of when the picker was last opened. Used to guard the
+  // click-away overlay against closing the picker within the same touch
+  // gesture that opened it (Android synthesizes a click after touchend even
+  // when preventDefault is called in some WebView versions).
+  const pickerOpenTimeRef = useRef(0)
 
   const filteredChars = (campaignCharacters || []).filter(c =>
     !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
@@ -319,8 +324,12 @@ export default function Stage({
               <div key={slot} style={{ position: 'relative' }}>
                 {/* Slot button */}
                 <button
-                  onClick={() => setPickerSlot(pickerSlot === slot ? null : slot)}
-                  onTouchEnd={e => { e.preventDefault(); setPickerSlot(prev => prev === slot ? null : slot) }}
+                  onPointerDown={e => {
+                    e.preventDefault() // blocks subsequent synthetic click on Android
+                    const next = pickerSlot === slot ? null : slot
+                    if (next) pickerOpenTimeRef.current = Date.now()
+                    setPickerSlot(next)
+                  }}
                   title={char ? `Change ${slot} character` : `Add ${slot} character`}
                   style={{
                     width: '44px', height: '44px', borderRadius: '8px',
@@ -355,7 +364,10 @@ export default function Stage({
 
       {/* ── Character Picker Popup ─────────────────────────────── */}
       {pickerSlot && hasDMControls && (
-        <div style={{ position: 'absolute', bottom: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}>
+        <div
+          onPointerDown={e => e.stopPropagation()} // prevent overlay from closing the picker
+          style={{ position: 'absolute', bottom: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+        >
           <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>
               {pickerSlot === 'left' ? 'Left' : pickerSlot === 'center' ? 'Center' : 'Right'} Character
@@ -401,9 +413,17 @@ export default function Stage({
         </div>
       )}
 
-      {/* Click away to close picker */}
+      {/* Click away to close picker.
+          Time guard: ignore any pointer event within 300ms of the picker opening —
+          this catches the synthetic click Android fires after touchend even when
+          preventDefault is called, which would immediately close the picker. */}
       {pickerSlot && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 25 }} onClick={() => setPickerSlot(null)} />
+        <div
+          style={{ position: 'absolute', inset: 0, zIndex: 25 }}
+          onPointerDown={() => {
+            if (Date.now() - pickerOpenTimeRef.current > 300) setPickerSlot(null)
+          }}
+        />
       )}
 
       {/* ── Audio Mixer ── */}
