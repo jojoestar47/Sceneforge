@@ -14,7 +14,7 @@ interface Props {
   character: Character
   position: 'left' | 'center' | 'right'
   imageUrl: string | null
-  scale?: number  // 0.5 – 1.5, default 1.0
+  scale?: number  // 0.5 – 2.5, default 1.0
 }
 
 export default function CharacterDisplay({ character, position, imageUrl, scale = 1 }: Props) {
@@ -29,7 +29,7 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
         position: 'absolute',
         bottom: 0,
         ...positionStyle,
-        height: `${88 * scale}%`,
+        height: '88%',
         width: '22%',
         minWidth: '120px',
         maxWidth: '280px',
@@ -51,6 +51,9 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
             width: '100%',
             objectFit: 'contain',
             objectPosition: 'bottom center',
+            // Scale from the feet so the character grows/shrinks upward
+            transform: `scale(${scale})`,
+            transformOrigin: 'bottom center',
             // Drop shadow gives depth — makes the character feel "in front of" the scene
             filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(0,0,0,0.5))',
             // Slight fade-in when character appears

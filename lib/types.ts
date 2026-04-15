@@ -71,7 +71,7 @@ export interface CharacterState {
   left:        string | null   // character ID or null
   center:      string | null
   right:       string | null
-  leftScale:   number          // display scale (0.5 – 1.5), default 1.0
+  leftScale:   number          // display scale (0.5 – 2.5), default 1.0
   centerScale: number
   rightScale:  number
 }
