@@ -16,8 +16,9 @@ function makeJoinCode(): string {
 }
 
 interface ActiveCharacters {
-  left:  Character | null
-  right: Character | null
+  left:   Character | null
+  center: Character | null
+  right:  Character | null
 }
 
 export default function AppPage() {
@@ -38,7 +39,7 @@ export default function AppPage() {
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
-  const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, right: null })
+  const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, center: null, right: null })
   // Ref so the Realtime callback always reads the current roster without
   // needing campaignCharacters in the effect's dependency array (which would
   // tear down and re-subscribe the channel on every roster change).
@@ -111,7 +112,7 @@ export default function AppPage() {
   // sceneRosterChars is the list of characters pre-assigned to this scene
   // in the editor; only those appear in the stage slot picker.
   useEffect(() => {
-    setActiveCharacters({ left: null, right: null })
+    setActiveCharacters({ left: null, center: null, right: null })
     if (!activeSceneId) { setSceneRosterChars([]); return }
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
@@ -152,8 +153,8 @@ export default function AppPage() {
       const { data } = await supabase.from('characters').select('*').eq('id', id).single()
       return data as Character | null
     }
-    const [l, r] = await Promise.all([fetchIfNeeded(state.left), fetchIfNeeded(state.right)])
-    setActiveCharacters({ left: l, right: r })
+    const [l, c, r] = await Promise.all([fetchIfNeeded(state.left), fetchIfNeeded(state.center), fetchIfNeeded(state.right)])
+    setActiveCharacters({ left: l, center: c, right: r })
   }, [supabase])
 
   // ── Realtime: sync from other devices ────────────────────────
@@ -183,7 +184,7 @@ export default function AppPage() {
     if (sessionId && isLive) { setShareModalOpen(true); return }
     await supabase.from('sessions').update({ is_live: false }).eq('campaign_id', activeCampId)
     const code = makeJoinCode()
-    const cs: CharacterState = { left: activeCharacters.left?.id || null, right: activeCharacters.right?.id || null }
+    const cs: CharacterState = { left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null }
     const { data } = await supabase.from('sessions').insert({
       campaign_id: activeCampId, join_code: code,
       active_scene_id: activeSceneId || null, is_live: true,
@@ -204,7 +205,7 @@ export default function AppPage() {
     if (isLive && sessionId) {
       // Clear character state when switching scenes — DM places characters
       // manually on the stage rather than auto-loading saved assignments.
-      const cs: CharacterState = { left: null, right: null }
+      const cs: CharacterState = { left: null, center: null, right: null }
       await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
     }
   }
@@ -212,7 +213,7 @@ export default function AppPage() {
   async function handleCharactersChange(chars: ActiveCharacters) {
     setActiveCharacters(chars)
     if (isLive && sessionId) {
-      const cs: CharacterState = { left: chars.left?.id || null, right: chars.right?.id || null }
+      const cs: CharacterState = { left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
   }

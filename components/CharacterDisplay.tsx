@@ -12,20 +12,22 @@ export function characterImageUrl(c: Character): string | null {
 
 interface Props {
   character: Character
-  position: 'left' | 'right'
+  position: 'left' | 'center' | 'right'
   imageUrl: string | null
 }
 
 export default function CharacterDisplay({ character, position, imageUrl }: Props) {
-  const isLeft = position === 'left'
+  const positionStyle =
+    position === 'left'   ? { left: '8%' } :
+    position === 'right'  ? { right: '8%' } :
+    /* center */            { left: '50%', transform: 'translateX(-50%)' }
 
   return (
     <div
       style={{
         position: 'absolute',
         bottom: 0,
-        // Left sits at left 8%, right sits at right 8% — both roughly ¼ from edge
-        ...(isLeft ? { left: '8%' } : { right: '8%' }),
+        ...positionStyle,
         height: '88%',
         width: '22%',
         minWidth: '120px',
