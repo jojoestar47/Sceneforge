@@ -42,19 +42,29 @@ export default function Stage({
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   // ── Scene crossfade transition ───────────────────────────────
-  const prevSceneRef   = useRef<Scene | null>(null)
+  // We capture the previous scene *during render* (derived-state pattern) so
+  // the fade-out layer and the fade-in layer both appear in the same React
+  // commit — avoiding the 1-2 frame black flash that happens when the
+  // fade-out state is set in a useEffect (which fires after the render).
+  const prevSceneRef   = useRef<Scene | null>(scene ?? null)
   const fadeTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [prevSceneId,    setPrevSceneId]    = useState<string | null>(scene?.id ?? null)
   const [fadingOutScene, setFadingOutScene] = useState<Scene | null>(null)
 
-  useEffect(() => {
+  if (scene?.id !== prevSceneId) {
     const prev = prevSceneRef.current
-    prevSceneRef.current = scene ?? null
-    if (prev && prev.id !== scene?.id) {
-      setFadingOutScene(prev)
-      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
-      fadeTimerRef.current = setTimeout(() => setFadingOutScene(null), 700)
-    }
-  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    setPrevSceneId(scene?.id ?? null)
+    if (prev && prev.id !== scene?.id) setFadingOutScene(prev)
+  }
+  // Keep ref pointing at whatever scene is currently being rendered.
+  // This also runs on the "discarded" pass so the ref is always up-to-date.
+  prevSceneRef.current = scene ?? null
+
+  useEffect(() => {
+    if (!fadingOutScene) return
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
+    fadeTimerRef.current = setTimeout(() => setFadingOutScene(null), 700)
+  }, [fadingOutScene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current) }, [])
 
