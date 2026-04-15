@@ -76,6 +76,11 @@ export default function Stage({
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>(() => {
+    if (typeof window === 'undefined') return 'top-left'
+    return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
+  })
+  const prevSceneIdForVolRef = useRef<string | null>(null)
 
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -144,6 +149,14 @@ export default function Stage({
 
   // ── Audio: combined reset + autoplay ─────────────────────────
   useEffect(() => {
+    // Save outgoing scene's volumes before cleanup
+    if (prevSceneIdForVolRef.current && Object.keys(audioRefs.current).length > 0) {
+      const savedVols: Record<string, number> = {}
+      Object.entries(audioRefs.current).forEach(([id, a]) => { savedVols[id] = a.volume })
+      try { localStorage.setItem(`sf_vol_${prevSceneIdForVolRef.current}`, JSON.stringify(savedVols)) } catch {}
+    }
+    prevSceneIdForVolRef.current = scene?.id ?? null
+
     Object.entries(audioRefs.current).forEach(([id, a]) => {
       const handlers = audioHandlers.current[id]
       if (handlers) {
@@ -174,14 +187,22 @@ export default function Stage({
   function getOrCreate(t: Track): HTMLAudioElement {
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
-      a.loop = t.loop; a.volume = t.volume; a.muted = muted
+      a.loop = t.loop; a.muted = muted
+      let vol = t.volume
+      if (scene?.id) {
+        try {
+          const saved = JSON.parse(localStorage.getItem(`sf_vol_${scene.id}`) || '{}')
+          if (typeof saved[t.id] === 'number') vol = saved[t.id]
+        } catch {}
+      }
+      a.volume = vol
       const playHandler  = () => setPlaying(p => ({ ...p, [t.id]: true  }))
       const pauseHandler = () => setPlaying(p => ({ ...p, [t.id]: false }))
       a.addEventListener('play',  playHandler)
       a.addEventListener('pause', pauseHandler)
       audioHandlers.current[t.id] = { play: playHandler, pause: pauseHandler }
       audioRefs.current[t.id] = a
-      setVolumes(v => ({ ...v, [t.id]: t.volume }))
+      setVolumes(v => ({ ...v, [t.id]: vol }))
     }
     return audioRefs.current[t.id]
   }
@@ -193,6 +214,14 @@ export default function Stage({
   function setVol(t: Track, val: number) {
     const a = getOrCreate(t); a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
+    if (scene?.id) {
+      try {
+        const key = `sf_vol_${scene.id}`
+        const saved = JSON.parse(localStorage.getItem(key) || '{}')
+        saved[t.id] = val
+        localStorage.setItem(key, JSON.stringify(saved))
+      } catch {}
+    }
   }
   function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
   function handleMute() {
@@ -317,8 +346,8 @@ export default function Stage({
         </div>
       )}
 
-      {/* ── Top-right: fullscreen + edit ── */}
-      <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
+      {/* ── Fullscreen button — opposite corner from mixer ── */}
+      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
         <button onClick={isFullscreen ? exitFullscreen : enterFullscreen}
           style={{ height: '44px', padding: '0 14px', background: 'rgba(13,14,22,0.82)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '8px', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {isFullscreen ? '✕' : '⛶'}
@@ -450,17 +479,29 @@ export default function Stage({
 
       {/* ── Audio Mixer ── */}
       {hasTracks && (
-        <div style={{ position: 'absolute', bottom: '14px', left: '14px', zIndex: 20, width: '240px' }}>
+        <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'left' : 'right']: '14px', zIndex: 20, width: '240px' }}>
           <div onClick={() => setExpanded(e => !e)}
-            style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: expanded ? '10px 10px 0 0' : '10px', padding: '0 14px', height: '44px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
+            style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: expanded ? '10px 10px 0 0' : '10px', padding: '0 10px', height: '44px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1, 0.6, 0.85, 0.45, 0.7].map((h, i) => (
                 <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.2)', height: `${Math.round(h * 16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6 + i * 0.15}s ease-in-out infinite alternate` : 'none' }} />
               ))}
             </div>
-            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1 }}>Audio</span>
-            {playingCount > 0 && <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700 }}>{playingCount} playing</span>}
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>{expanded ? '▲' : '▼'}</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1, minWidth: 0 }}>Audio</span>
+            {playingCount > 0 && <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                const next = mixerPos === 'top-left' ? 'top-right' : 'top-left'
+                setMixerPos(next)
+                localStorage.setItem('sf_mixer_pos', next)
+              }}
+              title={mixerPos === 'top-left' ? 'Move to top right' : 'Move to top left'}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '13px', cursor: 'pointer', padding: '0 2px', flexShrink: 0, lineHeight: 1, display: 'flex', alignItems: 'center' }}
+            >
+              {mixerPos === 'top-left' ? '▷' : '◁'}
+            </button>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{expanded ? '▲' : '▼'}</span>
           </div>
 
           {expanded && (
