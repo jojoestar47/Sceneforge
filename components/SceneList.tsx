@@ -11,17 +11,22 @@ interface Props {
   onDelete: (id: string) => void
   onEdit:   (id: string) => void
   onAdd:    () => void
+  onReorder?: (dragId: string, targetId: string) => void
 }
 
 export default function SceneList({
   scenes, activeSceneId, hasCampaign,
-  onSelect, onDelete, onEdit, onAdd,
+  onSelect, onDelete, onEdit, onAdd, onReorder,
 }: Props) {
   const [q, setQ] = useState('')
+  const [dragId,     setDragId]     = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
   const filtered = scenes.filter(s =>
     !q || s.name.toLowerCase().includes(q.toLowerCase())
   )
+
+  const canDrag = !q && !!onReorder
 
   function mediaUrl(m: Scene['bg']): string | null {
     if (!m) return null
@@ -54,26 +59,64 @@ export default function SceneList({
           </div>
         )}
         {filtered.map(sc => {
-          const active = sc.id === activeSceneId
-          const bgUrl  = mediaUrl(sc.bg)
-          const musicN = (sc.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3').length
-          const ambN   = (sc.tracks || []).filter(t => t.kind === 'ambience').length
+          const active  = sc.id === activeSceneId
+          const bgUrl   = mediaUrl(sc.bg)
+          const musicN  = (sc.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3').length
+          const ambN    = (sc.tracks || []).filter(t => t.kind === 'ambience').length
+          const isDragging = sc.id === dragId
+          const isOver     = sc.id === dragOverId && sc.id !== dragId
 
           return (
             <div
               key={sc.id}
+              draggable={canDrag}
+              onDragStart={canDrag ? e => {
+                setDragId(sc.id)
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', sc.id)
+              } : undefined}
+              onDragOver={canDrag ? e => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                if (sc.id !== dragId) setDragOverId(sc.id)
+              } : undefined}
+              onDragLeave={canDrag ? () => {
+                setDragOverId(prev => prev === sc.id ? null : prev)
+              } : undefined}
+              onDrop={canDrag ? e => {
+                e.preventDefault()
+                if (dragId && dragId !== sc.id && onReorder) onReorder(dragId, sc.id)
+                setDragId(null)
+                setDragOverId(null)
+              } : undefined}
+              onDragEnd={canDrag ? () => {
+                setDragId(null)
+                setDragOverId(null)
+              } : undefined}
               onClick={() => onSelect(sc.id)}
               onDoubleClick={() => onEdit(sc.id)}
               style={{
                 display: 'flex', alignItems: 'stretch', height: '60px',
-                borderBottom: '1px solid var(--border)', cursor: 'pointer',
-                transition: 'background .11s', position: 'relative', overflow: 'hidden',
+                borderBottom: '1px solid var(--border)', cursor: canDrag ? 'grab' : 'pointer',
+                transition: 'background .11s, opacity .11s', position: 'relative', overflow: 'hidden',
                 background: active ? 'var(--accent-bg)' : 'transparent',
                 borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
+                borderTop: isOver ? '2px solid var(--accent)' : undefined,
+                opacity: isDragging ? 0.4 : 1,
               }}
               onMouseEnter={e => { if (!active) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-hover)' }}
               onMouseLeave={e => { if (!active) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
             >
+              {/* Drag handle */}
+              {canDrag && (
+                <div style={{
+                  width: '14px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--text-3)', fontSize: '9px', letterSpacing: '-1px', userSelect: 'none', WebkitUserSelect: 'none',
+                }}>
+                  ⠿
+                </div>
+              )}
+
               {/* Thumb */}
               <div style={{ width: '84px', flexShrink: 0, background: 'var(--bg-raised)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {bgUrl

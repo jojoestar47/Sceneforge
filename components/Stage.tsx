@@ -41,6 +41,23 @@ export default function Stage({
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
+  // ── Scene crossfade transition ───────────────────────────────
+  const prevSceneRef   = useRef<Scene | null>(null)
+  const fadeTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [fadingOutScene, setFadingOutScene] = useState<Scene | null>(null)
+
+  useEffect(() => {
+    const prev = prevSceneRef.current
+    prevSceneRef.current = scene ?? null
+    if (prev && prev.id !== scene?.id) {
+      setFadingOutScene(prev)
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
+      fadeTimerRef.current = setTimeout(() => setFadingOutScene(null), 700)
+    }
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => { if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current) }, [])
+
   // ── Audio ────────────────────────────────────────────────────
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
   const audioHandlers          = useRef<Record<string, { play: () => void; pause: () => void }>>({})
@@ -181,8 +198,27 @@ export default function Stage({
       ref={wrapperRef}
       style={{ flex: 1, position: 'relative', background: '#080a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
+      {/* ── Fading-out previous scene background ── */}
+      {fadingOutScene && (() => {
+        const fBgUrl = mediaUrl(fadingOutScene.bg)
+        const fOvUrl = mediaUrl(fadingOutScene.overlay)
+        return (
+          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, animation: 'sceneFadeOut 0.7s ease forwards', pointerEvents: 'none' }}>
+            {fBgUrl && (fadingOutScene.bg?.type === 'video'
+              ? <video src={fBgUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img src={fBgUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            )}
+            {fBgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
+            {fOvUrl && (fadingOutScene.overlay?.type === 'video'
+              ? <video src={fOvUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img src={fOvUrl} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            )}
+          </div>
+        )
+      })()}
+
       {/* ── Background (clipped) ── */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0 }}>
+      <div key={scene.id} style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1, animation: 'sceneFadeIn 0.7s ease forwards' }}>
         {bgUrl && (
           scene.bg?.type === 'video'
             ? <video key={bgUrl} src={bgUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -223,7 +259,7 @@ export default function Stage({
       )}
 
       {/* ── Scene name ── */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5 }}>
+      <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 0.7s ease forwards' }}>
         {scene.name}
       </div>
 
@@ -397,6 +433,8 @@ export default function Stage({
         @keyframes audioBar2{from{height:13px}to{height:6px}}
         @keyframes audioBar3{from{height:5px}to{height:14px}}
         @keyframes audioBar4{from{height:11px}to{height:4px}}
+        @keyframes sceneFadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes sceneFadeOut{from{opacity:1}to{opacity:0}}
       `}</style>
     </div>
   )

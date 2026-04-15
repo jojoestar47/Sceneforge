@@ -248,6 +248,20 @@ export default function AppPage() {
 
   async function signOut() { await supabase.auth.signOut(); window.location.href = '/login' }
 
+  async function handleReorder(dragId: string, targetId: string) {
+    const copy     = [...scenes]
+    const fromIdx  = copy.findIndex(s => s.id === dragId)
+    const toIdx    = copy.findIndex(s => s.id === targetId)
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return
+    const [item]   = copy.splice(fromIdx, 1)
+    copy.splice(toIdx, 0, item)
+    const updated  = copy.map((s, i) => ({ ...s, order_index: i }))
+    setScenes(updated)
+    await Promise.all(updated.map(s =>
+      supabase.from('scenes').update({ order_index: s.order_index }).eq('id', s.id)
+    ))
+  }
+
   async function deleteScene(id: string) {
     const sc = scenes.find(s => s.id === id)
     if (!sc || !confirm(`Delete scene "${sc.name}"?`)) return
@@ -344,7 +358,7 @@ export default function AppPage() {
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
             <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{scenes.length} total</span>
           </div>
-          <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} />
+          <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} onReorder={handleReorder} />
         </div>
       </div>
 
