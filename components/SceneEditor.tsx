@@ -306,7 +306,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', flexShrink: 0 }}>Scale</span>
                             <input
                               type="range"
-                              min={0.5} max={1.5} step={0.05}
+                              min={0.5} max={2.5} step={0.05}
                               value={scaleValue}
                               onChange={e => setDraft(d => ({ ...d, [scaleKey]: Number(e.target.value) }))}
                               style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer' }}
