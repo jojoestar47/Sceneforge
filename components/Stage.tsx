@@ -32,6 +32,8 @@ function mediaUrl(m: Scene['bg']): string | null {
   return m.signed_url || m.url || null
 }
 
+interface BgLayer { scene: Scene | null; opacity: number }
+
 const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
@@ -41,32 +43,31 @@ export default function Stage({
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
-  // ── Scene crossfade transition ───────────────────────────────
-  // We capture the previous scene *during render* (derived-state pattern) so
-  // the fade-out layer and the fade-in layer both appear in the same React
-  // commit — avoiding the 1-2 frame black flash that happens when the
-  // fade-out state is set in a useEffect (which fires after the render).
-  const prevSceneRef   = useRef<Scene | null>(scene ?? null)
-  const fadeTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [prevSceneId,    setPrevSceneId]    = useState<string | null>(scene?.id ?? null)
-  const [fadingOutScene, setFadingOutScene] = useState<Scene | null>(null)
+  // ── Scene crossfade (two stable layers) ─────────────────────
+  // Two always-mounted bg divs (A and B) swap opacity via CSS transition.
+  // The inactive layer (opacity 0) receives the new scene content; because
+  // it's invisible the video remount is undetectable. No key changes on the
+  // layer wrappers means running videos are never interrupted.
+  const [layerA, setLayerA] = useState<BgLayer>(() => ({ scene: scene ?? null, opacity: scene ? 1 : 0 }))
+  const [layerB, setLayerB] = useState<BgLayer>(() => ({ scene: null, opacity: 0 }))
+  const frontLayerRef  = useRef<'a' | 'b'>('a')
+  const prevSceneIdRef = useRef<string | null>(scene?.id ?? null)
 
-  if (scene?.id !== prevSceneId) {
-    const prev = prevSceneRef.current
-    setPrevSceneId(scene?.id ?? null)
-    if (prev && prev.id !== scene?.id) setFadingOutScene(prev)
+  // Derived-state swap: runs during render so both layers commit together
+  if (scene?.id !== prevSceneIdRef.current) {
+    prevSceneIdRef.current = scene?.id ?? null
+    if (scene) {
+      if (frontLayerRef.current === 'a') {
+        setLayerB({ scene, opacity: 1 })
+        setLayerA(prev => ({ ...prev, opacity: 0 }))
+        frontLayerRef.current = 'b'
+      } else {
+        setLayerA({ scene, opacity: 1 })
+        setLayerB(prev => ({ ...prev, opacity: 0 }))
+        frontLayerRef.current = 'a'
+      }
+    }
   }
-  // Keep ref pointing at whatever scene is currently being rendered.
-  // This also runs on the "discarded" pass so the ref is always up-to-date.
-  prevSceneRef.current = scene ?? null
-
-  useEffect(() => {
-    if (!fadingOutScene) return
-    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
-    fadeTimerRef.current = setTimeout(() => setFadingOutScene(null), 700)
-  }, [fadingOutScene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => () => { if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current) }, [])
 
   // ── Audio ────────────────────────────────────────────────────
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
@@ -194,8 +195,7 @@ export default function Stage({
     )
   }
 
-  const bgUrl        = mediaUrl(scene.bg)
-  const ovUrl        = mediaUrl(scene.overlay)
+  const bgUrl        = mediaUrl(scene.bg)   // used for "no bg" placeholder check only
   const allTracks    = scene.tracks || []
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
@@ -208,38 +208,40 @@ export default function Stage({
       ref={wrapperRef}
       style={{ flex: 1, position: 'relative', background: '#080a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      {/* ── Fading-out previous scene background ── */}
-      {fadingOutScene && (() => {
-        const fBgUrl = mediaUrl(fadingOutScene.bg)
-        const fOvUrl = mediaUrl(fadingOutScene.overlay)
-        return (
-          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, animation: 'sceneFadeOut 0.7s ease forwards', pointerEvents: 'none' }}>
-            {fBgUrl && (fadingOutScene.bg?.type === 'video'
-              ? <video src={fBgUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <img src={fBgUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      {/* ── Background layer A ── */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+        {layerA.scene && (() => {
+          const lBg = mediaUrl(layerA.scene.bg);  const lOv = mediaUrl(layerA.scene.overlay)
+          return (<>
+            {lBg && (layerA.scene.bg?.type === 'video'
+              ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             )}
-            {fBgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-            {fOvUrl && (fadingOutScene.overlay?.type === 'video'
-              ? <video src={fOvUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <img src={fOvUrl} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
+            {lOv && (layerA.scene.overlay?.type === 'video'
+              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
             )}
-          </div>
-        )
-      })()}
+          </>)
+        })()}
+      </div>
 
-      {/* ── Background (clipped) ── */}
-      <div key={scene.id} style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1, animation: 'sceneFadeIn 0.7s ease forwards' }}>
-        {bgUrl && (
-          scene.bg?.type === 'video'
-            ? <video key={bgUrl} src={bgUrl} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <img    key={bgUrl} src={bgUrl} alt=""  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-        )}
-        {bgUrl && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-        {ovUrl && (
-          scene.overlay?.type === 'video'
-            ? <video key={ovUrl} src={ovUrl} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <img    key={ovUrl} src={ovUrl} alt=""  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-        )}
+      {/* ── Background layer B ── */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+        {layerB.scene && (() => {
+          const lBg = mediaUrl(layerB.scene.bg);  const lOv = mediaUrl(layerB.scene.overlay)
+          return (<>
+            {lBg && (layerB.scene.bg?.type === 'video'
+              ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            )}
+            {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
+            {lOv && (layerB.scene.overlay?.type === 'video'
+              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            )}
+          </>)
+        })()}
       </div>
 
       {/* ── Characters ── */}
@@ -269,7 +271,7 @@ export default function Stage({
       )}
 
       {/* ── Scene name ── */}
-      <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 0.7s ease forwards' }}>
+      <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
         {scene.name}
       </div>
 
@@ -444,7 +446,6 @@ export default function Stage({
         @keyframes audioBar3{from{height:5px}to{height:14px}}
         @keyframes audioBar4{from{height:11px}to{height:4px}}
         @keyframes sceneFadeIn{from{opacity:0}to{opacity:1}}
-        @keyframes sceneFadeOut{from{opacity:1}to{opacity:0}}
       `}</style>
     </div>
   )
