@@ -332,6 +332,7 @@ export default function AppPage() {
           hasCampaign={!!activeCampId}
           onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
           characters={activeCharacters}
+          slotScales={slotScales}
           campaignCharacters={sceneRosterChars}
           onCharactersChange={handleCharactersChange}
         />

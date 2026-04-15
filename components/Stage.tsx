@@ -77,7 +77,7 @@ export default function Stage({
   }, [])
 
   // ── Character picker state (DM only) ─────────────────────────
-  const [pickerSlot, setPickerSlot]   = useState<'left' | 'right' | null>(null)
+  const [pickerSlot, setPickerSlot]   = useState<'left' | 'center' | 'right' | null>(null)
   const [charSearch, setCharSearch]   = useState('')
 
   const filteredChars = (campaignCharacters || []).filter(c =>
@@ -91,7 +91,7 @@ export default function Stage({
     setCharSearch('')
   }
 
-  function removeCharacter(slot: 'left' | 'right') {
+  function removeCharacter(slot: 'left' | 'center' | 'right') {
     if (!onCharactersChange || !characters) return
     onCharactersChange({ ...characters, [slot]: null })
   }
