@@ -37,6 +37,7 @@ export default function AppPage() {
 
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
+  const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
   const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, right: null })
   // Ref so the Realtime callback always reads the current roster without
   // needing campaignCharacters in the effect's dependency array (which would
@@ -105,13 +106,22 @@ export default function AppPage() {
       .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
   }, [activeCampId])
 
-  // ── Clear stage characters when scene changes ────────────────
-  // Characters are NOT auto-loaded from scene_characters on switch —
-  // the DM places them manually via the stage slot buttons.
-  // scene_characters is only used by SceneEditor for planning/defaults.
+  // ── On scene change: clear stage slots + load this scene's roster ──
+  // Stage slots always start empty — the DM places characters manually.
+  // sceneRosterChars is the list of characters pre-assigned to this scene
+  // in the editor; only those appear in the stage slot picker.
   useEffect(() => {
     setActiveCharacters({ left: null, right: null })
-  }, [activeSceneId])
+    if (!activeSceneId) { setSceneRosterChars([]); return }
+    supabase.from('scene_characters')
+      .select('*, character:characters(*)')
+      .eq('scene_id', activeSceneId)
+      .then(({ data }) => {
+        if (!data) { setSceneRosterChars([]); return }
+        const chars = data.map(r => r.character as Character).filter(Boolean)
+        setSceneRosterChars(chars)
+      })
+  }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load existing live session ────────────────────────────────
   const loadSession = useCallback(async (campId: string) => {
@@ -242,6 +252,15 @@ export default function AppPage() {
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
         .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
     }
+    // Refresh this scene's roster — the editor may have changed which characters
+    // are assigned, so the stage slot picker needs to reflect the new list.
+    supabase.from('scene_characters')
+      .select('*, character:characters(*)')
+      .eq('scene_id', saved.id)
+      .then(({ data }) => {
+        if (!data) { setSceneRosterChars([]); return }
+        setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+      })
   }
 
   function copyUrl() {
@@ -300,7 +319,7 @@ export default function AppPage() {
           hasCampaign={!!activeCampId}
           onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
           characters={activeCharacters}
-          campaignCharacters={campaignCharacters}
+          campaignCharacters={sceneRosterChars}
           onCharactersChange={handleCharactersChange}
         />
         <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
