@@ -45,7 +45,7 @@ export default function ViewerPage() {
   // ── Characters ────────────────────────────────────────────────
   const [characters, setCharacters] = useState<{ left: Character | null; right: Character | null }>({ left: null, right: null })
 
-  async function loadCharactersFromState(state: CharacterState | null) {
+  const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
     if (!state) { setCharacters({ left: null, right: null }); return }
     const fetchChar = async (id: string | null): Promise<Character | null> => {
       if (!id) return null
@@ -54,10 +54,11 @@ export default function ViewerPage() {
     }
     const [l, r] = await Promise.all([fetchChar(state.left), fetchChar(state.right)])
     setCharacters({ left: l, right: r })
-  }
+  }, [supabase])
 
   // ── Audio ─────────────────────────────────────────────────────
   const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
+  const audioHandlers         = useRef<Record<string, { play: () => void; pause: () => void }>>({})
   const hasInteracted         = useRef(false)
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [playing, setPlaying] = useState<Record<string, boolean>>({})
@@ -88,8 +89,11 @@ export default function ViewerPage() {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
       const a   = new Audio(src)
       a.loop = t.loop; a.volume = t.volume; a.muted = muted
-      a.addEventListener('play',  () => setPlaying(p => ({ ...p, [t.id]: true  })))
-      a.addEventListener('pause', () => setPlaying(p => ({ ...p, [t.id]: false })))
+      const playHandler  = () => setPlaying(p => ({ ...p, [t.id]: true  }))
+      const pauseHandler = () => setPlaying(p => ({ ...p, [t.id]: false }))
+      a.addEventListener('play',  playHandler)
+      a.addEventListener('pause', pauseHandler)
+      audioHandlers.current[t.id] = { play: playHandler, pause: pauseHandler }
       audioRefs.current[t.id] = a
       setVolumes(v => ({ ...v, [t.id]: t.volume }))
     }
@@ -106,8 +110,15 @@ export default function ViewerPage() {
 
   // ── Combined reset + autoplay ─────────────────────────────────
   useEffect(() => {
-    Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
-    audioRefs.current = {}; setVolumes({}); setPlaying({})
+    Object.entries(audioRefs.current).forEach(([id, a]) => {
+      const handlers = audioHandlers.current[id]
+      if (handlers) {
+        a.removeEventListener('play',  handlers.play)
+        a.removeEventListener('pause', handlers.pause)
+      }
+      a.pause(); a.src = ''
+    })
+    audioRefs.current = {}; audioHandlers.current = {}; setVolumes({}); setPlaying({})
 
     if (!scene?.tracks?.length) return
     const musicTracks = scene.tracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
@@ -150,7 +161,7 @@ export default function ViewerPage() {
       loadScene(data.active_scene_id),
       loadCharactersFromState(data.character_state as CharacterState | null),
     ])
-  }, [joinCode, loadScene]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [joinCode, loadScene, loadCharactersFromState])
 
   useEffect(() => { loadSession() }, [loadSession])
 
@@ -174,7 +185,7 @@ export default function ViewerPage() {
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [joinCode, loadScene]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [joinCode, loadScene, loadCharactersFromState])
 
   const allTracks    = scene?.tracks || []
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')

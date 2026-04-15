@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { MediaRef, Scene, Track } from '@/lib/types'
 
 const BUCKET   = 'scene-media'
-const EXPIRES  = 60 * 60 // 1 hour
+const EXPIRES  = 8 * 60 * 60 // 8 hours — gives headroom for long sessions
+const UPLOAD_TIMEOUT_MS = 120_000 // 2 minutes max per upload
 
 /** Upload a file to Storage, return the storage_path */
 export async function uploadMedia(
@@ -12,10 +13,17 @@ export async function uploadMedia(
 ): Promise<string> {
   const ext  = file.name.split('.').pop()
   const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+
+  const uploadPromise = supabase.storage.from(BUCKET).upload(path, file, {
     cacheControl: '3600',
     upsert: false,
   })
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Upload timed out — please check your connection and try again.')), UPLOAD_TIMEOUT_MS)
+  )
+
+  const { error } = await Promise.race([uploadPromise, timeoutPromise])
   if (error) throw error
   return path
 }

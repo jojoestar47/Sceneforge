@@ -35,6 +35,7 @@ export default function Stage({
 
   // ── Audio ────────────────────────────────────────────────────
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
+  const audioHandlers          = useRef<Record<string, { play: () => void; pause: () => void }>>({})
   const [volumes, setVolumes]  = useState<Record<string, number>>({})
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
@@ -89,8 +90,16 @@ export default function Stage({
 
   // ── Audio: combined reset + autoplay ─────────────────────────
   useEffect(() => {
-    Object.values(audioRefs.current).forEach(a => { a.pause(); a.src = '' })
+    Object.entries(audioRefs.current).forEach(([id, a]) => {
+      const handlers = audioHandlers.current[id]
+      if (handlers) {
+        a.removeEventListener('play',  handlers.play)
+        a.removeEventListener('pause', handlers.pause)
+      }
+      a.pause(); a.src = ''
+    })
     audioRefs.current = {}
+    audioHandlers.current = {}
     setVolumes({})
     setPlaying({})
 
@@ -112,8 +121,11 @@ export default function Stage({
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
       a.loop = t.loop; a.volume = t.volume; a.muted = muted
-      a.addEventListener('play',  () => setPlaying(p => ({ ...p, [t.id]: true  })))
-      a.addEventListener('pause', () => setPlaying(p => ({ ...p, [t.id]: false })))
+      const playHandler  = () => setPlaying(p => ({ ...p, [t.id]: true  }))
+      const pauseHandler = () => setPlaying(p => ({ ...p, [t.id]: false }))
+      a.addEventListener('play',  playHandler)
+      a.addEventListener('pause', pauseHandler)
+      audioHandlers.current[t.id] = { play: playHandler, pause: pauseHandler }
       audioRefs.current[t.id] = a
       setVolumes(v => ({ ...v, [t.id]: t.volume }))
     }

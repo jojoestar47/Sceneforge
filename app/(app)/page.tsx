@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls } from '@/lib/supabase/storage'
 import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
@@ -9,7 +9,10 @@ import SceneList   from '@/components/SceneList'
 import SceneEditor from '@/components/SceneEditor'
 
 function makeJoinCode(): string {
-  return Math.random().toString(36).substr(2, 6).toUpperCase()
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const bytes = new Uint8Array(6)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes).map(b => chars[b % chars.length]).join('')
 }
 
 interface ActiveCharacters {
@@ -35,6 +38,15 @@ export default function AppPage() {
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, right: null })
+  // Ref so the Realtime callback always reads the current roster without
+  // needing campaignCharacters in the effect's dependency array (which would
+  // tear down and re-subscribe the channel on every roster change).
+  const campaignCharactersRef = useRef<Character[]>([])
+
+  // Mirror scenes in a ref so the URL-refresh interval always sees the latest list
+  // without needing scenes in its dependency array (which would reset the timer).
+  const scenesRef = useRef<Scene[]>([])
+  useEffect(() => { scenesRef.current = scenes }, [scenes])
 
   // ── Session / Live Presenting ──────────────────────────────────
   const [sessionId,      setSessionId]      = useState<string | null>(null)
@@ -71,6 +83,20 @@ export default function AppPage() {
     if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId) }
     else setScenes([])
   }, [activeCampId, loadScenes])
+
+  // ── Refresh signed URLs every 6 hours so media never expires mid-session ──
+  useEffect(() => {
+    if (!activeCampId) return
+    const interval = setInterval(async () => {
+      if (!scenesRef.current.length) return
+      const refreshed = await resolveSceneUrls(supabase, scenesRef.current)
+      setScenes(refreshed)
+    }, 6 * 60 * 60 * 1000) // matches the 8h expiry with margin
+    return () => clearInterval(interval)
+  }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the ref in sync with state so closures always see fresh data
+  useEffect(() => { campaignCharactersRef.current = campaignCharacters }, [campaignCharacters])
 
   // ── Load campaign characters ──────────────────────────────────
   useEffect(() => {
@@ -109,6 +135,21 @@ export default function AppPage() {
     else { setSessionId(null); setJoinCode(null); setIsLive(false) }
   }, [activeCampId, loadSession])
 
+  // ── Sync character state from a Realtime payload ─────────────
+  // Uses campaignCharactersRef (not state) so it never goes stale in the
+  // Realtime callback without requiring a channel re-subscribe.
+  const syncCharacterState = useCallback(async (state: CharacterState) => {
+    const fetchIfNeeded = async (id: string | null): Promise<Character | null> => {
+      if (!id) return null
+      const found = campaignCharactersRef.current.find(c => c.id === id)
+      if (found) return found
+      const { data } = await supabase.from('characters').select('*').eq('id', id).single()
+      return data as Character | null
+    }
+    const [l, r] = await Promise.all([fetchIfNeeded(state.left), fetchIfNeeded(state.right)])
+    setActiveCharacters({ left: l, right: r })
+  }, [supabase])
+
   // ── Realtime: sync from other devices ────────────────────────
   useEffect(() => {
     if (!sessionId) return
@@ -117,29 +158,12 @@ export default function AppPage() {
         (payload) => {
           const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null }
           if (!row.is_live) { setIsLive(false); setSessionId(null); setJoinCode(null); return }
-          if (row.active_scene_id && row.active_scene_id !== activeSceneId)
-            setActiveSceneId(row.active_scene_id)
-          // Sync character state from other device
+          if (row.active_scene_id) setActiveSceneId(row.active_scene_id)
           if (row.character_state) syncCharacterState(row.character_state)
         }
       ).subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function syncCharacterState(state: CharacterState) {
-    const leftChar  = state.left  ? campaignCharacters.find(c => c.id === state.left)  || null : null
-    const rightChar = state.right ? campaignCharacters.find(c => c.id === state.right) || null : null
-    // If not found in local cache, fetch from DB
-    const fetchIfNeeded = async (id: string | null): Promise<Character | null> => {
-      if (!id) return null
-      const found = campaignCharacters.find(c => c.id === id)
-      if (found) return found
-      const { data } = await supabase.from('characters').select('*').eq('id', id).single()
-      return data as Character | null
-    }
-    const [l, r] = await Promise.all([fetchIfNeeded(state.left), fetchIfNeeded(state.right)])
-    setActiveCharacters({ left: l, right: r })
-  }
+  }, [sessionId, syncCharacterState])
 
   const activeCampaign = campaigns.find(c => c.id === activeCampId) || null
   const activeScene    = scenes.find(s => s.id === activeSceneId)   || null

@@ -54,8 +54,9 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const [error, setError]   = useState('')
 
   // Campaign characters (for search + picker)
-  const [campaignChars, setCampaignChars] = useState<Character[]>([])
-  const [charSearch, setCharSearch]       = useState('')
+  const [campaignChars, setCampaignChars]   = useState<Character[]>([])
+  const [charsLoading, setCharsLoading]     = useState(false)
+  const [charSearch, setCharSearch]         = useState('')
   const [charPickerSlot, setCharPickerSlot] = useState<'left' | 'right' | null>(null)
 
   // New character upload state
@@ -76,8 +77,10 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   // Load all campaign characters
   useEffect(() => {
     if (!campaignId) return
+    setCharsLoading(true)
     supabase.from('characters').select('*').eq('campaign_id', campaignId).order('name')
       .then(({ data }) => { if (data) setCampaignChars(data as Character[]) })
+      .finally(() => setCharsLoading(false))
   }, [campaignId])
 
   // Load scene's current character assignments
@@ -167,11 +170,13 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
 
       // Tracks
       if (scene?.id) await supabase.from('tracks').delete().eq('scene_id', sceneId!)
-      const trackInserts = await Promise.all(draft.tracks.map(async (t, i) => {
+      const trackInserts = (await Promise.all(draft.tracks.map(async (t, i) => {
         let storagePath = t.storage_path, fileName = t.file_name, url = t.url || null
         if (t._file) { storagePath = await uploadMedia(supabase, userId, t._file); fileName = t._file.name; url = null }
+        // Skip tracks that have no playable source — they'd appear in the UI but never play
+        if (!storagePath && !url) return null
         return { scene_id: sceneId!, kind: t.kind, name: t.name, url, storage_path: storagePath || null, file_name: fileName || null, loop: t.loop, volume: t.volume, order_index: i }
-      }))
+      }))).filter((t): t is NonNullable<typeof t> => t !== null)
       if (trackInserts.length) await supabase.from('tracks').insert(trackInserts)
 
       // Scene characters — delete existing, re-insert
@@ -290,12 +295,17 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                               style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }}
                             />
                             <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              {filteredChars.length === 0 && (
+                              {charsLoading && (
+                                <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
+                                  Loading characters…
+                                </div>
+                              )}
+                              {!charsLoading && filteredChars.length === 0 && (
                                 <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
                                   {campaignChars.length === 0 ? 'No characters yet — create one below' : 'No matches'}
                                 </div>
                               )}
-                              {filteredChars.map(c => (
+                              {!charsLoading && filteredChars.map(c => (
                                 <button key={c.id} onClick={() => { setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : 'characterRight']: c })); setCharPickerSlot(null); setCharSearch('') }}
                                   style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', width: '100%', textAlign: 'left' }}
                                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
