@@ -261,8 +261,9 @@ export default function ViewerPage() {
   return (
     <div ref={wrapperRef} style={{ ...fsStyle, overflow: 'hidden' }}>
 
-      {/* Background layer A */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+      {/* Background layer A — isolation:isolate prevents Android Chrome's GPU-
+          composited video layer from breaking above UI siblings in z-index. */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {vLayerA.scene && (() => {
           const lBg = pubUrl(vLayerA.scene.bg);  const lOv = pubUrl(vLayerA.scene.overlay)
           return (<>
@@ -280,7 +281,7 @@ export default function ViewerPage() {
       </div>
 
       {/* Background layer B */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {vLayerB.scene && (() => {
           const lBg = pubUrl(vLayerB.scene.bg);  const lOv = pubUrl(vLayerB.scene.overlay)
           return (<>
