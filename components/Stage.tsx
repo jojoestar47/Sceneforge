@@ -119,6 +119,13 @@ export default function Stage({
   // when preventDefault is called in some WebView versions).
   const pickerOpenTimeRef = useRef(0)
 
+  // Close picker whenever the scene changes so the click-away overlay
+  // doesn't get stuck across scene switches on Android.
+  useEffect(() => {
+    setPickerSlot(null)
+    setCharSearch('')
+  }, [scene?.id])
+
   const filteredChars = (campaignCharacters || []).filter(c =>
     !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
   )
@@ -217,10 +224,25 @@ export default function Stage({
   return (
     <div
       ref={wrapperRef}
-      style={{ flex: 1, position: 'relative', background: '#080a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{
+        // When fullscreen, flex:1 loses its meaning (the parent flex container
+        // is no longer in play). Android Chrome doesn't resolve flex-based
+        // height for the fullscreen element's containing block, so absolute
+        // children with height:'88%' collapse to 0. Use explicit viewport
+        // dimensions instead so position:absolute children size correctly.
+        flex: isFullscreen ? undefined : 1,
+        width:  isFullscreen ? '100dvw' : undefined,
+        height: isFullscreen ? '100dvh' : undefined,
+        position: 'relative',
+        background: '#080a10',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
     >
-      {/* ── Background layer A ── */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+      {/* ── Background layer A — isolation:isolate prevents Android Chrome's
+          GPU-composited video layer from breaking above UI siblings. ── */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {layerA.scene && (() => {
           const lBg = mediaUrl(layerA.scene.bg);  const lOv = mediaUrl(layerA.scene.overlay)
           return (<>
@@ -238,7 +260,7 @@ export default function Stage({
       </div>
 
       {/* ── Background layer B ── */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {layerB.scene && (() => {
           const lBg = mediaUrl(layerB.scene.bg);  const lOv = mediaUrl(layerB.scene.overlay)
           return (<>

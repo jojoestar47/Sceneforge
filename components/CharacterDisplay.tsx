@@ -39,6 +39,12 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
         alignItems: 'center',
         justifyContent: 'flex-end',
         pointerEvents: 'none',
+        // Scale lives here so it's always at the correct value.
+        // Keeping it off the <img> means the entrance animation on the
+        // img can use its own transform (translateY) without overriding
+        // or conflicting with the scale during the animation.
+        transform: `scale(${scale})`,
+        transformOrigin: 'bottom center',
       }}
     >
       {imageUrl && (
@@ -51,13 +57,10 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
             width: '100%',
             objectFit: 'contain',
             objectPosition: 'bottom center',
-            // Scale from the feet so the character grows/shrinks upward
-            transform: `scale(${scale})`,
-            transformOrigin: 'bottom center',
-            // Drop shadow gives depth — makes the character feel "in front of" the scene
             filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(0,0,0,0.5))',
-            // Slight fade-in when character appears
-            animation: 'charFadeIn 0.35s ease-out',
+            // Only translateY + opacity — scale is on the parent so it
+            // loads at the correct size from the very first frame.
+            animation: 'charFadeIn 0.4s ease-out',
           }}
         />
       )}
@@ -89,7 +92,7 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
 
       <style>{`
         @keyframes charFadeIn {
-          from { opacity: 0; transform: translateY(12px); }
+          from { opacity: 0; transform: translateY(20px); }
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
