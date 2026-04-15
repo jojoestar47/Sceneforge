@@ -28,13 +28,8 @@ interface Draft {
   name: string; location: string; notes: string; dynamic_music: boolean
   bg: MediaRef | null; overlay: MediaRef | null; tracks: TrackDraft[]
   _bgFile?: File; _ovFile?: File
-  // Characters
-  characterLeft:        Character | null
-  characterCenter:      Character | null
-  characterRight:       Character | null
-  characterLeftScale:   number
-  characterCenterScale: number
-  characterRightScale:  number
+  // Characters — flat pool, no pre-assigned positions
+  characterPool: Array<{ character: Character; scale: number }>
 }
 
 function blankDraft(scene: Scene | null): Draft {
@@ -46,8 +41,7 @@ function blankDraft(scene: Scene | null): Draft {
     notes: scene?.notes || '', dynamic_music: scene?.dynamic_music || false,
     bg: scene?.bg || null, overlay: scene?.overlay || null,
     tracks: [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
-    characterLeft: null, characterCenter: null, characterRight: null,
-    characterLeftScale: 1, characterCenterScale: 1, characterRightScale: 1,
+    characterPool: [],
   }
 }
 
@@ -59,13 +53,13 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const [error, setError]   = useState('')
 
   // Campaign characters (for search + picker)
-  const [campaignChars, setCampaignChars]   = useState<Character[]>([])
-  const [charsLoading, setCharsLoading]     = useState(false)
-  const [charSearch, setCharSearch]         = useState('')
-  const [charPickerSlot, setCharPickerSlot] = useState<'left' | 'center' | 'right' | null>(null)
+  const [campaignChars, setCampaignChars] = useState<Character[]>([])
+  const [charsLoading, setCharsLoading]   = useState(false)
+  const [charSearch, setCharSearch]       = useState('')
+  const [charPickerOpen, setCharPickerOpen] = useState(false)
 
   // New character upload state
-  const [newCharSlot, setNewCharSlot] = useState<'left' | 'center' | 'right' | null>(null)
+  const [newCharOpen, setNewCharOpen] = useState(false)
   const [newCharName, setNewCharName] = useState('')
   const [newCharFile, setNewCharFile] = useState<File | null>(null)
   const [newCharUrl,  setNewCharUrl]  = useState('')
@@ -75,8 +69,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
     setDraft(blankDraft(scene))
     setTab('scene')
     setError('')
-    setCharPickerSlot(null)
-    setNewCharSlot(null)
+    setCharPickerOpen(false)
+    setNewCharOpen(false)
   }, [scene?.id])
 
   // Load all campaign characters
@@ -88,24 +82,16 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       .finally(() => setCharsLoading(false))
   }, [campaignId])
 
-  // Load scene's current character assignments (including scale)
+  // Load scene's character pool
   useEffect(() => {
     if (!scene?.id) return
     supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', scene.id)
       .then(({ data }) => {
         if (!data) return
-        const leftRow   = data.find(r => r.position === 'left')
-        const centerRow = data.find(r => r.position === 'center')
-        const rightRow  = data.find(r => r.position === 'right')
-        setDraft(d => ({
-          ...d,
-          characterLeft:        (leftRow?.character   as Character | undefined) || null,
-          characterCenter:      (centerRow?.character as Character | undefined) || null,
-          characterRight:       (rightRow?.character  as Character | undefined) || null,
-          characterLeftScale:   leftRow?.scale   ?? 1,
-          characterCenterScale: centerRow?.scale ?? 1,
-          characterRightScale:  rightRow?.scale  ?? 1,
-        }))
+        const pool = data
+          .map(r => ({ character: r.character as Character, scale: r.scale ?? 1 }))
+          .filter(e => !!e.character)
+        setDraft(d => ({ ...d, characterPool: pool }))
       })
   }, [scene?.id])
 
@@ -115,13 +101,15 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const removeTrack = (idx: number) =>
     setDraft(d => ({ ...d, tracks: d.tracks.filter((_, i) => i !== idx) }))
 
+  const poolIds = new Set(draft.characterPool.map(e => e.character.id))
   const filteredChars = campaignChars.filter(c =>
-    !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
+    !poolIds.has(c.id) &&
+    (!charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase()))
   )
 
-  // Create a new character + assign to slot
+  // Create a new character + add to pool
   async function createCharacter() {
-    if (!newCharSlot || (!newCharFile && !newCharUrl) || !newCharName.trim()) return
+    if ((!newCharFile && !newCharUrl) || !newCharName.trim()) return
     setNewCharSaving(true)
     try {
       let storagePath: string | undefined
@@ -141,8 +129,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       if (data) {
         const newChar = data as Character
         setCampaignChars(prev => [...prev, newChar].sort((a, b) => a.name.localeCompare(b.name)))
-        setDraft(d => ({ ...d, [newCharSlot === 'left' ? 'characterLeft' : newCharSlot === 'center' ? 'characterCenter' : 'characterRight']: newChar }))
-        setNewCharSlot(null); setNewCharName(''); setNewCharFile(null); setNewCharUrl('')
+        setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: newChar, scale: 1 }] }))
+        setNewCharOpen(false); setNewCharName(''); setNewCharFile(null); setNewCharUrl('')
       }
     } catch (e) {
       setError('Failed to create character')
@@ -193,12 +181,14 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       }))).filter((t): t is NonNullable<typeof t> => t !== null)
       if (trackInserts.length) await supabase.from('tracks').insert(trackInserts)
 
-      // Scene characters — delete existing, re-insert
+      // Scene characters — delete existing, re-insert pool (no position)
       await supabase.from('scene_characters').delete().eq('scene_id', sceneId!)
-      const charInserts = []
-      if (draft.characterLeft)   charInserts.push({ scene_id: sceneId!, character_id: draft.characterLeft.id,   position: 'left',   scale: draft.characterLeftScale   })
-      if (draft.characterCenter) charInserts.push({ scene_id: sceneId!, character_id: draft.characterCenter.id, position: 'center', scale: draft.characterCenterScale })
-      if (draft.characterRight)  charInserts.push({ scene_id: sceneId!, character_id: draft.characterRight.id,  position: 'right',  scale: draft.characterRightScale  })
+      const charInserts = draft.characterPool.map(e => ({
+        scene_id:     sceneId!,
+        character_id: e.character.id,
+        position:     null,
+        scale:        e.scale,
+      }))
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
       const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId!).single()
@@ -263,129 +253,130 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
 
                 {/* CHARACTERS */}
                 <Section title="Characters">
-                  {(['left', 'center', 'right'] as const).map(slot => {
-                    const current     = slot === 'left' ? draft.characterLeft   : slot === 'center' ? draft.characterCenter   : draft.characterRight
-                    const scaleKey    = slot === 'left' ? 'characterLeftScale'  : slot === 'center' ? 'characterCenterScale'  : 'characterRightScale'
-                    const scaleValue  = slot === 'left' ? draft.characterLeftScale : slot === 'center' ? draft.characterCenterScale : draft.characterRightScale
-                    const imgUrl      = current ? characterImageUrl(current) : null
-                    const isPickerOpen = charPickerSlot === slot
-                    const isNewOpen    = newCharSlot === slot
+                  {/* Pool entries */}
+                  {draft.characterPool.map((entry, idx) => {
+                    const imgUrl = characterImageUrl(entry.character)
                     return (
-                      <div key={slot}>
-                        {/* Slot row */}
-                        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 0', borderBottom: current ? 'none' : '1px solid var(--border)', gap: '14px' }}>
-                          {/* Thumbnail / empty state */}
-                          <div style={{ width: '52px', height: '52px', borderRadius: '8px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div key={entry.character.id}>
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: '14px', borderBottom: '1px solid var(--border)' }}>
+                          <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {imgUrl
-                              ? <img src={imgUrl} alt={current!.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ? <img src={imgUrl} alt={entry.character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               : <span style={{ fontSize: '20px', opacity: .4 }}>🧑</span>
                             }
                           </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text)', marginBottom: '3px' }}>{slot === 'left' ? 'Left' : slot === 'center' ? 'Center' : 'Right'} Character</div>
-                            <div style={{ fontSize: '12px', color: current ? 'var(--text-2)' : 'var(--text-3)' }}>
-                              {current ? current.name : 'No character assigned'}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {entry.character.name}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', flexShrink: 0 }}>Scale</span>
+                              <input
+                                type="range"
+                                min={0.5} max={2.5} step={0.05}
+                                value={entry.scale}
+                                onChange={e => {
+                                  const scale = Number(e.target.value)
+                                  setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) => i === idx ? { ...en, scale } : en) }))
+                                }}
+                                style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px' }}
+                              />
+                              <span style={{ fontSize: '10px', color: 'var(--text-2)', width: '34px', textAlign: 'right', flexShrink: 0 }}>
+                                {Math.round(entry.scale * 100)}%
+                              </span>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            {current && (
-                              <button className="btn btn-ghost btn-sm" onClick={() => setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : slot === 'center' ? 'characterCenter' : 'characterRight']: null }))}>
-                                Remove
-                              </button>
-                            )}
-                            <button className={`add-pill${isPickerOpen ? ' active' : ''}`} style={{ fontSize: '10px', padding: '6px 12px' }}
-                              onClick={() => { setCharPickerSlot(isPickerOpen ? null : slot); setNewCharSlot(null); setCharSearch('') }}>
-                              {current ? 'CHANGE' : 'ASSIGN'} <span style={{ fontSize: '9px' }}>▼</span>
-                            </button>
-                          </div>
+                          <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}
+                            onClick={() => setDraft(d => ({ ...d, characterPool: d.characterPool.filter((_, i) => i !== idx) }))}>
+                            Remove
+                          </button>
                         </div>
-
-                        {/* Scale slider — only shown when a character is assigned */}
-                        {current && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0 12px', borderBottom: '1px solid var(--border)' }}>
-                            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', flexShrink: 0 }}>Scale</span>
-                            <input
-                              type="range"
-                              min={0.5} max={2.5} step={0.05}
-                              value={scaleValue}
-                              onChange={e => setDraft(d => ({ ...d, [scaleKey]: Number(e.target.value) }))}
-                              style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '11px', color: 'var(--text-2)', width: '36px', textAlign: 'right', flexShrink: 0 }}>
-                              {Math.round(scaleValue * 100)}%
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Character picker */}
-                        {isPickerOpen && (
-                          <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '12px', marginBottom: '4px' }}>
-                            <input
-                              autoFocus
-                              className="finput"
-                              placeholder="Search characters…"
-                              value={charSearch}
-                              onChange={e => setCharSearch(e.target.value)}
-                              style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }}
-                            />
-                            <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              {charsLoading && (
-                                <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
-                                  Loading characters…
-                                </div>
-                              )}
-                              {!charsLoading && filteredChars.length === 0 && (
-                                <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
-                                  {campaignChars.length === 0 ? 'No characters yet — create one below' : 'No matches'}
-                                </div>
-                              )}
-                              {!charsLoading && filteredChars.map(c => (
-                                <button key={c.id} onClick={() => { setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : slot === 'center' ? 'characterCenter' : 'characterRight']: c })); setCharPickerSlot(null); setCharSearch('') }}
-                                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', width: '100%', textAlign: 'left' }}
-                                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-                                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                                >
-                                  <div style={{ width: '34px', height: '34px', borderRadius: '6px', background: 'var(--bg-raised)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    {characterImageUrl(c)
-                                      ? <img src={characterImageUrl(c)!} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                      : <span style={{ fontSize: '14px' }}>🧑</span>
-                                    }
-                                  </div>
-                                  <span style={{ fontSize: '12px', color: 'var(--text-2)', fontWeight: 500 }}>{c.name}</span>
-                                </button>
-                              ))}
-                            </div>
-                            {/* Create new character link */}
-                            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
-                              <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', fontSize: '10px' }}
-                                onClick={() => { setNewCharSlot(slot); setCharPickerSlot(null) }}>
-                                + Create New Character
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* New character form */}
-                        {isNewOpen && (
-                          <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px', marginBottom: '4px' }}>
-                            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', marginBottom: '10px' }}>New Character</div>
-                            <input className="finput" placeholder="Character name" value={newCharName} onChange={e => setNewCharName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }} />
-                            <UploadZone accept="image/*" label="Drop character art here" icon="🧑" hint="PNG with transparency recommended — tall portrait works best" onFile={f => setNewCharFile(f)} />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
-                              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                            </div>
-                            <input className="finput" placeholder="https://… image URL" value={newCharUrl} onChange={e => setNewCharUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                              <button className="btn btn-ghost btn-sm" onClick={() => { setNewCharSlot(null); setNewCharName(''); setNewCharFile(null); setNewCharUrl('') }}>Cancel</button>
-                              <button className="btn btn-red btn-sm" onClick={createCharacter} disabled={!newCharName.trim() || (!newCharFile && !newCharUrl) || newCharSaving}>
-                                {newCharSaving ? 'Creating…' : 'Create & Assign'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )
                   })}
+
+                  {/* Empty state */}
+                  {draft.characterPool.length === 0 && (
+                    <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' }}>
+                      No characters in this scene — add some below.
+                    </div>
+                  )}
+
+                  {/* Add character / create new buttons */}
+                  <div style={{ display: 'flex', gap: '8px', paddingTop: '12px' }}>
+                    <button className={`add-pill${charPickerOpen ? ' active' : ''}`} style={{ fontSize: '10px', padding: '6px 12px' }}
+                      onClick={() => { setCharPickerOpen(o => !o); setNewCharOpen(false); setCharSearch('') }}>
+                      ADD CHARACTER <span style={{ fontSize: '9px' }}>▼</span>
+                    </button>
+                    <button className={`add-pill${newCharOpen ? ' active' : ''}`} style={{ fontSize: '10px', padding: '6px 12px' }}
+                      onClick={() => { setNewCharOpen(o => !o); setCharPickerOpen(false) }}>
+                      + CREATE NEW <span style={{ fontSize: '9px' }}>▼</span>
+                    </button>
+                  </div>
+
+                  {/* Character picker */}
+                  {charPickerOpen && (
+                    <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '12px', marginTop: '8px' }}>
+                      <input
+                        autoFocus
+                        className="finput"
+                        placeholder="Search characters…"
+                        value={charSearch}
+                        onChange={e => setCharSearch(e.target.value)}
+                        style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }}
+                      />
+                      <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {charsLoading && (
+                          <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
+                            Loading characters…
+                          </div>
+                        )}
+                        {!charsLoading && filteredChars.length === 0 && (
+                          <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
+                            {campaignChars.length === 0 ? 'No characters yet — create one below' : campaignChars.length === draft.characterPool.length ? 'All characters already added' : 'No matches'}
+                          </div>
+                        )}
+                        {!charsLoading && filteredChars.map(c => (
+                          <button key={c.id}
+                            onClick={() => {
+                              setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: c, scale: 1 }] }))
+                              setCharPickerOpen(false); setCharSearch('')
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', width: '100%', textAlign: 'left' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                          >
+                            <div style={{ width: '34px', height: '34px', borderRadius: '6px', background: 'var(--bg-raised)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {characterImageUrl(c)
+                                ? <img src={characterImageUrl(c)!} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <span style={{ fontSize: '14px' }}>🧑</span>
+                              }
+                            </div>
+                            <span style={{ fontSize: '12px', color: 'var(--text-2)', fontWeight: 500 }}>{c.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* New character form */}
+                  {newCharOpen && (
+                    <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px', marginTop: '8px' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', marginBottom: '10px' }}>New Character</div>
+                      <input className="finput" placeholder="Character name" value={newCharName} onChange={e => setNewCharName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }} />
+                      <UploadZone accept="image/*" label="Drop character art here" icon="🧑" hint="PNG with transparency recommended — tall portrait works best" onFile={f => setNewCharFile(f)} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                      </div>
+                      <input className="finput" placeholder="https://… image URL" value={newCharUrl} onChange={e => setNewCharUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setNewCharOpen(false); setNewCharName(''); setNewCharFile(null); setNewCharUrl('') }}>Cancel</button>
+                        <button className="btn btn-red btn-sm" onClick={createCharacter} disabled={!newCharName.trim() || (!newCharFile && !newCharUrl) || newCharSaving}>
+                          {newCharSaving ? 'Creating…' : 'Create & Add'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </Section>
 
                 {/* AUDIO */}

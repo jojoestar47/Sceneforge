@@ -39,6 +39,8 @@ export default function AppPage() {
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
+  // Scale per character ID (from pool) — used to auto-set slot scale when placed
+  const [characterScales,    setCharacterScales]    = useState<Record<string, number>>({})
   const [slotScales,         setSlotScales]         = useState({ left: 1, center: 1, right: 1 })
   const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, center: null, right: null })
   // Ref so the Realtime callback always reads the current roster without
@@ -108,25 +110,23 @@ export default function AppPage() {
       .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
   }, [activeCampId])
 
-  // ── On scene change: clear stage slots + load this scene's roster ──
+  // ── On scene change: clear stage slots + load this scene's character pool ──
   // Stage slots always start empty — the DM places characters manually.
-  // sceneRosterChars is the list of characters pre-assigned to this scene
-  // in the editor; only those appear in the stage slot picker.
+  // sceneRosterChars is the pool of characters for this scene.
+  // characterScales maps character_id → default scale (set in the editor).
   useEffect(() => {
     setActiveCharacters({ left: null, center: null, right: null })
-    if (!activeSceneId) { setSceneRosterChars([]); setSlotScales({ left: 1, center: 1, right: 1 }); return }
+    setSlotScales({ left: 1, center: 1, right: 1 })
+    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); return }
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', activeSceneId)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setSlotScales({ left: 1, center: 1, right: 1 }); return }
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
         setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
-        const scales = { left: 1, center: 1, right: 1 }
-        data.forEach(r => {
-          if (r.position === 'left' || r.position === 'center' || r.position === 'right')
-            scales[r.position] = r.scale ?? 1
-        })
-        setSlotScales(scales)
+        const scales: Record<string, number> = {}
+        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
+        setCharacterScales(scales)
       })
   }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -217,9 +217,16 @@ export default function AppPage() {
   }
 
   async function handleCharactersChange(chars: ActiveCharacters) {
+    // Scale follows the character — look up each character's saved scale from the pool
+    const newScales = {
+      left:   chars.left   ? (characterScales[chars.left.id]   ?? 1) : 1,
+      center: chars.center ? (characterScales[chars.center.id] ?? 1) : 1,
+      right:  chars.right  ? (characterScales[chars.right.id]  ?? 1) : 1,
+    }
+    setSlotScales(newScales)
     setActiveCharacters(chars)
     if (isLive && sessionId) {
-      const cs: CharacterState = { left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null, leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right }
+      const cs: CharacterState = { left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null, leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
   }
@@ -259,20 +266,16 @@ export default function AppPage() {
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
         .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
     }
-    // Refresh this scene's roster and slot scales — the editor may have changed
-    // character assignments or scale values.
+    // Refresh this scene's character pool — the editor may have changed entries or scales.
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', saved.id)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setSlotScales({ left: 1, center: 1, right: 1 }); return }
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
         setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
-        const scales = { left: 1, center: 1, right: 1 }
-        data.forEach(r => {
-          if (r.position === 'left' || r.position === 'center' || r.position === 'right')
-            scales[r.position] = r.scale ?? 1
-        })
-        setSlotScales(scales)
+        const scales: Record<string, number> = {}
+        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
+        setCharacterScales(scales)
       })
   }
 

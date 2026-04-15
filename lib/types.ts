@@ -61,7 +61,7 @@ export interface SceneCharacter {
   id: string
   scene_id: string
   character_id: string
-  position: 'left' | 'right' | 'center'
+  position: string | null   // null for pool entries (no pre-assigned slot)
   created_at: string
   character?: Character   // joined
 }
