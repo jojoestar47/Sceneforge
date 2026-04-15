@@ -105,16 +105,12 @@ export default function AppPage() {
       .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
   }, [activeCampId])
 
-  // ── Load scene characters when active scene changes ───────────
+  // ── Clear stage characters when scene changes ────────────────
+  // Characters are NOT auto-loaded from scene_characters on switch —
+  // the DM places them manually via the stage slot buttons.
+  // scene_characters is only used by SceneEditor for planning/defaults.
   useEffect(() => {
-    if (!activeSceneId) { setActiveCharacters({ left: null, right: null }); return }
-    supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', activeSceneId)
-      .then(({ data }) => {
-        if (!data) return
-        const left  = data.find(r => r.position === 'left')?.character  as Character | undefined
-        const right = data.find(r => r.position === 'right')?.character as Character | undefined
-        setActiveCharacters({ left: left || null, right: right || null })
-      })
+    setActiveCharacters({ left: null, right: null })
   }, [activeSceneId])
 
   // ── Load existing live session ────────────────────────────────
@@ -196,11 +192,9 @@ export default function AppPage() {
   async function handleSelectScene(id: string) {
     setActiveSceneId(id)
     if (isLive && sessionId) {
-      // Load scene characters to include in session update
-      const { data: sc } = await supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', id)
-      const left  = sc?.find(r => r.position === 'left')?.character  as Character | undefined
-      const right = sc?.find(r => r.position === 'right')?.character as Character | undefined
-      const cs: CharacterState = { left: left?.id || null, right: right?.id || null }
+      // Clear character state when switching scenes — DM places characters
+      // manually on the stage rather than auto-loading saved assignments.
+      const cs: CharacterState = { left: null, right: null }
       await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
     }
   }
