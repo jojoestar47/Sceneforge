@@ -61,15 +61,16 @@ export interface SceneCharacter {
   id: string
   scene_id: string
   character_id: string
-  position: 'left' | 'right'
+  position: 'left' | 'right' | 'center'
   created_at: string
   character?: Character   // joined
 }
 
 // Live character state stored in sessions.character_state
 export interface CharacterState {
-  left:  string | null   // character ID or null
-  right: string | null
+  left:   string | null   // character ID or null
+  center: string | null
+  right:  string | null
 }
 
 // ── Editor draft types ────────────────────────────────────────

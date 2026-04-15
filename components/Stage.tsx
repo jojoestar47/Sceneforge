@@ -5,8 +5,9 @@ import type { Scene, Track, Character } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 
 interface ActiveCharacters {
-  left:  Character | null
-  right: Character | null
+  left:   Character | null
+  center: Character | null
+  right:  Character | null
 }
 
 interface Props {
@@ -196,6 +197,13 @@ export default function Stage({
           imageUrl={characterImageUrl(characters.left)}
         />
       )}
+      {characters?.center && (
+        <CharacterDisplay
+          character={characters.center}
+          position="center"
+          imageUrl={characterImageUrl(characters.center)}
+        />
+      )}
       {characters?.right && (
         <CharacterDisplay
           character={characters.right}
@@ -240,7 +248,7 @@ export default function Stage({
       ──────────────────────────────────────────────────────── */}
       {hasDMControls && (
         <div style={{ position: 'absolute', bottom: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 20, display: 'flex', gap: '8px' }}>
-          {(['left', 'right'] as const).map(slot => {
+          {(['left', 'center', 'right'] as const).map(slot => {
             const char = characters?.[slot] ?? null
             const imgUrl = char ? characterImageUrl(char) : null
             return (
@@ -260,7 +268,7 @@ export default function Stage({
                 >
                   {imgUrl
                     ? <img src={imgUrl} alt={char!.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{slot === 'left' ? 'L' : 'R'}+</span>
+                    : <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{slot === 'left' ? 'L' : slot === 'center' ? 'C' : 'R'}+</span>
                   }
                 </button>
 
@@ -284,7 +292,7 @@ export default function Stage({
         <div style={{ position: 'absolute', bottom: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}>
           <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>
-              {pickerSlot === 'left' ? 'Left' : 'Right'} Character
+              {pickerSlot === 'left' ? 'Left' : pickerSlot === 'center' ? 'Center' : 'Right'} Character
             </span>
             <button onClick={() => setPickerSlot(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
           </div>

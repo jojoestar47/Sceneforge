@@ -43,17 +43,17 @@ export default function ViewerPage() {
   const [scene,  setScene]  = useState<Scene | null>(null)
 
   // ── Characters ────────────────────────────────────────────────
-  const [characters, setCharacters] = useState<{ left: Character | null; right: Character | null }>({ left: null, right: null })
+  const [characters, setCharacters] = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
-    if (!state) { setCharacters({ left: null, right: null }); return }
+    if (!state) { setCharacters({ left: null, center: null, right: null }); return }
     const fetchChar = async (id: string | null): Promise<Character | null> => {
       if (!id) return null
       const { data } = await supabase.from('characters').select('*').eq('id', id).single()
       return data as Character | null
     }
-    const [l, r] = await Promise.all([fetchChar(state.left), fetchChar(state.right)])
-    setCharacters({ left: l, right: r })
+    const [l, c, r] = await Promise.all([fetchChar(state.left), fetchChar(state.center), fetchChar(state.right)])
+    setCharacters({ left: l, center: c, right: r })
   }, [supabase])
 
   // ── Audio ─────────────────────────────────────────────────────
@@ -252,6 +252,13 @@ export default function ViewerPage() {
           character={characters.left}
           position="left"
           imageUrl={characterImageUrl(characters.left)}
+        />
+      )}
+      {characters.center && (
+        <CharacterDisplay
+          character={characters.center}
+          position="center"
+          imageUrl={characterImageUrl(characters.center)}
         />
       )}
       {characters.right && (

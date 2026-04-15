@@ -29,8 +29,9 @@ interface Draft {
   bg: MediaRef | null; overlay: MediaRef | null; tracks: TrackDraft[]
   _bgFile?: File; _ovFile?: File
   // Characters
-  characterLeft:  Character | null
-  characterRight: Character | null
+  characterLeft:   Character | null
+  characterCenter: Character | null
+  characterRight:  Character | null
 }
 
 function blankDraft(scene: Scene | null): Draft {
@@ -42,7 +43,7 @@ function blankDraft(scene: Scene | null): Draft {
     notes: scene?.notes || '', dynamic_music: scene?.dynamic_music || false,
     bg: scene?.bg || null, overlay: scene?.overlay || null,
     tracks: [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
-    characterLeft: null, characterRight: null,
+    characterLeft: null, characterCenter: null, characterRight: null,
   }
 }
 
@@ -57,10 +58,10 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const [campaignChars, setCampaignChars]   = useState<Character[]>([])
   const [charsLoading, setCharsLoading]     = useState(false)
   const [charSearch, setCharSearch]         = useState('')
-  const [charPickerSlot, setCharPickerSlot] = useState<'left' | 'right' | null>(null)
+  const [charPickerSlot, setCharPickerSlot] = useState<'left' | 'center' | 'right' | null>(null)
 
   // New character upload state
-  const [newCharSlot, setNewCharSlot] = useState<'left' | 'right' | null>(null)
+  const [newCharSlot, setNewCharSlot] = useState<'left' | 'center' | 'right' | null>(null)
   const [newCharName, setNewCharName] = useState('')
   const [newCharFile, setNewCharFile] = useState<File | null>(null)
   const [newCharUrl,  setNewCharUrl]  = useState('')
@@ -89,9 +90,10 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
     supabase.from('scene_characters').select('*, character:characters(*)').eq('scene_id', scene.id)
       .then(({ data }) => {
         if (!data) return
-        const left  = data.find(r => r.position === 'left')?.character  as Character | undefined
-        const right = data.find(r => r.position === 'right')?.character as Character | undefined
-        setDraft(d => ({ ...d, characterLeft: left || null, characterRight: right || null }))
+        const left   = data.find(r => r.position === 'left')?.character   as Character | undefined
+        const center = data.find(r => r.position === 'center')?.character as Character | undefined
+        const right  = data.find(r => r.position === 'right')?.character  as Character | undefined
+        setDraft(d => ({ ...d, characterLeft: left || null, characterCenter: center || null, characterRight: right || null }))
       })
   }, [scene?.id])
 
@@ -127,7 +129,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       if (data) {
         const newChar = data as Character
         setCampaignChars(prev => [...prev, newChar].sort((a, b) => a.name.localeCompare(b.name)))
-        setDraft(d => ({ ...d, [newCharSlot === 'left' ? 'characterLeft' : 'characterRight']: newChar }))
+        setDraft(d => ({ ...d, [newCharSlot === 'left' ? 'characterLeft' : newCharSlot === 'center' ? 'characterCenter' : 'characterRight']: newChar }))
         setNewCharSlot(null); setNewCharName(''); setNewCharFile(null); setNewCharUrl('')
       }
     } catch (e) {
@@ -182,8 +184,9 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       // Scene characters — delete existing, re-insert
       await supabase.from('scene_characters').delete().eq('scene_id', sceneId!)
       const charInserts = []
-      if (draft.characterLeft)  charInserts.push({ scene_id: sceneId!, character_id: draft.characterLeft.id,  position: 'left'  })
-      if (draft.characterRight) charInserts.push({ scene_id: sceneId!, character_id: draft.characterRight.id, position: 'right' })
+      if (draft.characterLeft)   charInserts.push({ scene_id: sceneId!, character_id: draft.characterLeft.id,   position: 'left'   })
+      if (draft.characterCenter) charInserts.push({ scene_id: sceneId!, character_id: draft.characterCenter.id, position: 'center' })
+      if (draft.characterRight)  charInserts.push({ scene_id: sceneId!, character_id: draft.characterRight.id,  position: 'right'  })
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
       const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId!).single()
@@ -248,8 +251,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
 
                 {/* CHARACTERS */}
                 <Section title="Characters">
-                  {(['left', 'right'] as const).map(slot => {
-                    const current = slot === 'left' ? draft.characterLeft : draft.characterRight
+                  {(['left', 'center', 'right'] as const).map(slot => {
+                    const current = slot === 'left' ? draft.characterLeft : slot === 'center' ? draft.characterCenter : draft.characterRight
                     const imgUrl  = current ? characterImageUrl(current) : null
                     const isPickerOpen = charPickerSlot === slot
                     const isNewOpen    = newCharSlot === slot
@@ -265,14 +268,14 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                             }
                           </div>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text)', marginBottom: '3px' }}>{slot === 'left' ? 'Left' : 'Right'} Character</div>
+                            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text)', marginBottom: '3px' }}>{slot === 'left' ? 'Left' : slot === 'center' ? 'Center' : 'Right'} Character</div>
                             <div style={{ fontSize: '12px', color: current ? 'var(--text-2)' : 'var(--text-3)' }}>
                               {current ? current.name : 'No character assigned'}
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             {current && (
-                              <button className="btn btn-ghost btn-sm" onClick={() => setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : 'characterRight']: null }))}>
+                              <button className="btn btn-ghost btn-sm" onClick={() => setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : slot === 'center' ? 'characterCenter' : 'characterRight']: null }))}>
                                 Remove
                               </button>
                             )}
@@ -306,7 +309,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                                 </div>
                               )}
                               {!charsLoading && filteredChars.map(c => (
-                                <button key={c.id} onClick={() => { setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : 'characterRight']: c })); setCharPickerSlot(null); setCharSearch('') }}
+                                <button key={c.id} onClick={() => { setDraft(d => ({ ...d, [slot === 'left' ? 'characterLeft' : slot === 'center' ? 'characterCenter' : 'characterRight']: c })); setCharPickerSlot(null); setCharSearch('') }}
                                   style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', width: '100%', textAlign: 'left' }}
                                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
                                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
