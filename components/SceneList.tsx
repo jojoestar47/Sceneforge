@@ -230,8 +230,8 @@ export default function SceneList({
                   onMouseEnter={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'rgba(229,53,53,0.1)'; e.currentTarget.style.borderColor = 'rgba(229,53,53,0.35)'; e.currentTarget.style.color = 'var(--accent)' } }}
                   onMouseLeave={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-3)' } }}
                 >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <path d="M1.5 2.5h7M3.5 2.5V1.5h3v1M4 2.5l.4 6h1.2l.4-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                    <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                   </svg>
                 </button>
               </div>
