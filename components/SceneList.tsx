@@ -97,9 +97,9 @@ export default function SceneList({
               onDrop={canDrag ? e => { e.preventDefault(); if (dragId && dragId !== sc.id && onReorder) onReorder(dragId, sc.id); setDragId(null); setDragOverId(null) } : undefined}
               onDragEnd={canDrag ? () => { setDragId(null); setDragOverId(null) } : undefined}
               onClick={() => onSelect(sc.id)}
-              onDoubleClick={() => onEdit(sc.id)}
-              onMouseEnter={() => setHoveredId(sc.id)}
-              onMouseLeave={() => setHoveredId(null)}
+              onDoubleClick={() => !isTouchDevice && onEdit(sc.id)}
+              onMouseEnter={() => !isTouchDevice && setHoveredId(sc.id)}
+              onMouseLeave={() => !isTouchDevice && setHoveredId(null)}
               style={{
                 display: 'flex', alignItems: 'stretch',
                 margin: '3px 8px',
@@ -112,6 +112,7 @@ export default function SceneList({
                 boxShadow: active ? 'inset 3px 0 0 var(--accent)' : 'none',
                 opacity: isDragging ? 0.3 : 1,
                 transition: 'background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease',
+                touchAction: 'manipulation',
               }}
             >
               {/* Drag handle */}
@@ -182,44 +183,52 @@ export default function SceneList({
                 </div>
               </div>
 
-              {/* Hover actions */}
+              {/* Actions — always visible on touch, hover-reveal on mouse */}
               <div style={{
                 display: 'flex', flexDirection: 'column', gap: '4px',
-                padding: '8px 7px', flexShrink: 0, justifyContent: 'center',
+                padding: isTouchDevice ? '6px 6px' : '8px 7px',
+                flexShrink: 0, justifyContent: 'center',
                 opacity: isHov || isTouchDevice ? 1 : 0,
                 transition: 'opacity 0.14s ease',
               }}>
+                {/* Edit */}
                 <button
                   onClick={e => { e.stopPropagation(); onEdit(sc.id) }}
                   title="Edit scene"
                   style={{
-                    width: '26px', height: '26px', borderRadius: '6px',
+                    width: isTouchDevice ? '36px' : '26px',
+                    height: isTouchDevice ? '36px' : '26px',
+                    borderRadius: '7px',
                     background: 'var(--bg-panel)', border: '1px solid var(--border)',
                     color: 'var(--text-2)', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.12s ease', flexShrink: 0,
+                    touchAction: 'manipulation',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-lt)'; e.currentTarget.style.color = 'var(--text)' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)' }}
+                  onMouseEnter={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-lt)'; e.currentTarget.style.color = 'var(--text)' } }}
+                  onMouseLeave={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)' } }}
                 >
                   <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                     <path d="M7.5 1.5l2 2L3 10H1V8L7.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round"/>
                   </svg>
                 </button>
+                {/* Delete */}
                 <button
                   onClick={e => { e.stopPropagation(); onDelete(sc.id) }}
                   onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); onDelete(sc.id) }}
                   title="Delete scene"
                   style={{
-                    width: '26px', height: '26px', borderRadius: '6px',
+                    width: isTouchDevice ? '36px' : '26px',
+                    height: isTouchDevice ? '36px' : '26px',
+                    borderRadius: '7px',
                     background: 'var(--bg-panel)', border: '1px solid var(--border)',
                     color: 'var(--text-3)', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.12s ease', flexShrink: 0,
                     touchAction: 'manipulation',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(229,53,53,0.1)'; e.currentTarget.style.borderColor = 'rgba(229,53,53,0.35)'; e.currentTarget.style.color = 'var(--accent)' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-3)' }}
+                  onMouseEnter={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'rgba(229,53,53,0.1)'; e.currentTarget.style.borderColor = 'rgba(229,53,53,0.35)'; e.currentTarget.style.color = 'var(--accent)' } }}
+                  onMouseLeave={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-3)' } }}
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                     <path d="M1.5 2.5h7M3.5 2.5V1.5h3v1M4 2.5l.4 6h1.2l.4-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
@@ -250,13 +259,17 @@ export default function SceneList({
 
 function AddSceneButton({ onClick }: { onClick: () => void }) {
   const [hov, setHov] = useState(false)
+  const [isTouchDevice] = useState(() =>
+    typeof window !== 'undefined' && navigator.maxTouchPoints > 0
+  )
   return (
     <button
       onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+      onMouseEnter={() => !isTouchDevice && setHov(true)}
+      onMouseLeave={() => !isTouchDevice && setHov(false)}
       style={{
-        width: '100%', height: '52px', borderRadius: '10px',
+        width: '100%', height: isTouchDevice ? '60px' : '52px', borderRadius: '10px',
+        touchAction: 'manipulation',
         border: `1px dashed ${hov ? 'rgba(229,53,53,0.5)' : 'var(--border-lt)'}`,
         background: hov ? 'rgba(229,53,53,0.04)' : 'transparent',
         cursor: 'pointer',

@@ -26,10 +26,13 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
   const [hoveredId,    setHoveredId]    = useState<string | null>(null)
   const [hoveredNew,   setHoveredNew]   = useState(false)
   const [uploadingId,  setUploadingId]  = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isTouchDevice] = useState(() =>
+    typeof window !== 'undefined' && navigator.maxTouchPoints > 0
+  )
+  const fileInputRef  = useRef<HTMLInputElement>(null)
   const pendingCampId = useRef<string | null>(null)
 
-  function openFilePicker(campId: string, e: React.MouseEvent) {
+  function openFilePicker(campId: string, e: React.MouseEvent | React.TouchEvent) {
     e.stopPropagation()
     pendingCampId.current = campId
     fileInputRef.current?.click()
@@ -108,8 +111,8 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 <div
                   key={c.id}
                   onClick={() => !isUploading && onSelect(c.id)}
-                  onMouseEnter={() => setHoveredId(c.id)}
-                  onMouseLeave={() => setHoveredId(null)}
+                  onMouseEnter={() => !isTouchDevice && setHoveredId(c.id)}
+                  onMouseLeave={() => !isTouchDevice && setHoveredId(null)}
                   style={{
                     background: 'var(--bg-panel)',
                     border: `1px solid ${isHov ? `${accent.border}0.42)` : 'var(--border)'}`,
@@ -148,38 +151,67 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                       </div>
                     )}
 
-                    {/* Cover overlay on hover: upload / change button */}
-                    <div style={{
-                      position: 'absolute', inset: 0,
-                      background: isHov ? 'rgba(0,0,0,0.45)' : 'transparent',
-                      transition: 'background 0.2s ease',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      gap: '8px',
-                    }}>
-                      {isUploading ? (
-                        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.8)', fontWeight: 600, letterSpacing: '1px' }}>
-                          Uploading…
-                        </div>
-                      ) : isHov ? (
-                        <button
-                          onClick={e => openFilePicker(c.id, e)}
-                          style={{
-                            background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)',
-                            borderRadius: '8px', padding: '6px 12px', cursor: 'pointer',
-                            color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
-                            backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: '6px',
-                            transition: 'background 0.15s ease',
-                          }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.22)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                            <path d="M4 1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h5A1.5 1.5 0 009.5 8V7M7 1.5l1.5 1.5L5.5 6H4V4.5L7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                          {hasCover ? 'Change Cover' : 'Add Cover'}
-                        </button>
-                      ) : null}
-                    </div>
+                    {/* Hover overlay (mouse) */}
+                    {!isTouchDevice && (
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: isHov ? 'rgba(0,0,0,0.45)' : 'transparent',
+                        transition: 'background 0.2s ease',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        pointerEvents: isHov ? 'auto' : 'none',
+                      }}>
+                        {isUploading ? (
+                          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.8)', fontWeight: 600, letterSpacing: '1px' }}>
+                            Uploading…
+                          </div>
+                        ) : isHov ? (
+                          <button
+                            onClick={e => openFilePicker(c.id, e)}
+                            style={{
+                              background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)',
+                              borderRadius: '8px', padding: '6px 12px', cursor: 'pointer',
+                              color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+                              backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: '6px',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.22)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                              <path d="M4 1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h5A1.5 1.5 0 009.5 8V7M7 1.5l1.5 1.5L5.5 6H4V4.5L7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            {hasCover ? 'Change Cover' : 'Add Cover'}
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {/* Touch: persistent camera button pinned to corner */}
+                    {isTouchDevice && (
+                      <button
+                        onClick={e => openFilePicker(c.id, e)}
+                        style={{
+                          position: 'absolute', top: '8px', right: '8px',
+                          width: '36px', height: '36px', borderRadius: '8px',
+                          background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.2)',
+                          color: '#fff', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          backdropFilter: 'blur(4px)', touchAction: 'manipulation',
+                        }}
+                      >
+                        {isUploading
+                          ? <div style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                          : <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M9.5 2.5H4.5L3 4.5H1.5A1 1 0 001.5 4.5v7a1 1 0 001 1h10a1 1 0 001-1V4.5a1 1 0 00-1-1H11l-1.5-2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                              <circle cx="7" cy="8" r="2" stroke="currentColor" strokeWidth="1.1"/>
+                            </svg>
+                        }
+                      </button>
+                    )}
+                    {isTouchDevice && isUploading && (
+                      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', fontWeight: 600, letterSpacing: '1px' }}>Uploading…</div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Card body */}
@@ -220,8 +252,8 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
             {/* New Campaign card */}
             <div
               onClick={onNew}
-              onMouseEnter={() => setHoveredNew(true)}
-              onMouseLeave={() => setHoveredNew(false)}
+              onMouseEnter={() => !isTouchDevice && setHoveredNew(true)}
+              onMouseLeave={() => !isTouchDevice && setHoveredNew(false)}
               style={{
                 border: `1px dashed ${hoveredNew ? 'rgba(229,53,53,0.5)' : 'var(--border-lt)'}`,
                 borderRadius: '14px',
@@ -279,6 +311,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
           from { opacity: 0; transform: translateY(20px) scale(0.97); }
           to   { opacity: 1; transform: translateY(0) scale(1); }
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   )
