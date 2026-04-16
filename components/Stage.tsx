@@ -184,6 +184,22 @@ export default function Stage({
     return () => clearTimeout(timer)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Stop all audio when Stage unmounts (e.g. navigating back to campaign home)
+  useEffect(() => {
+    return () => {
+      Object.entries(audioRefs.current).forEach(([id, a]) => {
+        const handlers = audioHandlers.current[id]
+        if (handlers) {
+          a.removeEventListener('play',  handlers.play)
+          a.removeEventListener('pause', handlers.pause)
+        }
+        a.pause(); a.src = ''
+      })
+      audioRefs.current   = {}
+      audioHandlers.current = {}
+    }
+  }, [])
+
   function getOrCreate(t: Track): HTMLAudioElement {
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
