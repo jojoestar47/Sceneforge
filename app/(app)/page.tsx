@@ -380,10 +380,27 @@ export default function AppPage() {
               campaignCharacters={sceneRosterChars}
               onCharactersChange={handleCharactersChange}
             />
-            <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-              <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
-                <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{scenes.length} total</span>
+            <div style={{ width: '300px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+              <div style={{ padding: '11px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
+                  {scenes.length > 0 && (
+                    <span style={{ fontSize: '9px', fontWeight: 700, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1px 7px', color: 'var(--text-3)' }}>{scenes.length}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}
+                  title="New scene"
+                  style={{
+                    width: '24px', height: '24px', borderRadius: '6px',
+                    background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                    color: 'var(--text-2)', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1,
+                    transition: 'all 0.12s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(229,53,53,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(229,53,53,0.06)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
+                >+</button>
               </div>
               <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} onReorder={handleReorder} />
             </div>
