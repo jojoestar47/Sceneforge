@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { MediaRef, Scene, Track } from '@/lib/types'
+import type { Campaign, MediaRef, Scene, Track } from '@/lib/types'
 
 const BUCKET   = 'scene-media'
 const EXPIRES  = 8 * 60 * 60 // 8 hours — gives headroom for long sessions
@@ -71,6 +71,24 @@ async function resolveTrack(supabase: SupabaseClient, t: Track): Promise<Track> 
   if (!t.storage_path) return t
   const url = await signedUrl(supabase, t.storage_path)
   return { ...t, signed_url: url }
+}
+
+/** Resolve cover signed URLs for an array of campaigns */
+export async function resolveCampaignCovers(
+  supabase: SupabaseClient,
+  campaigns: Campaign[]
+): Promise<Campaign[]> {
+  return Promise.all(
+    campaigns.map(async c => {
+      if (!c.cover_path) return c
+      try {
+        const url = await signedUrl(supabase, c.cover_path)
+        return { ...c, cover_signed_url: url }
+      } catch {
+        return c
+      }
+    })
+  )
 }
 
 /** Delete a file from Storage */

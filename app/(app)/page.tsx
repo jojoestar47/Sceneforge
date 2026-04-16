@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { resolveSceneUrls } from '@/lib/supabase/storage'
+import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia } from '@/lib/supabase/storage'
 import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
 import Stage        from '@/components/Stage'
 import SceneList    from '@/components/SceneList'
@@ -70,7 +70,10 @@ export default function AppPage() {
   // ── Load campaigns ────────────────────────────────────────────
   const loadCampaigns = useCallback(async () => {
     const { data } = await supabase.from('campaigns').select('*').order('created_at')
-    if (data) setCampaigns(data)
+    if (data) {
+      const resolved = await resolveCampaignCovers(supabase, data)
+      setCampaigns(resolved)
+    }
   }, [])
 
   useEffect(() => { loadCampaigns().finally(() => setLoading(false)) }, [loadCampaigns])
@@ -233,6 +236,20 @@ export default function AppPage() {
   }
 
   // ── Campaign CRUD ─────────────────────────────────────────────
+  async function updateCampaignCover(campId: string, file: File) {
+    const camp = campaigns.find(c => c.id === campId)
+    if (!camp || !userId) return
+    // Delete old cover if present
+    if (camp.cover_path) await deleteMedia(supabase, camp.cover_path).catch(() => {})
+    const path = await uploadMedia(supabase, userId, file)
+    await supabase.from('campaigns').update({ cover_path: path, cover_file_name: file.name }).eq('id', campId)
+    const { data: signedData } = await supabase.storage.from('scene-media').createSignedUrl(path, 8 * 60 * 60)
+    setCampaigns(prev => prev.map(c => c.id === campId
+      ? { ...c, cover_path: path, cover_file_name: file.name, cover_signed_url: signedData?.signedUrl }
+      : c
+    ))
+  }
+
   async function createCampaign() {
     if (!newCampName.trim()) return
     const { data } = await supabase.from('campaigns').insert({ name: newCampName.trim(), user_id: userId }).select('*').single()
@@ -315,7 +332,7 @@ export default function AppPage() {
 
       {/* ── TOP BAR ── */}
       <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
-        <span style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '16px', color: 'var(--accent)', flexShrink: 0 }}>A</span>
+        <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', flexShrink: 0 }}>🎭</div>
         <select value={activeCampId} onChange={e => setActiveCampId(e.target.value)} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontFamily: 'Inter,sans-serif', fontSize: '12px', padding: '5px 9px', outline: 'none', cursor: 'pointer', maxWidth: '200px' }}>
           <option value="">Select Campaign</option>
           {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -349,6 +366,7 @@ export default function AppPage() {
           campaigns={campaigns}
           onSelect={setActiveCampId}
           onNew={() => setCampModalOpen(true)}
+          onUpdateCover={updateCampaignCover}
         />
       ) : (
         <>
