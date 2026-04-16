@@ -4,9 +4,10 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls } from '@/lib/supabase/storage'
 import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
-import Stage       from '@/components/Stage'
-import SceneList   from '@/components/SceneList'
-import SceneEditor from '@/components/SceneEditor'
+import Stage        from '@/components/Stage'
+import SceneList    from '@/components/SceneList'
+import SceneEditor  from '@/components/SceneEditor'
+import CampaignHome from '@/components/CampaignHome'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -343,33 +344,43 @@ export default function AppPage() {
       </div>
 
       {/* ── WORKSPACE ── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <Stage
-          scene={activeScene}
-          hasCampaign={!!activeCampId}
-          onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
-          characters={activeCharacters}
-          slotScales={slotScales}
-          campaignCharacters={sceneRosterChars}
-          onCharactersChange={handleCharactersChange}
+      {!activeCampId ? (
+        <CampaignHome
+          campaigns={campaigns}
+          onSelect={setActiveCampId}
+          onNew={() => setCampModalOpen(true)}
         />
-        <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-          <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
-            <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{scenes.length} total</span>
+      ) : (
+        <>
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <Stage
+              scene={activeScene}
+              hasCampaign={!!activeCampId}
+              onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
+              characters={activeCharacters}
+              slotScales={slotScales}
+              campaignCharacters={sceneRosterChars}
+              onCharactersChange={handleCharactersChange}
+            />
+            <div style={{ width: '280px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+              <div style={{ padding: '11px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
+                <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{scenes.length} total</span>
+              </div>
+              <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} onReorder={handleReorder} />
+            </div>
           </div>
-          <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} onReorder={handleReorder} />
-        </div>
-      </div>
 
-      {/* ── BOTTOM BAR ── */}
-      <div style={{ minHeight: '54px', paddingBottom: 'env(safe-area-inset-bottom, 0px)', background: 'var(--bg-panel)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', paddingLeft: '16px', paddingRight: '16px', flexShrink: 0, position: 'relative' }}>
-        <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{activeScene ? activeScene.name : 'No scene selected'}</div>
-        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-          <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', color: 'var(--accent)', fontFamily: "'Cinzel',serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>SF</div>
-        </div>
-        <div style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-3)' }}>{scenes.length} scene{scenes.length !== 1 ? 's' : ''}</div>
-      </div>
+          {/* ── BOTTOM BAR ── */}
+          <div style={{ minHeight: '54px', paddingBottom: 'env(safe-area-inset-bottom, 0px)', background: 'var(--bg-panel)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', paddingLeft: '16px', paddingRight: '16px', flexShrink: 0, position: 'relative' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{activeScene ? activeScene.name : 'No scene selected'}</div>
+            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', color: 'var(--accent)', fontFamily: "'Cinzel',serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>SF</div>
+            </div>
+            <div style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-3)' }}>{scenes.length} scene{scenes.length !== 1 ? 's' : ''}</div>
+          </div>
+        </>
+      )}
 
       {/* ── SCENE EDITOR ── */}
       {editorOpen && activeCampId && (
