@@ -47,13 +47,13 @@ export default function ViewerPage() {
   const [characters,       setCharacters]       = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
   const [viewerScales,     setViewerScales]     = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
   const [viewerDisplay,    setViewerDisplay]    = useState<{
-    left:   { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
-    center: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
-    right:  { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
+    left:   { zoom: number; panX: number; panY: number; flipped: boolean }
+    center: { zoom: number; panX: number; panY: number; flipped: boolean }
+    right:  { zoom: number; panX: number; panY: number; flipped: boolean }
   }>({
-    left:   { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
-    center: { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
-    right:  { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
+    left:   { zoom: 1, panX: 50, panY: 100, flipped: false },
+    center: { zoom: 1, panX: 50, panY: 100, flipped: false },
+    right:  { zoom: 1, panX: 50, panY: 100, flipped: false },
   })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
@@ -75,9 +75,9 @@ export default function ViewerPage() {
       right:  state.rightScale  ?? 1,
     })
     setViewerDisplay({
-      left:   { objectFit: state.leftFit   ?? 'contain', objectPosition: state.leftPos   ?? '50% 100%', flipped: state.leftFlipped   ?? false },
-      center: { objectFit: state.centerFit ?? 'contain', objectPosition: state.centerPos ?? '50% 100%', flipped: state.centerFlipped ?? false },
-      right:  { objectFit: state.rightFit  ?? 'contain', objectPosition: state.rightPos  ?? '50% 100%', flipped: state.rightFlipped  ?? false },
+      left:   { zoom: state.leftZoom   ?? 1, panX: state.leftPanX   ?? 50, panY: state.leftPanY   ?? 100, flipped: state.leftFlipped   ?? false },
+      center: { zoom: state.centerZoom ?? 1, panX: state.centerPanX ?? 50, panY: state.centerPanY ?? 100, flipped: state.centerFlipped ?? false },
+      right:  { zoom: state.rightZoom  ?? 1, panX: state.rightPanX  ?? 50, panY: state.rightPanY  ?? 100, flipped: state.rightFlipped  ?? false },
     })
   }, [supabase])
 
@@ -351,8 +351,9 @@ export default function ViewerPage() {
           position="left"
           imageUrl={characterImageUrl(characters.left)}
           scale={viewerScales.left}
-          objectFit={viewerDisplay.left.objectFit}
-          objectPosition={viewerDisplay.left.objectPosition}
+          imgZoom={viewerDisplay.left.zoom}
+          imgPanX={viewerDisplay.left.panX}
+          imgPanY={viewerDisplay.left.panY}
           flipped={viewerDisplay.left.flipped}
         />
       )}
@@ -362,8 +363,9 @@ export default function ViewerPage() {
           position="center"
           imageUrl={characterImageUrl(characters.center)}
           scale={viewerScales.center}
-          objectFit={viewerDisplay.center.objectFit}
-          objectPosition={viewerDisplay.center.objectPosition}
+          imgZoom={viewerDisplay.center.zoom}
+          imgPanX={viewerDisplay.center.panX}
+          imgPanY={viewerDisplay.center.panY}
           flipped={viewerDisplay.center.flipped}
         />
       )}
@@ -373,8 +375,9 @@ export default function ViewerPage() {
           position="right"
           imageUrl={characterImageUrl(characters.right)}
           scale={viewerScales.right}
-          objectFit={viewerDisplay.right.objectFit}
-          objectPosition={viewerDisplay.right.objectPosition}
+          imgZoom={viewerDisplay.right.zoom}
+          imgPanX={viewerDisplay.right.panX}
+          imgPanY={viewerDisplay.right.panY}
           flipped={viewerDisplay.right.flipped}
         />
       )}

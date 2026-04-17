@@ -18,7 +18,7 @@ function makeJoinCode(): string {
   return Array.from(bytes).map(b => chars[b % chars.length]).join('')
 }
 
-const DEFAULT_SLOT_DISPLAY = { objectFit: 'contain' as const, objectPosition: '50% 100%', flipped: false }
+const DEFAULT_SLOT_DISPLAY = { zoom: 1, panX: 50, panY: 100, flipped: false }
 
 interface ActiveCharacters {
   left:   Character | null
@@ -206,8 +206,9 @@ export default function AppPage() {
     const cs: CharacterState = {
       left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null,
       leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right,
-      leftFit: slotDisplayProps.left.objectFit, centerFit: slotDisplayProps.center.objectFit, rightFit: slotDisplayProps.right.objectFit,
-      leftPos: slotDisplayProps.left.objectPosition, centerPos: slotDisplayProps.center.objectPosition, rightPos: slotDisplayProps.right.objectPosition,
+      leftZoom: slotDisplayProps.left.zoom, centerZoom: slotDisplayProps.center.zoom, rightZoom: slotDisplayProps.right.zoom,
+      leftPanX: slotDisplayProps.left.panX, centerPanX: slotDisplayProps.center.panX, rightPanX: slotDisplayProps.right.panX,
+      leftPanY: slotDisplayProps.left.panY, centerPanY: slotDisplayProps.center.panY, rightPanY: slotDisplayProps.right.panY,
       leftFlipped: slotDisplayProps.left.flipped, centerFlipped: slotDisplayProps.center.flipped, rightFlipped: slotDisplayProps.right.flipped,
     }
     const { data } = await supabase.from('sessions').upsert({
@@ -233,8 +234,9 @@ export default function AppPage() {
       const cs: CharacterState = {
         left: null, center: null, right: null,
         leftScale: 1, centerScale: 1, rightScale: 1,
-        leftFit: 'contain', centerFit: 'contain', rightFit: 'contain',
-        leftPos: '50% 100%', centerPos: '50% 100%', rightPos: '50% 100%',
+        leftZoom: 1, centerZoom: 1, rightZoom: 1,
+        leftPanX: 50, centerPanX: 50, rightPanX: 50,
+        leftPanY: 100, centerPanY: 100, rightPanY: 100,
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
       }
       await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
@@ -260,8 +262,9 @@ export default function AppPage() {
       const cs: CharacterState = {
         left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null,
         leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right,
-        leftFit: newDisplay.left.objectFit, centerFit: newDisplay.center.objectFit, rightFit: newDisplay.right.objectFit,
-        leftPos: newDisplay.left.objectPosition, centerPos: newDisplay.center.objectPosition, rightPos: newDisplay.right.objectPosition,
+        leftZoom: newDisplay.left.zoom, centerZoom: newDisplay.center.zoom, rightZoom: newDisplay.right.zoom,
+        leftPanX: newDisplay.left.panX, centerPanX: newDisplay.center.panX, rightPanX: newDisplay.right.panX,
+        leftPanY: newDisplay.left.panY, centerPanY: newDisplay.center.panY, rightPanY: newDisplay.right.panY,
         leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
@@ -271,7 +274,7 @@ export default function AppPage() {
   async function handleSlotDisplayChange(
     slot: 'left' | 'center' | 'right',
     scale: number,
-    display: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
+    display: { zoom?: number; panX?: number; panY?: number; flipped?: boolean }
   ) {
     const newScales  = { ...slotScales,       [slot]: scale   }
     const newDisplay = { ...slotDisplayProps, [slot]: display }
@@ -281,8 +284,9 @@ export default function AppPage() {
       const cs: CharacterState = {
         left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null,
         leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right,
-        leftFit: newDisplay.left.objectFit, centerFit: newDisplay.center.objectFit, rightFit: newDisplay.right.objectFit,
-        leftPos: newDisplay.left.objectPosition, centerPos: newDisplay.center.objectPosition, rightPos: newDisplay.right.objectPosition,
+        leftZoom: newDisplay.left.zoom, centerZoom: newDisplay.center.zoom, rightZoom: newDisplay.right.zoom,
+        leftPanX: newDisplay.left.panX, centerPanX: newDisplay.center.panX, rightPanX: newDisplay.right.panX,
+        leftPanY: newDisplay.left.panY, centerPanY: newDisplay.center.panY, rightPanY: newDisplay.right.panY,
         leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)

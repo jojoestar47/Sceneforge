@@ -18,9 +18,10 @@ interface SlotScales {
 }
 
 interface SlotDisplay {
-  objectFit?:      'contain' | 'cover'
-  objectPosition?: string
-  flipped?:        boolean
+  zoom?:    number   // 1.0 – 3.0
+  panX?:    number   // 0–100
+  panY?:    number   // 0–100
+  flipped?: boolean
 }
 
 interface SlotDisplayProps {
@@ -42,7 +43,7 @@ interface Props {
   onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
 }
 
-const DEFAULT_CHAR_DISPLAY: SlotDisplay = { objectFit: 'contain', objectPosition: '50% 100%', flipped: false }
+const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
 
 function mediaUrl(m: Scene['bg']): string | null {
   if (!m) return null
@@ -350,8 +351,9 @@ export default function Stage({
           position="left"
           imageUrl={characterImageUrl(characters.left)}
           scale={slotScales?.left ?? 1}
-          objectFit={slotDisplayProps?.left.objectFit}
-          objectPosition={slotDisplayProps?.left.objectPosition}
+          imgZoom={slotDisplayProps?.left.zoom}
+          imgPanX={slotDisplayProps?.left.panX}
+          imgPanY={slotDisplayProps?.left.panY}
           flipped={slotDisplayProps?.left.flipped}
         />
       )}
@@ -361,8 +363,9 @@ export default function Stage({
           position="center"
           imageUrl={characterImageUrl(characters.center)}
           scale={slotScales?.center ?? 1}
-          objectFit={slotDisplayProps?.center.objectFit}
-          objectPosition={slotDisplayProps?.center.objectPosition}
+          imgZoom={slotDisplayProps?.center.zoom}
+          imgPanX={slotDisplayProps?.center.panX}
+          imgPanY={slotDisplayProps?.center.panY}
           flipped={slotDisplayProps?.center.flipped}
         />
       )}
@@ -372,8 +375,9 @@ export default function Stage({
           position="right"
           imageUrl={characterImageUrl(characters.right)}
           scale={slotScales?.right ?? 1}
-          objectFit={slotDisplayProps?.right.objectFit}
-          objectPosition={slotDisplayProps?.right.objectPosition}
+          imgZoom={slotDisplayProps?.right.zoom}
+          imgPanX={slotDisplayProps?.right.panX}
+          imgPanY={slotDisplayProps?.right.panY}
           flipped={slotDisplayProps?.right.flipped}
         />
       )}
@@ -463,13 +467,15 @@ export default function Stage({
 
       {/* ── Adjust panel (character in slot) ──────────────────── */}
       {activeSlot && panelMode === 'adjust' && hasDMControls && characters?.[activeSlot] && (() => {
-        const slot      = activeSlot
-        const char      = characters[slot]!
-        const imgUrl    = characterImageUrl(char)
-        const scale     = slotScales?.[slot] ?? 1
-        const display   = slotDisplayProps?.[slot] ?? DEFAULT_CHAR_DISPLAY
-        const posX      = parseInt(display.objectPosition?.split(' ')[0]) || 50
-        const posY      = parseInt(display.objectPosition?.split(' ')[1]) || 100
+        const slot    = activeSlot
+        const char    = characters[slot]!
+        const imgUrl  = characterImageUrl(char)
+        const scale   = slotScales?.[slot] ?? 1
+        const display = slotDisplayProps?.[slot] ?? DEFAULT_CHAR_DISPLAY
+        const zoom    = display.zoom  ?? 1
+        const panX    = display.panX  ?? 50
+        const panY    = display.panY  ?? 100
+        const zoomed  = zoom > 1.05
         function fire(newScale: number, newDisplay: SlotDisplay) {
           onSlotDisplayChange?.(slot, newScale, newDisplay)
         }
@@ -494,60 +500,52 @@ export default function Stage({
             {/* Controls */}
             <div style={{ padding: '10px 14px 14px' }}>
               {/* Scale */}
-              {[
-                { label: 'Scale', min: 0.5, max: 2.5, step: 0.05, val: scale,
-                  display: `${Math.round(scale * 100)}%`,
-                  onChange: (v: number) => fire(v, display) },
-              ].map(({ label, min, max, step, val, display: disp, onChange }) => (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>{label}</span>
-                  <input type="range" min={min} max={max} step={step} value={val}
-                    onChange={e => onChange(Number(e.target.value))}
-                    style={{ flex: 1, accentColor: '#e53535', cursor: 'pointer', height: '44px', touchAction: 'none' }}
-                  />
-                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{disp}</span>
-                </div>
-              ))}
-
-              {/* Fit + Flip row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: display.objectFit === 'cover' ? '8px' : '0' }}>
-                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Fit</span>
-                {(['contain', 'cover'] as const).map(fit => (
-                  <button key={fit} onClick={() => fire(scale, { ...display, objectFit: fit, objectPosition: fit === 'cover' ? `${posX}% ${Math.min(posY, 50)}%` : '50% 100%' })}
-                    style={{
-                      fontSize: '9px', fontWeight: 700, letterSpacing: '.6px', textTransform: 'uppercase',
-                      minHeight: '36px', padding: '0 10px', borderRadius: '5px', cursor: 'pointer', touchAction: 'manipulation',
-                      background: display.objectFit === fit ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${display.objectFit === fit ? '#e53535' : 'rgba(255,255,255,0.1)'}`,
-                      color: display.objectFit === fit ? '#e53535' : 'rgba(255,255,255,0.4)',
-                    }}
-                  >{fit}</button>
-                ))}
-                <div style={{ flex: 1 }} />
-                <button onClick={() => fire(scale, { ...display, flipped: !display.flipped })}
-                  style={{
-                    fontSize: '10px', minHeight: '36px', padding: '0 10px', borderRadius: '5px', cursor: 'pointer', touchAction: 'manipulation',
-                    background: display.flipped ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${display.flipped ? '#e53535' : 'rgba(255,255,255,0.1)'}`,
-                    color: display.flipped ? '#e53535' : 'rgba(255,255,255,0.4)',
-                  }}
-                >↔ Flip</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Scale</span>
+                <input type="range" min={0.5} max={2.5} step={0.05} value={scale}
+                  onChange={e => fire(Number(e.target.value), display)}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
+                />
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{Math.round(scale * 100)}%</span>
               </div>
 
-              {/* Pan sliders (cover only) */}
-              {display.objectFit === 'cover' && [
-                { label: 'Pan X', val: posX, build: (v: number) => `${v}% ${posY}%` },
-                { label: 'Pan Y', val: posY, build: (v: number) => `${posX}% ${v}%` },
-              ].map(({ label, val, build }) => (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+              {/* Zoom */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Zoom</span>
+                <input type="range" min={1} max={3} step={0.05} value={zoom}
+                  onChange={e => fire(scale, { ...display, zoom: Number(e.target.value) })}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
+                />
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{zoom.toFixed(1)}x</span>
+              </div>
+
+              {/* Pan sliders — only shown when zoomed in */}
+              {zoomed && [
+                { label: 'Pan X', val: panX, onChange: (v: number) => fire(scale, { ...display, panX: v }) },
+                { label: 'Pan Y', val: panY, onChange: (v: number) => fire(scale, { ...display, panY: v }) },
+              ].map(({ label, val, onChange }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                   <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>{label}</span>
                   <input type="range" min={0} max={100} step={1} value={val}
-                    onChange={e => fire(scale, { ...display, objectPosition: build(Number(e.target.value)) })}
-                    style={{ flex: 1, accentColor: '#e53535', cursor: 'pointer', height: '44px', touchAction: 'none' }}
+                    onChange={e => onChange(Number(e.target.value))}
+                    style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
                   />
                   <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{val}%</span>
                 </div>
               ))}
+
+              {/* Flip row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Flip</span>
+                <button onClick={() => fire(scale, { ...display, flipped: !display.flipped })}
+                  style={{
+                    fontSize: '10px', minHeight: '36px', padding: '0 14px', borderRadius: '5px', cursor: 'pointer', touchAction: 'manipulation',
+                    background: display.flipped ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
+                    color: display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.4)',
+                  }}
+                >↔ Mirror</button>
+              </div>
             </div>
           </div>
         )
