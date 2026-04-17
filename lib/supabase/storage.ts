@@ -99,7 +99,7 @@ export async function deleteMedia(
   await supabase.storage.from(BUCKET).remove([storagePath])
 }
 
-/** Delete multiple files from Storage in one request */
+/** Delete multiple files from Storage in one call. No-ops on empty input. */
 export async function deleteMediaBatch(
   supabase: SupabaseClient,
   storagePaths: string[]
