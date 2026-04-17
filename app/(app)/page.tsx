@@ -192,14 +192,13 @@ export default function AppPage() {
   async function startPresenting() {
     if (!activeCampId || !userId) return
     if (sessionId && isLive) { setShareModalOpen(true); return }
-    await supabase.from('sessions').update({ is_live: false }).eq('campaign_id', activeCampId)
     const code = makeJoinCode()
     const cs: CharacterState = { left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null, leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right }
-    const { data } = await supabase.from('sessions').insert({
+    const { data } = await supabase.from('sessions').upsert({
       campaign_id: activeCampId, join_code: code,
       active_scene_id: activeSceneId || null, is_live: true,
       created_by: userId, character_state: cs,
-    }).select('id, join_code').single()
+    }, { onConflict: 'campaign_id' }).select('id, join_code').single()
     if (data) { setSessionId(data.id); setJoinCode(data.join_code); setIsLive(true); setShareModalOpen(true) }
   }
 
