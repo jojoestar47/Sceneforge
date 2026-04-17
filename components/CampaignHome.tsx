@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import type { Campaign } from '@/lib/types'
+import AppIcon from '@/components/AppIcon'
 
 interface Props {
   campaigns:     Campaign[]
@@ -15,11 +16,11 @@ function formatDate(str: string) {
 }
 
 const CARD_ACCENTS = [
-  { border: 'rgba(229,53,53,',   glow: 'rgba(229,53,53,',   badge: 'rgba(229,53,53,' },
-  { border: 'rgba(160,80,255,',  glow: 'rgba(160,80,255,',  badge: 'rgba(160,80,255,' },
-  { border: 'rgba(53,148,229,',  glow: 'rgba(53,148,229,',  badge: 'rgba(53,148,229,' },
-  { border: 'rgba(229,160,53,',  glow: 'rgba(229,160,53,',  badge: 'rgba(229,160,53,' },
-  { border: 'rgba(53,200,140,',  glow: 'rgba(53,200,140,',  badge: 'rgba(53,200,140,' },
+  { border: 'rgba(201,168,76,',  glow: 'rgba(201,168,76,',  badge: 'rgba(201,168,76,' },  // gold
+  { border: 'rgba(139,159,232,', glow: 'rgba(139,159,232,', badge: 'rgba(139,159,232,' }, // blue
+  { border: 'rgba(53,200,140,',  glow: 'rgba(53,200,140,',  badge: 'rgba(53,200,140,' },  // teal
+  { border: 'rgba(229,160,53,',  glow: 'rgba(229,160,53,',  badge: 'rgba(229,160,53,' },  // amber
+  { border: 'rgba(160,80,255,',  glow: 'rgba(160,80,255,',  badge: 'rgba(160,80,255,' },  // purple
 ]
 
 export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover }: Props) {
@@ -56,7 +57,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none',
         background: [
-          'radial-gradient(ellipse 60% 40% at 15% 25%, rgba(229,53,53,0.055) 0%, transparent 60%)',
+          'radial-gradient(ellipse 60% 40% at 15% 25%, rgba(201,168,76,0.055) 0%, transparent 60%)',
           'radial-gradient(ellipse 50% 35% at 85% 75%, rgba(120,60,200,0.04) 0%, transparent 55%)',
           'radial-gradient(ellipse 70% 50% at 50% 100%, rgba(0,0,0,0.5) 0%, transparent 70%)',
         ].join(','),
@@ -79,10 +80,10 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
           <div style={{ marginBottom: '52px', animation: 'homeIn 0.55s cubic-bezier(.22,1,.36,1) both' }}>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: '8px',
-              background: 'rgba(229,53,53,0.08)', border: '1px solid rgba(229,53,53,0.2)',
+              background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)',
               borderRadius: '20px', padding: '4px 12px 4px 8px', marginBottom: '20px',
             }}>
-              <span style={{ fontSize: '14px' }}>🎭</span>
+              <AppIcon size={16} />
               <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '2.5px', textTransform: 'uppercase', color: 'var(--accent)' }}>
                 Reverie
               </span>
@@ -147,7 +148,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                       />
                     ) : (
                       <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <span style={{ fontSize: '36px', opacity: 0.25 }}>🎭</span>
+                        <AppIcon size={40} opacity={0.2} />
                       </div>
                     )}
 
@@ -255,13 +256,13 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
               onMouseEnter={() => !isTouchDevice && setHoveredNew(true)}
               onMouseLeave={() => !isTouchDevice && setHoveredNew(false)}
               style={{
-                border: `1px dashed ${hoveredNew ? 'rgba(229,53,53,0.5)' : 'var(--border-lt)'}`,
+                border: `1px dashed ${hoveredNew ? 'rgba(201,168,76,0.5)' : 'var(--border-lt)'}`,
                 borderRadius: '14px',
                 cursor: 'pointer',
                 transition: 'transform 0.22s cubic-bezier(.22,1,.36,1), box-shadow 0.22s ease, background 0.18s ease, border-color 0.18s ease',
                 transform: hoveredNew ? 'translateY(-4px) scale(1.005)' : 'translateY(0) scale(1)',
-                background: hoveredNew ? 'rgba(229,53,53,0.04)' : 'transparent',
-                boxShadow: hoveredNew ? '0 10px 32px rgba(229,53,53,0.09)' : 'none',
+                background: hoveredNew ? 'rgba(201,168,76,0.04)' : 'transparent',
+                boxShadow: hoveredNew ? '0 10px 32px rgba(201,168,76,0.09)' : 'none',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 minHeight: '220px', textAlign: 'center',
                 animation: `homeCardIn 0.5s cubic-bezier(.22,1,.36,1) ${campaigns.length * 0.055}s both`,
@@ -269,7 +270,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
             >
               <div style={{
                 width: '46px', height: '46px', borderRadius: '50%',
-                border: `1.5px dashed ${hoveredNew ? 'rgba(229,53,53,0.55)' : 'var(--border-lt)'}`,
+                border: `1.5px dashed ${hoveredNew ? 'rgba(201,168,76,0.55)' : 'var(--border-lt)'}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: hoveredNew ? 'var(--accent)' : 'var(--text-3)',
                 fontSize: '22px', fontWeight: 300, marginBottom: '12px',
@@ -292,7 +293,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
           {/* Empty state extra hint */}
           {campaigns.length === 0 && (
             <div style={{ marginTop: '60px', textAlign: 'center', animation: 'homeIn 0.6s cubic-bezier(.22,1,.36,1) 0.15s both' }}>
-              <div style={{ fontSize: '48px', opacity: 0.12, marginBottom: '16px' }}>🎭</div>
+              <div style={{ marginBottom: '16px' }}><AppIcon size={52} opacity={0.12} /></div>
               <p style={{ fontSize: '11px', color: 'var(--text-3)', letterSpacing: '0.3px', lineHeight: 1.8 }}>
                 Your campaigns will appear here.<br />Start by creating one above.
               </p>

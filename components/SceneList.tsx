@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { Scene } from '@/lib/types'
+import AppIcon from '@/components/AppIcon'
 
 interface Props {
   scenes:        Scene[]
@@ -107,8 +108,8 @@ export default function SceneList({
                 borderRadius: '10px',
                 cursor: canDrag ? 'grab' : 'pointer',
                 position: 'relative', overflow: 'hidden',
-                background: active ? 'rgba(229,53,53,0.07)' : isHov ? 'var(--bg-hover)' : 'var(--bg-raised)',
-                border: `1px solid ${active ? 'rgba(229,53,53,0.32)' : isOver ? 'var(--accent)' : isHov ? 'var(--border-lt)' : 'var(--border)'}`,
+                background: active ? 'rgba(201,168,76,0.07)' : isHov ? 'var(--bg-hover)' : 'var(--bg-raised)',
+                border: `1px solid ${active ? 'rgba(201,168,76,0.32)' : isOver ? 'var(--accent)' : isHov ? 'var(--border-lt)' : 'var(--border)'}`,
                 boxShadow: active ? 'inset 3px 0 0 var(--accent)' : 'none',
                 opacity: isDragging ? 0.3 : 1,
                 transition: 'background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease',
@@ -135,7 +136,7 @@ export default function SceneList({
                   ? sc.bg?.type === 'video'
                     ? <video src={bgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline preload="metadata" />
                     : <img src={bgUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.07)' : 'scale(1)' }} />
-                  : <span style={{ fontSize: '20px', opacity: 0.2 }}>🎭</span>
+                  : <AppIcon size={22} opacity={0.2} />
                 }
                 {/* Order number */}
                 <div style={{
@@ -161,7 +162,7 @@ export default function SceneList({
                   {active && (
                     <span style={{
                       fontSize: '8px', fontWeight: 800, letterSpacing: '1.2px', textTransform: 'uppercase',
-                      color: 'var(--accent)', background: 'rgba(229,53,53,0.15)',
+                      color: 'var(--accent)', background: 'rgba(201,168,76,0.15)',
                       borderRadius: '4px', padding: '2px 5px', flexShrink: 0,
                     }}>ON</span>
                   )}
@@ -227,7 +228,7 @@ export default function SceneList({
                     transition: 'all 0.12s ease', flexShrink: 0,
                     touchAction: 'manipulation',
                   }}
-                  onMouseEnter={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'rgba(229,53,53,0.1)'; e.currentTarget.style.borderColor = 'rgba(229,53,53,0.35)'; e.currentTarget.style.color = 'var(--accent)' } }}
+                  onMouseEnter={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'rgba(201,168,76,0.1)'; e.currentTarget.style.borderColor = 'rgba(201,168,76,0.35)'; e.currentTarget.style.color = 'var(--accent)' } }}
                   onMouseLeave={e => { if (!isTouchDevice) { e.currentTarget.style.background = 'var(--bg-panel)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-3)' } }}
                 >
                   <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
@@ -270,8 +271,8 @@ function AddSceneButton({ onClick }: { onClick: () => void }) {
       style={{
         width: '100%', height: isTouchDevice ? '60px' : '52px', borderRadius: '10px',
         touchAction: 'manipulation',
-        border: `1px dashed ${hov ? 'rgba(229,53,53,0.5)' : 'var(--border-lt)'}`,
-        background: hov ? 'rgba(229,53,53,0.04)' : 'transparent',
+        border: `1px dashed ${hov ? 'rgba(201,168,76,0.5)' : 'var(--border-lt)'}`,
+        background: hov ? 'rgba(201,168,76,0.04)' : 'transparent',
         cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
         color: hov ? 'var(--accent)' : 'var(--text-3)',

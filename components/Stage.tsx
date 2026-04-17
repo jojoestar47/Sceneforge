@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Scene, Track, Character } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
+import AppIcon from '@/components/AppIcon'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -249,7 +250,7 @@ export default function Stage({
     return (
       <div style={{ flex: 1, background: '#080a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
-          <div style={{ fontSize: '44px', opacity: .2, marginBottom: '12px' }}>🎭</div>
+          <div style={{ marginBottom: '14px' }}><AppIcon size={48} opacity={0.2} /></div>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2.5px' }}>
             {hasCampaign ? 'Select a Scene' : 'Select a Campaign'}
           </div>
