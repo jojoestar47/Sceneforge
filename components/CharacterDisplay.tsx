@@ -53,9 +53,6 @@ export default function CharacterDisplay({
         pointerEvents: 'none',
         transform,
         transformOrigin: 'bottom center',
-        // overflow hidden clips the zoom; must be on the outer container so
-        // the name label (absolutely positioned within) is also clipped cleanly.
-        overflow: 'hidden',
       }}
     >
       {imageUrl && (
@@ -68,8 +65,9 @@ export default function CharacterDisplay({
           }}
         >
           {/* Zoom wrapper: scales the image from the chosen anchor point.
-              transformOrigin pins the zoom to the correct region so the user
-              always sees the part they panned to. */}
+              No overflow:hidden here — that would hard-clip the drop-shadow
+              filter against the slot edge and cause a visible black line.
+              The Stage wrapper's overflow:hidden is the final boundary. */}
           <div
             style={{
               height: '100%',
