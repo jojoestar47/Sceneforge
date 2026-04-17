@@ -453,9 +453,6 @@ export default function AppPage() {
           {/* ── BOTTOM BAR ── */}
           <div style={{ minHeight: '54px', paddingBottom: 'env(safe-area-inset-bottom, 0px)', background: 'var(--bg-panel)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', paddingLeft: '16px', paddingRight: '16px', flexShrink: 0, position: 'relative' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{activeScene ? activeScene.name : 'No scene selected'}</div>
-            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-              <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', color: 'var(--accent)', fontFamily: "'Cinzel',serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>SF</div>
-            </div>
             <div style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-3)' }}>{scenes.length} scene{scenes.length !== 1 ? 's' : ''}</div>
           </div>
         </>
