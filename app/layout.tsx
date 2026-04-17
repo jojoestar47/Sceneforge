@@ -3,7 +3,7 @@ import './globals.css'
 import ErrorBoundary from '@/components/ErrorBoundary'
 
 export const metadata: Metadata = {
-  title: 'SceneForge',
+  title: 'Reverie',
   description: 'TTRPG Scene Director',
 }
 
