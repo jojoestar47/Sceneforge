@@ -41,6 +41,7 @@ interface Props {
   campaignCharacters?: Character[]
   onCharactersChange?: (c: ActiveCharacters) => void
   onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
+  onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -58,7 +59,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -130,8 +131,9 @@ export default function Stage({
 
   // ── Character slot panel state (DM only) ─────────────────────
   // activeSlot: which slot's panel is open; panelMode: adjust existing or pick new
-  const [activeSlot, setActiveSlot]   = useState<'left' | 'center' | 'right' | null>(null)
-  const [panelMode,  setPanelMode]    = useState<'adjust' | 'pick'>('pick')
+  const [activeSlot,    setActiveSlot]    = useState<'left' | 'center' | 'right' | null>(null)
+  const [panelMode,     setPanelMode]     = useState<'adjust' | 'pick'>('pick')
+  const [savedConfirm,  setSavedConfirm]  = useState(false)
   const [charSearch, setCharSearch]   = useState('')
   // Track whether this device has touch so we can disable autoFocus (which
   // opens the keyboard on Android and resizes the stage, hiding the popup).
@@ -535,7 +537,7 @@ export default function Stage({
               ))}
 
               {/* Flip row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
                 <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Flip</span>
                 <button onClick={() => fire(scale, { ...display, flipped: !display.flipped })}
                   style={{
@@ -546,6 +548,27 @@ export default function Stage({
                   }}
                 >↔ Mirror</button>
               </div>
+
+              {/* Save button */}
+              {onSaveSlotDisplay && (
+                <button
+                  onClick={async () => {
+                    await onSaveSlotDisplay(slot)
+                    setSavedConfirm(true)
+                    setTimeout(() => setSavedConfirm(false), 1800)
+                  }}
+                  style={{
+                    width: '100%', minHeight: '40px', borderRadius: '7px', cursor: 'pointer',
+                    touchAction: 'manipulation', fontWeight: 700, fontSize: '11px',
+                    letterSpacing: '1px', textTransform: 'uppercase', border: 'none',
+                    background: savedConfirm ? 'rgba(201,168,76,0.2)' : 'var(--accent)',
+                    color: savedConfirm ? 'var(--accent)' : '#13151d',
+                    transition: 'background 0.2s, color 0.2s',
+                  }}
+                >
+                  {savedConfirm ? '✓ Saved' : 'Save Position'}
+                </button>
+              )}
             </div>
           </div>
         )

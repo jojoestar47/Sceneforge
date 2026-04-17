@@ -46,6 +46,7 @@ export default function AppPage() {
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
   const [characterScales,    setCharacterScales]    = useState<Record<string, number>>({})
+  const [characterDisplayDefaults, setCharacterDisplayDefaults] = useState<Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }>>({})
   const [slotScales,         setSlotScales]         = useState({ left: 1, center: 1, right: 1 })
   const [slotDisplayProps,   setSlotDisplayProps]   = useState({
     left:   DEFAULT_SLOT_DISPLAY,
@@ -131,16 +132,24 @@ export default function AppPage() {
     setActiveCharacters({ left: null, center: null, right: null })
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
-    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); return }
+    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', activeSceneId)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
-        setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
+        setSceneRosterChars(data.map((r: any) => r.character as Character).filter(Boolean))
         const scales: Record<string, number> = {}
-        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
+        const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
+        data.forEach((r: any) => {
+          if (!r.character_id) return
+          scales[r.character_id] = r.scale ?? 1
+          displayDefs[r.character_id] = {
+            zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false,
+          }
+        })
         setCharacterScales(scales)
+        setCharacterDisplayDefaults(displayDefs)
       })
   }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -250,11 +259,11 @@ export default function AppPage() {
       center: chars.center ? (characterScales[chars.center.id] ?? 1) : 1,
       right:  chars.right  ? (characterScales[chars.right.id]  ?? 1) : 1,
     }
-    // Reset display props for any slot where the character changed.
+    // Use saved display defaults for any slot where the character changed.
     const newDisplay = { ...slotDisplayProps }
-    if (chars.left?.id   !== activeCharacters.left?.id)   newDisplay.left   = DEFAULT_SLOT_DISPLAY
-    if (chars.center?.id !== activeCharacters.center?.id) newDisplay.center = DEFAULT_SLOT_DISPLAY
-    if (chars.right?.id  !== activeCharacters.right?.id)  newDisplay.right  = DEFAULT_SLOT_DISPLAY
+    if (chars.left?.id   !== activeCharacters.left?.id)   newDisplay.left   = chars.left   ? (characterDisplayDefaults[chars.left.id]   ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY
+    if (chars.center?.id !== activeCharacters.center?.id) newDisplay.center = chars.center ? (characterDisplayDefaults[chars.center.id] ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY
+    if (chars.right?.id  !== activeCharacters.right?.id)  newDisplay.right  = chars.right  ? (characterDisplayDefaults[chars.right.id]  ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY
     setSlotScales(newScales)
     setSlotDisplayProps(newDisplay)
     setActiveCharacters(chars)
@@ -291,6 +300,29 @@ export default function AppPage() {
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
+  }
+
+  async function handleSaveSlotDisplay(slot: 'left' | 'center' | 'right') {
+    const char = activeCharacters[slot]
+    if (!char || !activeSceneId) return
+    const display = slotDisplayProps[slot]
+    const scale   = slotScales[slot]
+    await supabase.from('scene_characters')
+      .update({
+        scale,
+        zoom:    display.zoom    ?? 1,
+        pan_x:   display.panX   ?? 50,
+        pan_y:   display.panY   ?? 100,
+        flipped: display.flipped ?? false,
+      })
+      .eq('scene_id', activeSceneId)
+      .eq('character_id', char.id)
+    // Update local defaults so re-placing the character restores this position.
+    setCharacterDisplayDefaults(prev => ({
+      ...prev,
+      [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false },
+    }))
+    setCharacterScales(prev => ({ ...prev, [char.id]: scale }))
   }
 
   // ── Campaign CRUD ─────────────────────────────────────────────
@@ -469,11 +501,17 @@ export default function AppPage() {
       .select('*, character:characters(*)')
       .eq('scene_id', saved.id)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
-        setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
+        setSceneRosterChars(data.map((r: any) => r.character as Character).filter(Boolean))
         const scales: Record<string, number> = {}
-        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
+        const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
+        data.forEach((r: any) => {
+          if (!r.character_id) return
+          scales[r.character_id] = r.scale ?? 1
+          displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
+        })
         setCharacterScales(scales)
+        setCharacterDisplayDefaults(displayDefs)
       })
   }
 
@@ -572,6 +610,7 @@ export default function AppPage() {
               campaignCharacters={sceneRosterChars}
               onCharactersChange={handleCharactersChange}
               onSlotDisplayChange={handleSlotDisplayChange}
+              onSaveSlotDisplay={handleSaveSlotDisplay}
             />
             <div style={{ width: '300px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
               <div style={{ padding: '11px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
