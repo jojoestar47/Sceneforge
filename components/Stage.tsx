@@ -303,6 +303,7 @@ export default function Stage({
         width:  isFullscreen ? '100dvw' : undefined,
         height: isFullscreen ? '100dvh' : undefined,
         position: 'relative',
+        overflow: 'hidden',
         background: '#080a10',
         display: 'flex',
         alignItems: 'center',
