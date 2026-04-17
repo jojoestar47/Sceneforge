@@ -101,7 +101,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px', marginBottom: '8px' }}>
-            SceneForge
+            Reverie
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>TTRPG Scene Director</div>
         </div>

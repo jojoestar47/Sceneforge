@@ -259,7 +259,7 @@ export default function ViewerPage() {
   if (status === 'loading') return (
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px', marginBottom: '14px' }}>SceneForge</div>
+        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '2px' }}>Connecting…</div>
       </div>
     </div>
