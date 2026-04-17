@@ -450,11 +450,6 @@ export default function AppPage() {
             </div>
           </div>
 
-          {/* ── BOTTOM BAR ── */}
-          <div style={{ minHeight: '54px', paddingBottom: 'env(safe-area-inset-bottom, 0px)', background: 'var(--bg-panel)', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', paddingLeft: '16px', paddingRight: '16px', flexShrink: 0, position: 'relative' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{activeScene ? activeScene.name : 'No scene selected'}</div>
-            <div style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-3)' }}>{scenes.length} scene{scenes.length !== 1 ? 's' : ''}</div>
-          </div>
         </>
       )}
 
