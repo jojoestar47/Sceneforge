@@ -2,17 +2,18 @@
   <!-- Background -->
   <rect width="32" height="32" rx="8" fill="#13151d"/>
 
-  <!-- Tragedy mask (behind, darker red) -->
-  <ellipse cx="20" cy="18" rx="9" ry="10" fill="#8b1c1c"/>
-  <ellipse cx="17" cy="16.5" rx="1.7" ry="2.2" fill="#13151d"/>
-  <ellipse cx="23" cy="16.5" rx="1.7" ry="2.2" fill="#13151d"/>
-  <!-- frown -->
-  <path d="M17 22 Q20 19.5 23 22" stroke="#13151d" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <!-- Camera body -->
+  <rect x="2" y="10" width="19" height="13" rx="3" fill="#e53535"/>
 
-  <!-- Comedy mask (front, bright red) -->
-  <ellipse cx="13" cy="15" rx="9" ry="10" fill="#e53535"/>
-  <ellipse cx="10" cy="13.5" rx="1.7" ry="2.2" fill="#13151d"/>
-  <ellipse cx="16" cy="13.5" rx="1.7" ry="2.2" fill="#13151d"/>
-  <!-- smile -->
-  <path d="M10 18 Q13 21.5 16 18" stroke="#13151d" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <!-- Lens ring -->
+  <circle cx="11.5" cy="16.5" r="4.8" fill="#1a1c27"/>
+  <circle cx="11.5" cy="16.5" r="3.2" fill="#0d0f18"/>
+  <!-- Lens glint -->
+  <circle cx="10.2" cy="15.2" r="1" fill="rgba(255,255,255,0.18)"/>
+
+  <!-- Record indicator dot -->
+  <circle cx="17.5" cy="12.5" r="1.3" fill="#ff8080"/>
+
+  <!-- Viewfinder wing -->
+  <path d="M21 12.5 L30 8.5 L30 24.5 L21 20.5 Z" fill="#c42828"/>
 </svg>
