@@ -7,8 +7,9 @@ import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
 import Stage        from '@/components/Stage'
 import SceneList    from '@/components/SceneList'
 import SceneEditor  from '@/components/SceneEditor'
-import CampaignHome from '@/components/CampaignHome'
-import AppIcon      from '@/components/AppIcon'
+import CampaignHome     from '@/components/CampaignHome'
+import CharacterRoster  from '@/components/CharacterRoster'
+import AppIcon          from '@/components/AppIcon'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -37,6 +38,7 @@ export default function AppPage() {
   const [campModalOpen, setCampModalOpen] = useState(false)
   const [loading,       setLoading]       = useState(true)
   const [copied,        setCopied]        = useState(false)
+  const [campView,      setCampView]      = useState<'stage' | 'characters'>('stage')
 
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
@@ -90,7 +92,7 @@ export default function AppPage() {
   }, [])
 
   useEffect(() => {
-    if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId) }
+    if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId); setCampView('stage') }
     else setScenes([])
   }, [activeCampId, loadScenes])
 
@@ -332,6 +334,21 @@ export default function AppPage() {
     }
   }
 
+  async function deleteCharacter(charId: string) {
+    const char = campaignCharacters.find(c => c.id === charId)
+    if (!char) return
+    if (char.storage_path) await deleteMedia(supabase, char.storage_path).catch(() => {})
+    await supabase.from('scene_characters').delete().eq('character_id', charId)
+    await supabase.from('characters').delete().eq('id', charId)
+    setCampaignCharacters(prev => prev.filter(c => c.id !== charId))
+    // Clear character from any active stage slot
+    setActiveCharacters(prev => ({
+      left:   prev.left?.id   === charId ? null : prev.left,
+      center: prev.center?.id === charId ? null : prev.center,
+      right:  prev.right?.id  === charId ? null : prev.right,
+    }))
+  }
+
   async function updateCampaignName(campId: string, name: string) {
     await supabase.from('campaigns').update({ name }).eq('id', campId)
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, name } : c))
@@ -447,6 +464,29 @@ export default function AppPage() {
         </div>
       </div>
 
+      {/* ── CAMPAIGN TAB BAR ── */}
+      {activeCampId && (
+        <div style={{ height: '38px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '2px', flexShrink: 0 }}>
+          {(['stage', 'characters'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setCampView(tab)}
+              style={{
+                padding: '5px 14px', border: 'none', borderRadius: '6px',
+                background: campView === tab ? 'var(--bg-raised)' : 'transparent',
+                color: campView === tab ? 'var(--text)' : 'var(--text-3)',
+                cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+                letterSpacing: '1.5px', textTransform: 'uppercase',
+                borderBottom: campView === tab ? '2px solid var(--accent)' : '2px solid transparent',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {tab === 'stage' ? 'Stage' : `Characters${campaignCharacters.length ? ` (${campaignCharacters.length})` : ''}`}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── WORKSPACE ── */}
       {!activeCampId ? (
         <CampaignHome
@@ -457,6 +497,11 @@ export default function AppPage() {
           onUpdateName={updateCampaignName}
           onUpdateDescription={updateCampaignDescription}
           onDelete={deleteCampaignById}
+        />
+      ) : campView === 'characters' ? (
+        <CharacterRoster
+          characters={campaignCharacters}
+          onDelete={deleteCharacter}
         />
       ) : (
         <>
