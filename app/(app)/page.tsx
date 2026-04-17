@@ -363,7 +363,7 @@ export default function AppPage() {
 
   if (loading) return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg)' }}>
-      <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px' }}>SceneForge</div>
+      <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px' }}>Reverie</div>
       <div style={{ width: '160px', height: '3px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
         <div style={{ height: '100%', background: 'var(--accent)', borderRadius: '2px', animation: 'loadBar 1.2s ease-in-out infinite' }} />
       </div>
@@ -376,15 +376,15 @@ export default function AppPage() {
 
       {/* ── TOP BAR ── */}
       <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
-        <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', flexShrink: 0 }}>🎭</div>
+        <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', flexShrink: 0, cursor: 'pointer' }}>🎭</div>
         <select value={activeCampId} onChange={e => setActiveCampId(e.target.value)} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontFamily: 'Inter,sans-serif', fontSize: '12px', padding: '5px 9px', outline: 'none', cursor: 'pointer', maxWidth: '200px' }}>
           <option value="">Select Campaign</option>
           {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <button className="btn btn-outline btn-sm" onClick={() => setCampModalOpen(true)}>+ New</button>
         {activeCampId && <button className="btn btn-ghost btn-sm" onClick={deleteCampaign} style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,.4)' }}>Delete</button>}
-        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-          {activeCampaign ? activeCampaign.name.toUpperCase() : 'SCENEFORGE'}
+        <div onClick={() => setActiveCampId('')} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          {activeCampaign ? activeCampaign.name.toUpperCase() : 'REVERIE'}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
           {activeCampId && <button className="btn btn-red btn-sm" onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}>+ Scene</button>}

@@ -84,7 +84,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
             }}>
               <span style={{ fontSize: '14px' }}>🎭</span>
               <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '2.5px', textTransform: 'uppercase', color: 'var(--accent)' }}>
-                SceneForge
+                Reverie
               </span>
             </div>
             <h1 style={{ fontFamily: "'Cinzel', serif", fontSize: '30px', fontWeight: 600, letterSpacing: '4px', color: 'var(--text)', marginBottom: '10px', lineHeight: 1.2 }}>
