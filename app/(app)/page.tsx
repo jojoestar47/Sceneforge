@@ -8,6 +8,7 @@ import Stage        from '@/components/Stage'
 import SceneList    from '@/components/SceneList'
 import SceneEditor  from '@/components/SceneEditor'
 import CampaignHome from '@/components/CampaignHome'
+import AppIcon      from '@/components/AppIcon'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -376,13 +377,13 @@ export default function AppPage() {
 
       {/* ── TOP BAR ── */}
       <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
-        <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', flexShrink: 0, cursor: 'pointer' }}>🎭</div>
+        <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}><AppIcon size={20} /></div>
         <select value={activeCampId} onChange={e => setActiveCampId(e.target.value)} style={{ background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontFamily: 'Inter,sans-serif', fontSize: '12px', padding: '5px 9px', outline: 'none', cursor: 'pointer', maxWidth: '200px' }}>
           <option value="">Select Campaign</option>
           {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <button className="btn btn-outline btn-sm" onClick={() => setCampModalOpen(true)}>+ New</button>
-        {activeCampId && <button className="btn btn-ghost btn-sm" onClick={deleteCampaign} style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,.4)' }}>Delete</button>}
+        {activeCampId && <button className="btn btn-ghost btn-sm" onClick={deleteCampaign} style={{ color: 'var(--accent)', borderColor: 'rgba(201,168,76,0.4)' }}>Delete</button>}
         <div onClick={() => setActiveCampId('')} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           {activeCampaign ? activeCampaign.name.toUpperCase() : 'REVERIE'}
         </div>
@@ -393,11 +394,11 @@ export default function AppPage() {
           )}
           {activeCampId && isLive && (
             <>
-              <button onClick={() => setShareModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', color: 'var(--accent)', fontSize: '11px', fontWeight: 700 }}>
-                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--accent)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block' }} />
+              <button onClick={() => setShareModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', color: '#e53535', fontSize: '11px', fontWeight: 700 }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#e53535', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block' }} />
                 LIVE · {joinCode}
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={stopPresenting} style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,0.4)' }}>⏹ Stop</button>
+              <button className="btn btn-ghost btn-sm" onClick={stopPresenting} style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.4)' }}>⏹ Stop</button>
             </>
           )}
           <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">⏻</button>
@@ -465,7 +466,7 @@ export default function AppPage() {
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '12px', width: '460px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.9)', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#e53535', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
                 <span style={{ fontWeight: 600, fontSize: '14px' }}>Session Live</span>
               </div>
               <button onClick={() => setShareModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '16px', cursor: 'pointer' }}>✕</button>
@@ -495,7 +496,7 @@ export default function AppPage() {
               </div>
             </div>
             <div style={{ padding: '0 24px 16px', display: 'flex', justifyContent: 'center', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent)', borderColor: 'rgba(229,53,53,0.3)' }} onClick={() => { stopPresenting(); setShareModalOpen(false) }}>⏹ Stop Presenting</button>
+              <button className="btn btn-ghost btn-sm" style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.3)' }} onClick={() => { stopPresenting(); setShareModalOpen(false) }}>⏹ Stop Presenting</button>
             </div>
           </div>
         </div>
