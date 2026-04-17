@@ -197,7 +197,6 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       const charInserts = draft.characterPool.map(e => ({
         scene_id:     sceneId!,
         character_id: e.character.id,
-        position:     null,
         scale:        e.scale,
       }))
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
