@@ -8,8 +8,9 @@
   --bg-hover:    #252839;
   --border:      #2c2f42;
   --border-lt:   #363a52;
-  --accent:      #e53535;
-  --accent-bg:   rgba(229,53,53,0.12);
+  --accent:      #c9a84c;
+  --accent-2:    #8b9fe8;
+  --accent-bg:   rgba(201,168,76,0.12);
   --text:        #e0e3f0;
   --text-2:      #6b7090;
   --text-3:      #383c55;
@@ -43,8 +44,8 @@ html, body {
   cursor: pointer; transition: all .14s; letter-spacing: .3px; white-space: nowrap;
   text-decoration: none;
 }
-.btn-red    { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn-red:hover { background: #c42828; border-color: #c42828; }
+.btn-red    { background: var(--accent); border-color: var(--accent); color: #13151d; }
+.btn-red:hover { background: #a8893a; border-color: #a8893a; }
 .btn-ghost  { background: transparent; border-color: var(--border); color: var(--text-2); }
 .btn-ghost:hover { border-color: var(--border-lt); color: var(--text); }
 .btn-outline { background: transparent; border-color: var(--accent); color: var(--accent); }

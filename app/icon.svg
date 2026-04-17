@@ -1,19 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56" fill="none">
   <!-- Background -->
-  <rect width="32" height="32" rx="8" fill="#13151d"/>
-
-  <!-- Camera body -->
-  <rect x="2" y="10" width="19" height="13" rx="3" fill="#e53535"/>
-
-  <!-- Lens ring -->
-  <circle cx="11.5" cy="16.5" r="4.8" fill="#1a1c27"/>
-  <circle cx="11.5" cy="16.5" r="3.2" fill="#0d0f18"/>
-  <!-- Lens glint -->
-  <circle cx="10.2" cy="15.2" r="1" fill="rgba(255,255,255,0.18)"/>
-
-  <!-- Record indicator dot -->
-  <circle cx="17.5" cy="12.5" r="1.3" fill="#ff8080"/>
-
-  <!-- Viewfinder wing -->
-  <path d="M21 12.5 L30 8.5 L30 24.5 L21 20.5 Z" fill="#c42828"/>
+  <rect width="56" height="56" rx="12" fill="#13151d"/>
+  <!-- Outer arch -->
+  <path d="M12 40 L12 24 Q12 10 28 10 Q44 10 44 24 L44 40" stroke="#c9a84c" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <!-- Inner arch -->
+  <path d="M17 40 L17 25 Q17 15 28 15 Q39 15 39 25 L39 40" stroke="#8b9fe8" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.6"/>
+  <!-- Stars -->
+  <circle cx="28" cy="21" r="2"    fill="#e4c86a"/>
+  <circle cx="21" cy="27" r="1.1"  fill="#e4c86a" opacity="0.65"/>
+  <circle cx="35" cy="26" r="1.1"  fill="#e4c86a" opacity="0.65"/>
+  <circle cx="25" cy="32" r="0.85" fill="#e4c86a" opacity="0.45"/>
+  <circle cx="31" cy="33" r="0.85" fill="#e4c86a" opacity="0.45"/>
+  <circle cx="28" cy="38" r="0.7"  fill="#e4c86a" opacity="0.3"/>
+  <!-- Base line -->
+  <line x1="9" y1="41.5" x2="47" y2="41.5" stroke="#c9a84c" stroke-width="1.4" stroke-linecap="round" opacity="0.55"/>
 </svg>
