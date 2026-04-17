@@ -277,26 +277,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                             }
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {entry.character.name}
-                            </div>
-
-                            {/* Default scale (fine-tune live on stage) */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', width: '32px', flexShrink: 0 }}>Scale</span>
-                              <input
-                                type="range"
-                                min={0.5} max={2.5} step={0.05}
-                                value={entry.scale}
-                                onChange={e => {
-                                  const scale = Number(e.target.value)
-                                  setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) => i === idx ? { ...en, scale } : en) }))
-                                }}
-                                style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
-                              />
-                              <span style={{ fontSize: '10px', color: 'var(--text-2)', width: '34px', textAlign: 'right', flexShrink: 0 }}>
-                                {Math.round(entry.scale * 100)}%
-                              </span>
                             </div>
                           </div>
                           <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}

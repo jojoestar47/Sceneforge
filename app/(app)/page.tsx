@@ -339,10 +339,16 @@ export default function AppPage() {
       .eq('scene_id', activeSceneId)
       .eq('position', slot)
       .neq('character_id', char.id)
+    // Save position + scale first (columns always exist).
     await supabase.from('scene_characters')
+      .update({ position: slot, scale })
+      .eq('scene_id', activeSceneId)
+      .eq('character_id', char.id)
+    // Save zoom/pan/flip separately — these columns require the migration to
+    // have been applied. If they don't exist yet the error is silently ignored
+    // so the position save above still takes effect.
+    supabase.from('scene_characters')
       .update({
-        position: slot,
-        scale,
         zoom:    display.zoom    ?? 1,
         pan_x:   display.panX   ?? 50,
         pan_y:   display.panY   ?? 100,
@@ -350,6 +356,7 @@ export default function AppPage() {
       })
       .eq('scene_id', activeSceneId)
       .eq('character_id', char.id)
+      .then(({ error }) => { if (error) console.warn('zoom/pan columns not migrated yet:', error.message) })
     setCharacterDisplayDefaults(prev => ({
       ...prev,
       [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false },
