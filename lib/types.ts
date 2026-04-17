@@ -2,6 +2,7 @@ export interface Campaign {
   id: string
   user_id: string
   name: string
+  description?:      string | null
   cover_path?:       string | null
   cover_file_name?:  string | null
   cover_signed_url?: string        // resolved client-side, not stored in DB

@@ -337,6 +337,11 @@ export default function AppPage() {
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, name } : c))
   }
 
+  async function updateCampaignDescription(campId: string, description: string) {
+    await supabase.from('campaigns').update({ description }).eq('id', campId)
+    setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, description } : c))
+  }
+
   async function signOut() { await supabase.auth.signOut(); window.location.href = '/login' }
 
   async function handleReorder(dragId: string, targetId: string) {
@@ -451,6 +456,7 @@ export default function AppPage() {
           onNew={() => setCampModalOpen(true)}
           onUpdateCover={updateCampaignCover}
           onUpdateName={updateCampaignName}
+          onUpdateDescription={updateCampaignDescription}
           onDelete={deleteCampaignById}
         />
       ) : (

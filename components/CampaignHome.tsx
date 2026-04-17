@@ -5,12 +5,13 @@ import type { Campaign } from '@/lib/types'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
-  campaigns:     Campaign[]
-  onSelect:      (id: string) => void
-  onNew:         () => void
-  onUpdateCover: (campId: string, file: File) => Promise<void>
-  onUpdateName:  (campId: string, name: string) => Promise<void>
-  onDelete:      (campId: string) => Promise<void>
+  campaigns:           Campaign[]
+  onSelect:            (id: string) => void
+  onNew:               () => void
+  onUpdateCover:       (campId: string, file: File) => Promise<void>
+  onUpdateName:        (campId: string, name: string) => Promise<void>
+  onUpdateDescription: (campId: string, description: string) => Promise<void>
+  onDelete:            (campId: string) => Promise<void>
 }
 
 function formatDate(str: string) {
@@ -25,7 +26,7 @@ const CARD_ACCENTS = [
   { border: 'rgba(160,80,255,',  glow: 'rgba(160,80,255,',  badge: 'rgba(160,80,255,' },  // purple
 ]
 
-export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover, onUpdateName, onDelete }: Props) {
+export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover, onUpdateName, onUpdateDescription, onDelete }: Props) {
   const [hoveredId,  setHoveredId]  = useState<string | null>(null)
   const [hoveredNew, setHoveredNew] = useState(false)
   const [isTouchDevice] = useState(() =>
@@ -34,8 +35,10 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
 
   // Settings modal state
   const [settingsId,    setSettingsId]    = useState<string | null>(null)
-  const [editName,      setEditName]      = useState('')
-  const [savingName,    setSavingName]    = useState(false)
+  const [editName,        setEditName]        = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [savingName,      setSavingName]      = useState(false)
+  const [savingDesc,      setSavingDesc]      = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [deleting,      setDeleting]      = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -48,6 +51,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
     e.stopPropagation()
     setSettingsId(c.id)
     setEditName(c.name)
+    setEditDescription(c.description ?? '')
     setConfirmDelete(false)
   }
 
@@ -60,6 +64,12 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
     if (!settingsId || !editName.trim()) return
     setSavingName(true)
     try { await onUpdateName(settingsId, editName.trim()) } finally { setSavingName(false) }
+  }
+
+  async function saveDescription() {
+    if (!settingsId) return
+    setSavingDesc(true)
+    try { await onUpdateDescription(settingsId, editDescription) } finally { setSavingDesc(false) }
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -336,6 +346,32 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                   {savingName ? 'Saving…' : 'Save'}
                 </button>
               </div>
+            </div>
+
+            {/* Description field */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
+                Description
+              </label>
+              <textarea
+                value={editDescription}
+                onChange={e => setEditDescription(e.target.value)}
+                rows={3}
+                style={{
+                  background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                  borderRadius: '8px', padding: '8px 11px', color: 'var(--text)',
+                  fontFamily: 'Inter, sans-serif', fontSize: '13px', outline: 'none',
+                  resize: 'vertical', lineHeight: 1.5,
+                }}
+              />
+              <button
+                onClick={saveDescription}
+                disabled={savingDesc || editDescription === (settingsCamp.description ?? '')}
+                className="btn btn-outline btn-sm"
+                style={{ alignSelf: 'flex-end' }}
+              >
+                {savingDesc ? 'Saving…' : 'Save'}
+              </button>
             </div>
 
             {/* Cover image */}
