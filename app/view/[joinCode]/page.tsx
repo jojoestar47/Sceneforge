@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Scene, Track, Character, CharacterState } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
+import AppIcon from '@/components/AppIcon'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -259,7 +260,7 @@ export default function ViewerPage() {
   if (status === 'loading') return (
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
+        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#c9a84c', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '2px' }}>Connecting…</div>
       </div>
     </div>
@@ -268,11 +269,11 @@ export default function ViewerPage() {
   if (status === 'waiting') return (
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .3 }}>🎭</div>
+        <div style={{ marginBottom: '18px' }}><AppIcon size={48} opacity={0.25} /></div>
         <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.5)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '10px' }}>Waiting for DM</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', letterSpacing: '1px' }}>Session code: {joinCode}</div>
         <div style={{ marginTop: '10px', display: 'flex', gap: '5px', justifyContent: 'center' }}>
-          {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e53535', animation: `dot .8s ease-in-out ${i*.2}s infinite alternate`, opacity: .4 }} />)}
+          {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c9a84c', animation: `dot .8s ease-in-out ${i*.2}s infinite alternate`, opacity: .4 }} />)}
         </div>
       </div>
       <style>{`@keyframes dot{from{opacity:.2;transform:scale(.8)}to{opacity:1;transform:scale(1.1)}}`}</style>
@@ -364,7 +365,7 @@ export default function ViewerPage() {
 
       {!scene && (
         <div style={{ zIndex: 1, textAlign: 'center', color: 'rgba(255,255,255,0.2)', position: 'relative' }}>
-          <div style={{ fontSize: '44px', opacity: .3, marginBottom: '12px' }}>🎭</div>
+          <div style={{ marginBottom: '12px' }}><AppIcon size={48} opacity={0.2} /></div>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '3px' }}>Awaiting Scene</div>
         </div>
       )}
@@ -390,10 +391,10 @@ export default function ViewerPage() {
         <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'left' : 'right']: '14px', zIndex: 20, width: '240px' }}>
           <div onClick={() => setMixerOpen(o => !o)} style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 10px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
-              {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}
+              {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#c9a84c' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1, minWidth: 0 }}>Audio</span>
-            {playingCount > 0 && <span style={{ fontSize: '10px', color: '#e53535', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
+            {playingCount > 0 && <span style={{ fontSize: '10px', color: '#c9a84c', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
             <button
               onClick={e => {
                 e.stopPropagation()
@@ -425,7 +426,7 @@ export default function ViewerPage() {
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <button onClick={e => { e.stopPropagation(); stopAll() }} style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>⏹ Stop All</button>
-                <button onClick={e => { e.stopPropagation(); toggleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? '#e53535' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? '#e53535' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <button onClick={e => { e.stopPropagation(); toggleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? '#c9a84c' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? '#c9a84c' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {muted ? '🔇' : '🔊'}
                 </button>
               </div>
@@ -455,12 +456,12 @@ const fsStyle: React.CSSProperties = {
 function TrackRow({ t, isPlaying, volume, onToggle, onVol }: { t: Track; isPlaying: boolean; volume: number; onToggle: () => void; onVol: (v: number) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#e53535' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#e53535' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isPlaying ? '⏸' : '▶'}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{t.name}</div>
-        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#e53535', cursor: 'pointer', touchAction: 'none' }} />
+        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#c9a84c', cursor: 'pointer', touchAction: 'none' }} />
       </div>
     </div>
   )

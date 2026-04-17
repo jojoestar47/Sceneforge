@@ -159,7 +159,7 @@ function TrackRow({ t, state, onToggle, onVolume, onLoop }: {
             color: playing ? '#fff' : 'var(--text-2)',
             fontSize: '8px', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: playing ? '0 0 10px rgba(229,53,53,.4)' : 'none',
+            boxShadow: playing ? '0 0 10px rgba(201,168,76,.4)' : 'none',
             transition: 'all .15s',
           }}
         >
