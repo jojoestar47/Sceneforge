@@ -140,42 +140,16 @@ export default function AppPage() {
 
         const scales: Record<string, number> = {}
         const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
-        const autoChars:   { left: Character|null; center: Character|null; right: Character|null } = { left: null, center: null, right: null }
-        const autoScales   = { left: 1, center: 1, right: 1 }
-        const autoDisplay  = { left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY }
 
         data.forEach((r: any) => {
           if (!r.character_id) return
           scales[r.character_id] = r.scale ?? 1
-          const disp = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
-          displayDefs[r.character_id] = disp
-          // Auto-place characters that have a saved slot position.
-          if (r.position && ['left', 'center', 'right'].includes(r.position) && r.character) {
-            const s = r.position as 'left' | 'center' | 'right'
-            autoChars[s]  = r.character as Character
-            autoScales[s] = r.scale ?? 1
-            autoDisplay[s] = disp
-          }
+          displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
         })
 
         setCharacterScales(scales)
         setCharacterDisplayDefaults(displayDefs)
-        setActiveCharacters(autoChars)
-        setSlotScales(autoScales)
-        setSlotDisplayProps(autoDisplay)
-
-        // Sync auto-placements to the live session so the viewer sees them.
-        if (isLive && sessionId) {
-          const cs: CharacterState = {
-            left: autoChars.left?.id || null, center: autoChars.center?.id || null, right: autoChars.right?.id || null,
-            leftScale: autoScales.left, centerScale: autoScales.center, rightScale: autoScales.right,
-            leftZoom: autoDisplay.left.zoom, centerZoom: autoDisplay.center.zoom, rightZoom: autoDisplay.right.zoom,
-            leftPanX: autoDisplay.left.panX, centerPanX: autoDisplay.center.panX, rightPanX: autoDisplay.right.panX,
-            leftPanY: autoDisplay.left.panY, centerPanY: autoDisplay.center.panY, rightPanY: autoDisplay.right.panY,
-            leftFlipped: autoDisplay.left.flipped, centerFlipped: autoDisplay.center.flipped, rightFlipped: autoDisplay.right.flipped,
-          }
-          supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
-        }
+        // Stage always starts empty — DM places characters manually each session.
       })
   }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -333,22 +307,11 @@ export default function AppPage() {
     if (!char || !activeSceneId) return
     const display = slotDisplayProps[slot]
     const scale   = slotScales[slot]
-    // Clear any other character currently saved in this slot, then save this one.
+    // Persist framing for this character in this scene.
+    // Stage placement is always manual — only the framing (scale/zoom/pan/flip) is saved.
     await supabase.from('scene_characters')
-      .update({ position: null })
-      .eq('scene_id', activeSceneId)
-      .eq('position', slot)
-      .neq('character_id', char.id)
-    // Save position + scale first (columns always exist).
-    await supabase.from('scene_characters')
-      .update({ position: slot, scale })
-      .eq('scene_id', activeSceneId)
-      .eq('character_id', char.id)
-    // Save zoom/pan/flip separately — these columns require the migration to
-    // have been applied. If they don't exist yet the error is silently ignored
-    // so the position save above still takes effect.
-    supabase.from('scene_characters')
       .update({
+        scale,
         zoom:    display.zoom    ?? 1,
         pan_x:   display.panX   ?? 50,
         pan_y:   display.panY   ?? 100,
@@ -356,7 +319,6 @@ export default function AppPage() {
       })
       .eq('scene_id', activeSceneId)
       .eq('character_id', char.id)
-      .then(({ error }) => { if (error) console.warn('zoom/pan columns not migrated yet:', error.message) })
     setCharacterDisplayDefaults(prev => ({
       ...prev,
       [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false },
