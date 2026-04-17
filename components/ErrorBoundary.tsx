@@ -30,7 +30,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       if (this.props.fallback) return this.props.fallback
       return (
         <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: '#080a10' }}>
-          <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px' }}>
+          <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#c9a84c', letterSpacing: '2px' }}>
             Reverie
           </div>
           <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', textAlign: 'center', maxWidth: '400px', lineHeight: 1.6 }}>
@@ -41,7 +41,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           </div>
           <button
             onClick={() => window.location.reload()}
-            style={{ padding: '8px 20px', background: 'rgba(229,53,53,0.12)', border: '1px solid rgba(229,53,53,0.35)', borderRadius: '6px', color: '#e53535', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+            style={{ padding: '8px 20px', background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: '6px', color: '#c9a84c', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
           >
             Refresh Page
           </button>
