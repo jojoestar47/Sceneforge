@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import type { Scene, Track, MediaRef, Character } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
-import { uploadMedia } from '@/lib/supabase/storage'
+import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import { characterImageUrl } from '@/components/CharacterDisplay'
 import UploadZone from './UploadZone'
 
@@ -171,7 +171,13 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       }
 
       // Tracks
-      if (scene?.id) await supabase.from('tracks').delete().eq('scene_id', sceneId!)
+      if (scene?.id) {
+        const { data: existingTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', sceneId!)
+        const reusedPaths = new Set(draft.tracks.filter(t => !t._file).map(t => t.storage_path).filter(Boolean))
+        const orphanedPaths = (existingTracks ?? []).map(t => t.storage_path).filter((p): p is string => !!p && !reusedPaths.has(p))
+        await supabase.from('tracks').delete().eq('scene_id', sceneId!)
+        await deleteMediaBatch(supabase, orphanedPaths)
+      }
       const trackInserts = (await Promise.all(draft.tracks.map(async (t, i) => {
         let storagePath = t.storage_path, fileName = t.file_name, url = t.url || null
         if (t._file) { storagePath = await uploadMedia(supabase, userId, t._file); fileName = t._file.name; url = null }
