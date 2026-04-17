@@ -304,7 +304,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                                   const scale = Number(e.target.value)
                                   setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) => i === idx ? { ...en, scale } : en) }))
                                 }}
-                                style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px' }}
+                                style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
                               />
                               <span style={{ fontSize: '10px', color: 'var(--text-2)', width: '34px', textAlign: 'right', flexShrink: 0 }}>
                                 {Math.round(entry.scale * 100)}%
@@ -312,7 +312,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                             </div>
 
                             {/* Fit + Flip */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                               <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', width: '32px', flexShrink: 0 }}>Fit</span>
                               {(['contain', 'cover'] as const).map(fit => (
                                 <button key={fit}
@@ -321,7 +321,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                                   )}))}
                                   style={{
                                     fontSize: '9px', fontWeight: 700, letterSpacing: '.8px', textTransform: 'uppercase',
-                                    padding: '3px 8px', borderRadius: '4px', cursor: 'pointer',
+                                    minHeight: '36px', padding: '0 12px', borderRadius: '4px', cursor: 'pointer',
+                                    touchAction: 'manipulation',
                                     background: entry.objectFit === fit ? 'var(--accent-bg)' : 'var(--editor-row)',
                                     border: `1px solid ${entry.objectFit === fit ? 'var(--accent)' : 'var(--border)'}`,
                                     color: entry.objectFit === fit ? 'var(--accent)' : 'var(--text-3)',
@@ -333,7 +334,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                                   i === idx ? { ...en, flipped: !en.flipped } : en
                                 )}))}
                                 style={{
-                                  fontSize: '10px', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer',
+                                  fontSize: '10px', minHeight: '36px', padding: '0 12px', borderRadius: '4px', cursor: 'pointer',
+                                  touchAction: 'manipulation',
                                   background: entry.flipped ? 'var(--accent-bg)' : 'var(--editor-row)',
                                   border: `1px solid ${entry.flipped ? 'var(--accent)' : 'var(--border)'}`,
                                   color: entry.flipped ? 'var(--accent)' : 'var(--text-3)',
@@ -347,12 +349,12 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                               const posX = parseInt(parts[0]) || 50
                               const posY = parseInt(parts[1]) || 20
                               return (
-                                <div style={{ marginTop: '4px' }}>
+                                <div style={{ marginTop: '2px' }}>
                                   {[
                                     { label: 'Pan X', val: posX, build: (v: number) => `${v}% ${posY}%` },
                                     { label: 'Pan Y', val: posY, build: (v: number) => `${posX}% ${v}%` },
                                   ].map(({ label, val, build }) => (
-                                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
                                       <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', width: '32px', flexShrink: 0 }}>{label}</span>
                                       <input
                                         type="range" min={0} max={100} step={1}
@@ -361,7 +363,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                                           const newPos = build(Number(e.target.value))
                                           setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) => i === idx ? { ...en, objectPosition: newPos } : en) }))
                                         }}
-                                        style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px' }}
+                                        style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
                                       />
                                       <span style={{ fontSize: '10px', color: 'var(--text-2)', width: '28px', textAlign: 'right', flexShrink: 0 }}>{val}%</span>
                                     </div>
