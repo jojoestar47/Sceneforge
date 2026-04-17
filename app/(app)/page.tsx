@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia } from '@/lib/supabase/storage'
+import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
 import Stage        from '@/components/Stage'
 import SceneList    from '@/components/SceneList'
@@ -259,7 +259,37 @@ export default function AppPage() {
   async function deleteCampaign() {
     if (!activeCampId) return
     if (!confirm(`Delete campaign "${activeCampaign?.name}" and all its scenes?`)) return
+
+    // Collect all storage paths before deleting rows
+    const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', activeCampId)
+    const sceneIds = (campScenes ?? []).map(s => s.id)
+
+    const [{ data: allTracks }, { data: allChars }] = await Promise.all([
+      sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
+      supabase.from('characters').select('storage_path').eq('campaign_id', activeCampId),
+    ])
+
+    const storagePaths = [
+      activeCampaign?.cover_path,
+      ...(campScenes ?? []).flatMap(s => [s.bg?.storage_path, s.overlay?.storage_path]),
+      ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
+      ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
+    ].filter((p): p is string => !!p)
+
+    await deleteMediaBatch(supabase, storagePaths).catch(() => {})
+
+    // Delete child rows then the campaign (order respects FK constraints)
+    if (sceneIds.length) {
+      await supabase.from('scene_characters').delete().in('scene_id', sceneIds)
+      await supabase.from('tracks').delete().in('scene_id', sceneIds)
+    }
+    await Promise.all([
+      supabase.from('scenes').delete().eq('campaign_id', activeCampId),
+      supabase.from('characters').delete().eq('campaign_id', activeCampId),
+      supabase.from('sessions').delete().eq('campaign_id', activeCampId),
+    ])
     await supabase.from('campaigns').delete().eq('id', activeCampId)
+
     setCampaigns(prev => prev.filter(c => c.id !== activeCampId))
     setActiveCampId(''); setScenes([]); setIsLive(false); setSessionId(null); setJoinCode(null)
   }
@@ -283,7 +313,22 @@ export default function AppPage() {
   async function deleteScene(id: string) {
     const sc = scenes.find(s => s.id === id)
     if (!sc || !confirm(`Delete scene "${sc.name}"?`)) return
+
+    // Fetch tracks before deleting so we can clean their storage files
+    const { data: sceneTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', id)
+
+    const storagePaths = [
+      sc.bg?.storage_path,
+      sc.overlay?.storage_path,
+      ...(sceneTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
+    ].filter((p): p is string => !!p)
+
+    await deleteMediaBatch(supabase, storagePaths).catch(() => {})
+
+    await supabase.from('scene_characters').delete().eq('scene_id', id)
+    await supabase.from('tracks').delete().eq('scene_id', id)
     await supabase.from('scenes').delete().eq('id', id)
+
     setScenes(prev => prev.filter(s => s.id !== id))
     if (activeSceneId === id) setActiveSceneId('')
   }
