@@ -22,7 +22,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[SceneForge] Unhandled render error:', error, info.componentStack)
+    console.error('[Reverie] Unhandled render error:', error, info.componentStack)
   }
 
   render() {
@@ -31,7 +31,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       return (
         <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: '#080a10' }}>
           <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px' }}>
-            SceneForge
+            Reverie
           </div>
           <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', textAlign: 'center', maxWidth: '400px', lineHeight: 1.6 }}>
             Something went wrong. Please refresh the page to continue.
