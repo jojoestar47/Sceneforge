@@ -25,11 +25,8 @@ interface TrackDraft {
 }
 
 interface CharPoolEntry {
-  character:      Character
-  scale:          number
-  objectFit:      'contain' | 'cover'
-  objectPosition: string   // CSS object-position e.g. '50% 20%'
-  flipped:        boolean
+  character: Character
+  scale:     number
 }
 
 interface Draft {
@@ -97,13 +94,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       .then(({ data }) => {
         if (!data) return
         const pool = data
-          .map(r => ({
-            character:      r.character as Character,
-            scale:          r.scale ?? 1,
-            objectFit:      (r.object_fit ?? 'contain') as 'contain' | 'cover',
-            objectPosition: r.object_position ?? '50% 100%',
-            flipped:        r.flipped ?? false,
-          }))
+          .map(r => ({ character: r.character as Character, scale: r.scale ?? 1 }))
           .filter(e => !!e.character)
         setDraft(d => ({ ...d, characterPool: pool }))
       })
@@ -143,7 +134,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       if (data) {
         const newChar = data as Character
         setCampaignChars(prev => [...prev, newChar].sort((a, b) => a.name.localeCompare(b.name)))
-        setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: newChar, scale: 1, objectFit: 'contain', objectPosition: '50% 100%', flipped: false }] }))
+        setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: newChar, scale: 1 }] }))
         setNewCharOpen(false); setNewCharName(''); setNewCharFile(null); setNewCharUrl('')
       }
     } catch (e) {
@@ -204,13 +195,10 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       // Scene characters — delete existing, re-insert pool (no position)
       await supabase.from('scene_characters').delete().eq('scene_id', sceneId!)
       const charInserts = draft.characterPool.map(e => ({
-        scene_id:        sceneId!,
-        character_id:    e.character.id,
-        position:        null,
-        scale:           e.scale,
-        object_fit:      e.objectFit,
-        object_position: e.objectPosition,
-        flipped:         e.flipped,
+        scene_id:     sceneId!,
+        character_id: e.character.id,
+        position:     null,
+        scale:        e.scale,
       }))
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
@@ -293,7 +281,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                               {entry.character.name}
                             </div>
 
-                            {/* Scale */}
+                            {/* Default scale (fine-tune live on stage) */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', width: '32px', flexShrink: 0 }}>Scale</span>
                               <input
@@ -310,67 +298,6 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                                 {Math.round(entry.scale * 100)}%
                               </span>
                             </div>
-
-                            {/* Fit + Flip */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', width: '32px', flexShrink: 0 }}>Fit</span>
-                              {(['contain', 'cover'] as const).map(fit => (
-                                <button key={fit}
-                                  onClick={() => setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) =>
-                                    i === idx ? { ...en, objectFit: fit, objectPosition: fit === 'cover' ? '50% 20%' : '50% 100%' } : en
-                                  )}))}
-                                  style={{
-                                    fontSize: '9px', fontWeight: 700, letterSpacing: '.8px', textTransform: 'uppercase',
-                                    minHeight: '36px', padding: '0 12px', borderRadius: '4px', cursor: 'pointer',
-                                    touchAction: 'manipulation',
-                                    background: entry.objectFit === fit ? 'var(--accent-bg)' : 'var(--editor-row)',
-                                    border: `1px solid ${entry.objectFit === fit ? 'var(--accent)' : 'var(--border)'}`,
-                                    color: entry.objectFit === fit ? 'var(--accent)' : 'var(--text-3)',
-                                  }}
-                                >{fit}</button>
-                              ))}
-                              <button
-                                onClick={() => setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) =>
-                                  i === idx ? { ...en, flipped: !en.flipped } : en
-                                )}))}
-                                style={{
-                                  fontSize: '10px', minHeight: '36px', padding: '0 12px', borderRadius: '4px', cursor: 'pointer',
-                                  touchAction: 'manipulation',
-                                  background: entry.flipped ? 'var(--accent-bg)' : 'var(--editor-row)',
-                                  border: `1px solid ${entry.flipped ? 'var(--accent)' : 'var(--border)'}`,
-                                  color: entry.flipped ? 'var(--accent)' : 'var(--text-3)',
-                                }}
-                              >↔ Flip</button>
-                            </div>
-
-                            {/* Pan controls (cover mode only) */}
-                            {entry.objectFit === 'cover' && (() => {
-                              const parts = entry.objectPosition.split(' ')
-                              const posX = parseInt(parts[0]) || 50
-                              const posY = parseInt(parts[1]) || 20
-                              return (
-                                <div style={{ marginTop: '2px' }}>
-                                  {[
-                                    { label: 'Pan X', val: posX, build: (v: number) => `${v}% ${posY}%` },
-                                    { label: 'Pan Y', val: posY, build: (v: number) => `${posX}% ${v}%` },
-                                  ].map(({ label, val, build }) => (
-                                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                                      <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', width: '32px', flexShrink: 0 }}>{label}</span>
-                                      <input
-                                        type="range" min={0} max={100} step={1}
-                                        value={val}
-                                        onChange={e => {
-                                          const newPos = build(Number(e.target.value))
-                                          setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) => i === idx ? { ...en, objectPosition: newPos } : en) }))
-                                        }}
-                                        style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
-                                      />
-                                      <span style={{ fontSize: '10px', color: 'var(--text-2)', width: '28px', textAlign: 'right', flexShrink: 0 }}>{val}%</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )
-                            })()}
                           </div>
                           <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}
                             onClick={() => setDraft(d => ({ ...d, characterPool: d.characterPool.filter((_, i) => i !== idx) }))}>
@@ -425,7 +352,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                         {!charsLoading && filteredChars.map(c => (
                           <button key={c.id}
                             onClick={() => {
-                              setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: c, scale: 1, objectFit: 'contain', objectPosition: '50% 100%', flipped: false }] }))
+                              setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: c, scale: 1 }] }))
                               setCharPickerOpen(false); setCharSearch('')
                             }}
                             style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', width: '100%', textAlign: 'left' }}

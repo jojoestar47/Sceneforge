@@ -45,14 +45,12 @@ export default function AppPage() {
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
-  // Per-character display settings loaded from scene_characters pool
   const [characterScales,    setCharacterScales]    = useState<Record<string, number>>({})
-  const [characterDisplayProps, setCharacterDisplayProps] = useState<Record<string, { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }>>({})
   const [slotScales,         setSlotScales]         = useState({ left: 1, center: 1, right: 1 })
-  const [slotDisplayProps,   setSlotDisplayProps]   = useState<{ left: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }; center: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }; right: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean } }>({
-    left:   { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
-    center: { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
-    right:  { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
+  const [slotDisplayProps,   setSlotDisplayProps]   = useState({
+    left:   DEFAULT_SLOT_DISPLAY,
+    center: DEFAULT_SLOT_DISPLAY,
+    right:  DEFAULT_SLOT_DISPLAY,
   })
   const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, center: null, right: null })
   // Ref so the Realtime callback always reads the current roster without
@@ -128,31 +126,21 @@ export default function AppPage() {
   // ── On scene change: clear stage slots + load this scene's character pool ──
   // Stage slots always start empty — the DM places characters manually.
   // sceneRosterChars is the pool of characters for this scene.
-  // characterScales and characterDisplayProps map character_id → saved settings.
+  // characterScales maps character_id → default scale (set in the editor).
   useEffect(() => {
     setActiveCharacters({ left: null, center: null, right: null })
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
-    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayProps({}); return }
+    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); return }
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', activeSceneId)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayProps({}); return }
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
         setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
         const scales: Record<string, number> = {}
-        const display: Record<string, { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }> = {}
-        data.forEach(r => {
-          if (!r.character_id) return
-          scales[r.character_id] = r.scale ?? 1
-          display[r.character_id] = {
-            objectFit:      (r.object_fit ?? 'contain') as 'contain' | 'cover',
-            objectPosition: r.object_position ?? '50% 100%',
-            flipped:        r.flipped ?? false,
-          }
-        })
+        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
         setCharacterScales(scales)
-        setCharacterDisplayProps(display)
       })
   }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -254,23 +242,44 @@ export default function AppPage() {
   }
 
   async function handleCharactersChange(chars: ActiveCharacters) {
-    // Scale + display props follow the character — look up from the pool
+    // Scale follows the character — look up each character's saved default scale.
     const newScales = {
       left:   chars.left   ? (characterScales[chars.left.id]   ?? 1) : 1,
       center: chars.center ? (characterScales[chars.center.id] ?? 1) : 1,
       right:  chars.right  ? (characterScales[chars.right.id]  ?? 1) : 1,
     }
-    const newDisplay = {
-      left:   chars.left   ? (characterDisplayProps[chars.left.id]   ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY,
-      center: chars.center ? (characterDisplayProps[chars.center.id] ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY,
-      right:  chars.right  ? (characterDisplayProps[chars.right.id]  ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY,
-    }
+    // Reset display props for any slot where the character changed.
+    const newDisplay = { ...slotDisplayProps }
+    if (chars.left?.id   !== activeCharacters.left?.id)   newDisplay.left   = DEFAULT_SLOT_DISPLAY
+    if (chars.center?.id !== activeCharacters.center?.id) newDisplay.center = DEFAULT_SLOT_DISPLAY
+    if (chars.right?.id  !== activeCharacters.right?.id)  newDisplay.right  = DEFAULT_SLOT_DISPLAY
     setSlotScales(newScales)
     setSlotDisplayProps(newDisplay)
     setActiveCharacters(chars)
     if (isLive && sessionId) {
       const cs: CharacterState = {
         left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null,
+        leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right,
+        leftFit: newDisplay.left.objectFit, centerFit: newDisplay.center.objectFit, rightFit: newDisplay.right.objectFit,
+        leftPos: newDisplay.left.objectPosition, centerPos: newDisplay.center.objectPosition, rightPos: newDisplay.right.objectPosition,
+        leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
+      }
+      await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
+    }
+  }
+
+  async function handleSlotDisplayChange(
+    slot: 'left' | 'center' | 'right',
+    scale: number,
+    display: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
+  ) {
+    const newScales  = { ...slotScales,       [slot]: scale   }
+    const newDisplay = { ...slotDisplayProps, [slot]: display }
+    setSlotScales(newScales)
+    setSlotDisplayProps(newDisplay)
+    if (isLive && sessionId) {
+      const cs: CharacterState = {
+        left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null,
         leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right,
         leftFit: newDisplay.left.objectFit, centerFit: newDisplay.center.objectFit, rightFit: newDisplay.right.objectFit,
         leftPos: newDisplay.left.objectPosition, centerPos: newDisplay.center.objectPosition, rightPos: newDisplay.right.objectPosition,
@@ -558,6 +567,7 @@ export default function AppPage() {
               slotDisplayProps={slotDisplayProps}
               campaignCharacters={sceneRosterChars}
               onCharactersChange={handleCharactersChange}
+              onSlotDisplayChange={handleSlotDisplayChange}
             />
             <div style={{ width: '300px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
               <div style={{ padding: '11px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
