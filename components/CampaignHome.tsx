@@ -5,10 +5,13 @@ import type { Campaign } from '@/lib/types'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
-  campaigns:     Campaign[]
-  onSelect:      (id: string) => void
-  onNew:         () => void
-  onUpdateCover: (campId: string, file: File) => Promise<void>
+  campaigns:           Campaign[]
+  onSelect:            (id: string) => void
+  onNew:               () => void
+  onUpdateCover:       (campId: string, file: File) => Promise<void>
+  onUpdateName:        (campId: string, name: string) => Promise<void>
+  onUpdateDescription: (campId: string, description: string) => Promise<void>
+  onDelete:            (campId: string) => Promise<void>
 }
 
 function formatDate(str: string) {
@@ -23,29 +26,64 @@ const CARD_ACCENTS = [
   { border: 'rgba(160,80,255,',  glow: 'rgba(160,80,255,',  badge: 'rgba(160,80,255,' },  // purple
 ]
 
-export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover }: Props) {
-  const [hoveredId,    setHoveredId]    = useState<string | null>(null)
-  const [hoveredNew,   setHoveredNew]   = useState(false)
-  const [uploadingId,  setUploadingId]  = useState<string | null>(null)
+export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover, onUpdateName, onUpdateDescription, onDelete }: Props) {
+  const [hoveredId,  setHoveredId]  = useState<string | null>(null)
+  const [hoveredNew, setHoveredNew] = useState(false)
   const [isTouchDevice] = useState(() =>
     typeof window !== 'undefined' && navigator.maxTouchPoints > 0
   )
-  const fileInputRef  = useRef<HTMLInputElement>(null)
-  const pendingCampId = useRef<string | null>(null)
 
-  function openFilePicker(campId: string, e: React.MouseEvent | React.TouchEvent) {
+  // Settings modal state
+  const [settingsId,    setSettingsId]    = useState<string | null>(null)
+  const [editName,        setEditName]        = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [savingName,      setSavingName]      = useState(false)
+  const [savingDesc,      setSavingDesc]      = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const [deleting,      setDeleting]      = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const settingsCamp = settingsId ? campaigns.find(c => c.id === settingsId) ?? null : null
+
+  function openSettings(c: Campaign, e: React.MouseEvent) {
     e.stopPropagation()
-    pendingCampId.current = campId
-    fileInputRef.current?.click()
+    setSettingsId(c.id)
+    setEditName(c.name)
+    setEditDescription(c.description ?? '')
+    setConfirmDelete(false)
+  }
+
+  function closeSettings() {
+    setSettingsId(null)
+    setConfirmDelete(false)
+  }
+
+  async function saveName() {
+    if (!settingsId || !editName.trim()) return
+    setSavingName(true)
+    try { await onUpdateName(settingsId, editName.trim()) } finally { setSavingName(false) }
+  }
+
+  async function saveDescription() {
+    if (!settingsId) return
+    setSavingDesc(true)
+    try { await onUpdateDescription(settingsId, editDescription) } finally { setSavingDesc(false) }
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    const campId = pendingCampId.current
-    if (!file || !campId) return
+    if (!file || !settingsId) return
     e.target.value = ''
-    setUploadingId(campId)
-    try { await onUpdateCover(campId, file) } finally { setUploadingId(null) }
+    setUploadingCover(true)
+    try { await onUpdateCover(settingsId, file) } finally { setUploadingCover(false) }
+  }
+
+  async function handleDelete() {
+    if (!settingsId) return
+    setDeleting(true)
+    try { await onDelete(settingsId); closeSettings() } finally { setDeleting(false) }
   }
 
   return (
@@ -69,7 +107,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
         backgroundSize: '52px 52px',
       }} />
 
-      {/* Hidden file input */}
+      {/* Hidden file input for cover upload in modal */}
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
 
       {/* Scrollable content */}
@@ -92,37 +130,57 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
 
             {campaigns.map((c, i) => {
-              const isHov     = hoveredId === c.id
-              const isUploading = uploadingId === c.id
-              const accent    = CARD_ACCENTS[i % CARD_ACCENTS.length]
-              const hasCover  = !!c.cover_signed_url
-              const delay     = `${i * 0.055}s`
+              const isHov    = hoveredId === c.id
+              const accent   = CARD_ACCENTS[i % CARD_ACCENTS.length]
+              const hasCover = !!c.cover_signed_url
+              const delay    = `${i * 0.055}s`
 
               return (
                 <div
                   key={c.id}
-                  onClick={() => !isUploading && onSelect(c.id)}
+                  onClick={() => onSelect(c.id)}
                   onMouseEnter={() => !isTouchDevice && setHoveredId(c.id)}
                   onMouseLeave={() => !isTouchDevice && setHoveredId(null)}
                   style={{
                     background: 'var(--bg-panel)',
                     border: `1px solid ${isHov ? `${accent.border}0.42)` : 'var(--border)'}`,
                     borderRadius: '14px',
-                    cursor: isUploading ? 'wait' : 'pointer',
+                    cursor: 'pointer',
                     transition: 'transform 0.22s cubic-bezier(.22,1,.36,1), box-shadow 0.22s ease, border-color 0.18s ease',
-                    transform: isHov && !isUploading ? 'translateY(-4px) scale(1.005)' : 'translateY(0) scale(1)',
+                    transform: isHov ? 'translateY(-4px) scale(1.005)' : 'translateY(0) scale(1)',
                     boxShadow: isHov ? `0 16px 48px rgba(0,0,0,0.45), 0 4px 16px ${accent.glow}0.14)` : '0 2px 10px rgba(0,0,0,0.22)',
                     animation: `homeCardIn 0.5s cubic-bezier(.22,1,.36,1) ${delay} both`,
                     overflow: 'hidden',
                     position: 'relative',
                   }}
                 >
-                  {/* Top accent line (always visible, brightens on hover) */}
+                  {/* Top accent line */}
                   <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, height: '2px',
                     background: `linear-gradient(90deg, transparent, ${accent.border}${isHov ? '0.85)' : '0.3)'}, transparent)`,
                     transition: 'all 0.2s ease', zIndex: 1,
                   }} />
+
+                  {/* Settings gear button */}
+                  <button
+                    onClick={e => openSettings(c, e)}
+                    title="Campaign settings"
+                    style={{
+                      position: 'absolute', top: '8px', right: '8px', zIndex: 3,
+                      width: '28px', height: '28px', borderRadius: '7px',
+                      background: 'rgba(0,0,0,0.52)', border: '1px solid rgba(255,255,255,0.14)',
+                      color: 'rgba(255,255,255,0.65)', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      backdropFilter: 'blur(4px)', transition: 'background 0.15s ease, color 0.15s ease',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.75)'; e.currentTarget.style.color = '#fff' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.52)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+                      <circle cx="6.5" cy="6.5" r="1.8"/>
+                      <path d="M6.5 1.5v1M6.5 10v1M1.5 6.5h1M10 6.5h1M2.9 2.9l.7.7M9.4 9.4l.7.7M9.4 3.6l-.7.7M3.6 9.4l-.7.7"/>
+                    </svg>
+                  </button>
 
                   {/* Cover image area */}
                   <div style={{
@@ -139,68 +197,6 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                     ) : (
                       <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <AppIcon size={40} opacity={0.2} />
-                      </div>
-                    )}
-
-                    {/* Hover overlay (mouse) */}
-                    {!isTouchDevice && (
-                      <div style={{
-                        position: 'absolute', inset: 0,
-                        background: isHov ? 'rgba(0,0,0,0.45)' : 'transparent',
-                        transition: 'background 0.2s ease',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        pointerEvents: isHov ? 'auto' : 'none',
-                      }}>
-                        {isUploading ? (
-                          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.8)', fontWeight: 600, letterSpacing: '1px' }}>
-                            Uploading…
-                          </div>
-                        ) : isHov ? (
-                          <button
-                            onClick={e => openFilePicker(c.id, e)}
-                            style={{
-                              background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)',
-                              borderRadius: '8px', padding: '6px 12px', cursor: 'pointer',
-                              color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
-                              backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: '6px',
-                            }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.22)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.12)')}
-                          >
-                            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                              <path d="M4 1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h5A1.5 1.5 0 009.5 8V7M7 1.5l1.5 1.5L5.5 6H4V4.5L7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                            {hasCover ? 'Change Cover' : 'Add Cover'}
-                          </button>
-                        ) : null}
-                      </div>
-                    )}
-
-                    {/* Touch: persistent camera button pinned to corner */}
-                    {isTouchDevice && (
-                      <button
-                        onClick={e => openFilePicker(c.id, e)}
-                        style={{
-                          position: 'absolute', top: '8px', right: '8px',
-                          width: '36px', height: '36px', borderRadius: '8px',
-                          background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.2)',
-                          color: '#fff', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          backdropFilter: 'blur(4px)', touchAction: 'manipulation',
-                        }}
-                      >
-                        {isUploading
-                          ? <div style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                          : <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                              <path d="M9.5 2.5H4.5L3 4.5H1.5A1 1 0 001.5 4.5v7a1 1 0 001 1h10a1 1 0 001-1V4.5a1 1 0 00-1-1H11l-1.5-2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-                              <circle cx="7" cy="8" r="2" stroke="currentColor" strokeWidth="1.1"/>
-                            </svg>
-                        }
-                      </button>
-                    )}
-                    {isTouchDevice && isUploading && (
-                      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', fontWeight: 600, letterSpacing: '1px' }}>Uploading…</div>
                       </div>
                     )}
                   </div>
@@ -292,6 +288,158 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
 
         </div>
       </div>
+
+      {/* Settings modal */}
+      {settingsCamp && (
+        <div
+          onClick={closeSettings}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-panel)', border: '1px solid var(--border)',
+              borderRadius: '16px', width: '360px', padding: '28px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+              display: 'flex', flexDirection: 'column', gap: '20px',
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontFamily: "'Cinzel', serif", fontSize: '13px', fontWeight: 600, letterSpacing: '2px', color: 'var(--text)' }}>
+                CAMPAIGN SETTINGS
+              </div>
+              <button
+                onClick={closeSettings}
+                style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: '18px', lineHeight: 1, padding: '2px 4px' }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Name field */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
+                Name
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveName()}
+                  style={{
+                    flex: 1, background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                    borderRadius: '8px', padding: '8px 11px', color: 'var(--text)',
+                    fontFamily: 'Inter, sans-serif', fontSize: '13px', outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={saveName}
+                  disabled={savingName || !editName.trim() || editName.trim() === settingsCamp.name}
+                  className="btn btn-outline btn-sm"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {savingName ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+
+            {/* Description field */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
+                Description
+              </label>
+              <textarea
+                value={editDescription}
+                onChange={e => setEditDescription(e.target.value)}
+                rows={3}
+                style={{
+                  background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                  borderRadius: '8px', padding: '8px 11px', color: 'var(--text)',
+                  fontFamily: 'Inter, sans-serif', fontSize: '13px', outline: 'none',
+                  resize: 'vertical', lineHeight: 1.5,
+                }}
+              />
+              <button
+                onClick={saveDescription}
+                disabled={savingDesc || editDescription === (settingsCamp.description ?? '')}
+                className="btn btn-outline btn-sm"
+                style={{ alignSelf: 'flex-end' }}
+              >
+                {savingDesc ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+
+            {/* Cover image */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
+                Cover Image
+              </label>
+              {settingsCamp.cover_signed_url && (
+                <img
+                  src={settingsCamp.cover_signed_url}
+                  alt=""
+                  style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', marginBottom: '4px' }}
+                />
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingCover}
+                className="btn btn-outline btn-sm"
+              >
+                {uploadingCover ? 'Uploading…' : settingsCamp.cover_signed_url ? 'Change Cover' : 'Add Cover'}
+              </button>
+            </div>
+
+            {/* Divider */}
+            <div style={{ height: '1px', background: 'var(--border)' }} />
+
+            {/* Delete */}
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                style={{
+                  background: 'rgba(229,53,53,0.08)', border: '1px solid rgba(229,53,53,0.3)',
+                  borderRadius: '8px', padding: '9px', cursor: 'pointer',
+                  color: '#e53535', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px',
+                }}
+              >
+                Delete Campaign
+              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)', textAlign: 'center' }}>
+                  This will permanently delete all scenes, characters, and media.
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="btn btn-ghost btn-sm"
+                    style={{ flex: 1 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    style={{
+                      flex: 1, background: 'rgba(229,53,53,0.15)', border: '1px solid rgba(229,53,53,0.5)',
+                      borderRadius: '7px', padding: '7px', cursor: deleting ? 'wait' : 'pointer',
+                      color: '#e53535', fontSize: '12px', fontWeight: 700,
+                    }}
+                  >
+                    {deleting ? 'Deleting…' : 'Confirm Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes homeIn {

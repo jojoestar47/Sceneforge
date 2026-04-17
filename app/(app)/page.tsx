@@ -294,6 +294,54 @@ export default function AppPage() {
     setActiveCampId(''); setScenes([]); setIsLive(false); setSessionId(null); setJoinCode(null)
   }
 
+  async function deleteCampaignById(campId: string) {
+    const camp = campaigns.find(c => c.id === campId)
+    if (!camp) return
+
+    const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', campId)
+    const sceneIds = (campScenes ?? []).map(s => s.id)
+
+    const [{ data: allTracks }, { data: allChars }] = await Promise.all([
+      sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
+      supabase.from('characters').select('storage_path').eq('campaign_id', campId),
+    ])
+
+    const storagePaths = [
+      camp.cover_path,
+      ...(campScenes ?? []).flatMap(s => [s.bg?.storage_path, s.overlay?.storage_path]),
+      ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
+      ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
+    ].filter((p): p is string => !!p)
+
+    await deleteMediaBatch(supabase, storagePaths).catch(() => {})
+
+    if (sceneIds.length) {
+      await supabase.from('scene_characters').delete().in('scene_id', sceneIds)
+      await supabase.from('tracks').delete().in('scene_id', sceneIds)
+    }
+    await Promise.all([
+      supabase.from('scenes').delete().eq('campaign_id', campId),
+      supabase.from('characters').delete().eq('campaign_id', campId),
+      supabase.from('sessions').delete().eq('campaign_id', campId),
+    ])
+    await supabase.from('campaigns').delete().eq('id', campId)
+
+    setCampaigns(prev => prev.filter(c => c.id !== campId))
+    if (activeCampId === campId) {
+      setActiveCampId(''); setScenes([]); setIsLive(false); setSessionId(null); setJoinCode(null)
+    }
+  }
+
+  async function updateCampaignName(campId: string, name: string) {
+    await supabase.from('campaigns').update({ name }).eq('id', campId)
+    setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, name } : c))
+  }
+
+  async function updateCampaignDescription(campId: string, description: string) {
+    await supabase.from('campaigns').update({ description }).eq('id', campId)
+    setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, description } : c))
+  }
+
   async function signOut() { await supabase.auth.signOut(); window.location.href = '/login' }
 
   async function handleReorder(dragId: string, targetId: string) {
@@ -407,6 +455,9 @@ export default function AppPage() {
           onSelect={setActiveCampId}
           onNew={() => setCampModalOpen(true)}
           onUpdateCover={updateCampaignCover}
+          onUpdateName={updateCampaignName}
+          onUpdateDescription={updateCampaignDescription}
+          onDelete={deleteCampaignById}
         />
       ) : (
         <>
