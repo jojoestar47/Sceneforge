@@ -79,12 +79,15 @@ export interface CharacterState {
   centerScale: number
   rightScale:  number
   // Image display overrides (optional for backwards compatibility)
-  leftFit?:       'contain' | 'cover'
-  centerFit?:     'contain' | 'cover'
-  rightFit?:      'contain' | 'cover'
-  leftPos?:       string   // CSS object-position, e.g. '50% 20%'
-  centerPos?:     string
-  rightPos?:      string
+  leftZoom?:    number   // 1.0 – 3.0
+  centerZoom?:  number
+  rightZoom?:   number
+  leftPanX?:    number   // 0–100, transform-origin X
+  centerPanX?:  number
+  rightPanX?:   number
+  leftPanY?:    number   // 0–100, transform-origin Y
+  centerPanY?:  number
+  rightPanY?:   number
   leftFlipped?:   boolean
   centerFlipped?: boolean
   rightFlipped?:  boolean
