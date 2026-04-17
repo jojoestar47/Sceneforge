@@ -14,14 +14,29 @@ interface Props {
   character: Character
   position: 'left' | 'center' | 'right'
   imageUrl: string | null
-  scale?: number  // 0.5 – 2.5, default 1.0
+  scale?: number          // 0.5 – 2.5, default 1.0
+  objectFit?: 'contain' | 'cover'
+  objectPosition?: string // CSS object-position, e.g. '50% 20%'
+  flipped?: boolean       // horizontal mirror
 }
 
-export default function CharacterDisplay({ character, position, imageUrl, scale = 1 }: Props) {
+export default function CharacterDisplay({
+  character, position, imageUrl,
+  scale = 1, objectFit = 'contain', objectPosition = '50% 100%', flipped = false,
+}: Props) {
+  // Center slot: translateX(-50%) must come before scale so the scale origin
+  // stays at the visual center. Left/right just need scale.
+  // Previously the center's translateX was lost because positionStyle.transform
+  // was overridden by the explicit transform key — this builds it correctly.
+  const transform =
+    position === 'center'
+      ? `translateX(-50%) scale(${scale})`
+      : `scale(${scale})`
+
   const positionStyle =
     position === 'left'   ? { left: '8%' } :
     position === 'right'  ? { right: '8%' } :
-    /* center */            { left: '50%', transform: 'translateX(-50%)' }
+    /* center */            { left: '50%' }
 
   return (
     <div
@@ -39,30 +54,36 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
         alignItems: 'center',
         justifyContent: 'flex-end',
         pointerEvents: 'none',
-        // Scale lives here so it's always at the correct value.
-        // Keeping it off the <img> means the entrance animation on the
-        // img can use its own transform (translateY) without overriding
-        // or conflicting with the scale during the animation.
-        transform: `scale(${scale})`,
+        transform,
         transformOrigin: 'bottom center',
       }}
     >
       {imageUrl && (
-        <img
-          key={imageUrl}
-          src={imageUrl}
-          alt={character.name}
+        // Flip wrapper is separate from the outer container so the name label
+        // (positioned absolute on the outer div) is never mirrored.
+        <div
           style={{
             height: '100%',
             width: '100%',
-            objectFit: 'contain',
-            objectPosition: 'bottom center',
-            filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(0,0,0,0.5))',
-            // Only translateY + opacity — scale is on the parent so it
-            // loads at the correct size from the very first frame.
-            animation: 'charFadeIn 0.4s ease-out',
+            transform: flipped ? 'scaleX(-1)' : undefined,
           }}
-        />
+        >
+          <img
+            key={imageUrl}
+            src={imageUrl}
+            alt={character.name}
+            style={{
+              height: '100%',
+              width: '100%',
+              objectFit,
+              objectPosition,
+              filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(0,0,0,0.5))',
+              // Only translateY + opacity — scale is on the parent so it
+              // loads at the correct size from the very first frame.
+              animation: 'charFadeIn 0.4s ease-out',
+            }}
+          />
+        </div>
       )}
 
       {/* Name label — sits at the feet of the character */}

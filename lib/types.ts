@@ -78,6 +78,16 @@ export interface CharacterState {
   leftScale:   number          // display scale (0.5 – 2.5), default 1.0
   centerScale: number
   rightScale:  number
+  // Image display overrides (optional for backwards compatibility)
+  leftFit?:       'contain' | 'cover'
+  centerFit?:     'contain' | 'cover'
+  rightFit?:      'contain' | 'cover'
+  leftPos?:       string   // CSS object-position, e.g. '50% 20%'
+  centerPos?:     string
+  rightPos?:      string
+  leftFlipped?:   boolean
+  centerFlipped?: boolean
+  rightFlipped?:  boolean
 }
 
 // ── Editor draft types ────────────────────────────────────────

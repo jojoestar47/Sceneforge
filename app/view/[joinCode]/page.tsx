@@ -44,8 +44,17 @@ export default function ViewerPage() {
   const [scene,  setScene]  = useState<Scene | null>(null)
 
   // ── Characters ────────────────────────────────────────────────
-  const [characters,   setCharacters]   = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
-  const [viewerScales, setViewerScales] = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
+  const [characters,       setCharacters]       = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
+  const [viewerScales,     setViewerScales]     = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
+  const [viewerDisplay,    setViewerDisplay]    = useState<{
+    left:   { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
+    center: { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
+    right:  { objectFit: 'contain'|'cover'; objectPosition: string; flipped: boolean }
+  }>({
+    left:   { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
+    center: { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
+    right:  { objectFit: 'contain', objectPosition: '50% 100%', flipped: false },
+  })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
     if (!state) {
@@ -64,6 +73,11 @@ export default function ViewerPage() {
       left:   state.leftScale   ?? 1,
       center: state.centerScale ?? 1,
       right:  state.rightScale  ?? 1,
+    })
+    setViewerDisplay({
+      left:   { objectFit: state.leftFit   ?? 'contain', objectPosition: state.leftPos   ?? '50% 100%', flipped: state.leftFlipped   ?? false },
+      center: { objectFit: state.centerFit ?? 'contain', objectPosition: state.centerPos ?? '50% 100%', flipped: state.centerFlipped ?? false },
+      right:  { objectFit: state.rightFit  ?? 'contain', objectPosition: state.rightPos  ?? '50% 100%', flipped: state.rightFlipped  ?? false },
     })
   }, [supabase])
 
@@ -337,6 +351,9 @@ export default function ViewerPage() {
           position="left"
           imageUrl={characterImageUrl(characters.left)}
           scale={viewerScales.left}
+          objectFit={viewerDisplay.left.objectFit}
+          objectPosition={viewerDisplay.left.objectPosition}
+          flipped={viewerDisplay.left.flipped}
         />
       )}
       {characters.center && (
@@ -345,6 +362,9 @@ export default function ViewerPage() {
           position="center"
           imageUrl={characterImageUrl(characters.center)}
           scale={viewerScales.center}
+          objectFit={viewerDisplay.center.objectFit}
+          objectPosition={viewerDisplay.center.objectPosition}
+          flipped={viewerDisplay.center.flipped}
         />
       )}
       {characters.right && (
@@ -353,6 +373,9 @@ export default function ViewerPage() {
           position="right"
           imageUrl={characterImageUrl(characters.right)}
           scale={viewerScales.right}
+          objectFit={viewerDisplay.right.objectFit}
+          objectPosition={viewerDisplay.right.objectPosition}
+          flipped={viewerDisplay.right.flipped}
         />
       )}
 

@@ -17,6 +17,18 @@ interface SlotScales {
   right:  number
 }
 
+interface SlotDisplay {
+  objectFit?:      'contain' | 'cover'
+  objectPosition?: string
+  flipped?:        boolean
+}
+
+interface SlotDisplayProps {
+  left:   SlotDisplay
+  center: SlotDisplay
+  right:  SlotDisplay
+}
+
 interface Props {
   scene:              Scene | null
   hasCampaign:        boolean
@@ -24,6 +36,7 @@ interface Props {
   // Character props (DM only — undefined on viewer)
   characters?:        ActiveCharacters
   slotScales?:        SlotScales
+  slotDisplayProps?:  SlotDisplayProps
   campaignCharacters?: Character[]
   onCharactersChange?: (c: ActiveCharacters) => void
 }
@@ -40,7 +53,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
 export default function Stage({
   scene, hasCampaign, onEdit,
-  characters, slotScales, campaignCharacters, onCharactersChange,
+  characters, slotScales, slotDisplayProps, campaignCharacters, onCharactersChange,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -330,6 +343,9 @@ export default function Stage({
           position="left"
           imageUrl={characterImageUrl(characters.left)}
           scale={slotScales?.left ?? 1}
+          objectFit={slotDisplayProps?.left.objectFit}
+          objectPosition={slotDisplayProps?.left.objectPosition}
+          flipped={slotDisplayProps?.left.flipped}
         />
       )}
       {characters?.center && (
@@ -338,6 +354,9 @@ export default function Stage({
           position="center"
           imageUrl={characterImageUrl(characters.center)}
           scale={slotScales?.center ?? 1}
+          objectFit={slotDisplayProps?.center.objectFit}
+          objectPosition={slotDisplayProps?.center.objectPosition}
+          flipped={slotDisplayProps?.center.flipped}
         />
       )}
       {characters?.right && (
@@ -346,6 +365,9 @@ export default function Stage({
           position="right"
           imageUrl={characterImageUrl(characters.right)}
           scale={slotScales?.right ?? 1}
+          objectFit={slotDisplayProps?.right.objectFit}
+          objectPosition={slotDisplayProps?.right.objectPosition}
+          flipped={slotDisplayProps?.right.flipped}
         />
       )}
 
