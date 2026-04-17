@@ -78,16 +78,6 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
 
           {/* Hero header */}
           <div style={{ marginBottom: '52px', animation: 'homeIn 0.55s cubic-bezier(.22,1,.36,1) both' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '8px',
-              background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)',
-              borderRadius: '20px', padding: '4px 12px 4px 8px', marginBottom: '20px',
-            }}>
-              <AppIcon size={16} />
-              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '2.5px', textTransform: 'uppercase', color: 'var(--accent)' }}>
-                Reverie
-              </span>
-            </div>
             <h1 style={{ fontFamily: "'Cinzel', serif", fontSize: '30px', fontWeight: 600, letterSpacing: '4px', color: 'var(--text)', marginBottom: '10px', lineHeight: 1.2 }}>
               YOUR CAMPAIGNS
             </h1>
