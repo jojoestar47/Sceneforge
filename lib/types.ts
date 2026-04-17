@@ -42,6 +42,8 @@ export interface Track {
   storage_path?: string
   file_name?: string
   signed_url?: string
+  spotify_uri?: string
+  spotify_type?: 'track' | 'playlist'
   loop: boolean
   volume: number
   order_index: number

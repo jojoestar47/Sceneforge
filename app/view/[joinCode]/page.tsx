@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Scene, Track, Character, CharacterState } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -96,6 +97,9 @@ export default function ViewerPage() {
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
+  // ── Spotify player ────────────────────────────────────────────
+  const spotify = useSpotifyPlayer(scene, hasInteracted.current)
+
   // ── Fullscreen ────────────────────────────────────────────────
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [isFs, setIsFs] = useState(false)
@@ -115,6 +119,7 @@ export default function ViewerPage() {
 
   // ── Audio helpers ─────────────────────────────────────────────
   function getOrCreate(t: Track): HTMLAudioElement {
+    if (t.spotify_uri) return new Audio() // Spotify tracks handled by SDK
     if (!audioRefs.current[t.id]) {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
       const a   = new Audio(src)
@@ -139,10 +144,12 @@ export default function ViewerPage() {
   }
 
   function toggleTrack(t: Track) {
+    if (t.spotify_uri) { spotify.toggle(t); return }
     const a = getOrCreate(t)
     if (a.paused) { a.play().catch(() => {}) } else { a.pause() }
   }
   function setVol(t: Track, val: number) {
+    if (t.spotify_uri) { spotify.setVolume(t, val); return }
     const a = getOrCreate(t); a.volume = val; setVolumes(v => ({ ...v, [t.id]: val }))
     if (scene?.id) {
       try {
@@ -153,8 +160,18 @@ export default function ViewerPage() {
       } catch {}
     }
   }
-  function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
-  function toggleMute() { const next = !muted; setMuted(next); Object.values(audioRefs.current).forEach(a => (a.muted = next)) }
+  function stopAll() {
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
+    spotify.stopAll()
+  }
+  function toggleMute() {
+    const next = !muted; setMuted(next)
+    Object.values(audioRefs.current).forEach(a => (a.muted = next))
+    spotify.mute(next)
+  }
+
+  function trackPlaying(t: Track) { return t.spotify_uri ? (spotify.states[t.id]?.playing ?? false) : (playing[t.id] ?? false) }
+  function trackVolume(t: Track)  { return t.spotify_uri ? (spotify.states[t.id]?.volume  ?? t.volume) : (volumes[t.id] ?? t.volume) }
 
   // ── Combined reset + autoplay ─────────────────────────────────
   useEffect(() => {
@@ -177,7 +194,9 @@ export default function ViewerPage() {
     audioRefs.current = {}; audioHandlers.current = {}; setVolumes({}); setPlaying({})
 
     if (!scene?.tracks?.length) return
-    const musicTracks = scene.tracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+    const musicTracks = scene.tracks.filter(
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
+    )
     if (!musicTracks.length) return
 
     if (hasInteracted.current) {
@@ -195,7 +214,9 @@ export default function ViewerPage() {
   function handleFirstTap() {
     hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
-    const musicTracks = (scene?.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+    const musicTracks = (scene?.tracks || []).filter(
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
+    )
     musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
   }
 
@@ -268,7 +289,9 @@ export default function ViewerPage() {
   const allTracks    = scene?.tracks || []
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
-  const playingCount = Object.values(playing).filter(Boolean).length
+  const hasSpotifyTracks = allTracks.some(t => !!t.spotify_uri)
+  const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
+  const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
 
   // ── Status screens ────────────────────────────────────────────
   if (status === 'loading') return (
@@ -401,6 +424,15 @@ export default function ViewerPage() {
         {isFs ? '✕' : '⛶'}
       </button>
 
+      {/* Spotify connect prompt — shown when scene has Spotify tracks but player isn't connected */}
+      {hasSpotifyTracks && !spotify.connected && (
+        <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: MIXER_BG, border: '1px solid rgba(30,215,96,0.3)', borderRadius: '10px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', whiteSpace: 'nowrap' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1ed760"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" /></svg>
+          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>This scene has Spotify music</span>
+          <a href="/auth/spotify" style={{ fontSize: '11px', fontWeight: 700, color: '#1ed760', textDecoration: 'none', border: '1px solid rgba(30,215,96,0.5)', borderRadius: '5px', padding: '4px 10px' }}>Connect Spotify</a>
+        </div>
+      )}
+
       {/* Tap to start audio overlay */}
       {needsTap && (
         <div onClick={handleFirstTap} style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'rgba(7,8,16,0.65)' }}>
@@ -440,14 +472,14 @@ export default function ViewerPage() {
               {music.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
-                  {amb.map(t => <TrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {amb.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>

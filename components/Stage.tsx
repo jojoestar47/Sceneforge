@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Scene, Track, Character } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -102,6 +103,9 @@ export default function Stage({
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
+  // ── Spotify player ───────────────────────────────────────────
+  const spotify = useSpotifyPlayer(scene)
+
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -196,7 +200,7 @@ export default function Stage({
 
     if (!scene?.tracks?.length) return
     const musicTracks = scene.tracks.filter(
-      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
     )
     const timer = setTimeout(() => {
       musicTracks.forEach(t => {
@@ -225,6 +229,7 @@ export default function Stage({
   }, [])
 
   function getOrCreate(t: Track): HTMLAudioElement {
+    if (t.spotify_uri) return new Audio() // never used — Spotify tracks go through SDK
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
       a.loop = t.loop; a.muted = muted
@@ -248,10 +253,12 @@ export default function Stage({
   }
 
   function toggleTrack(t: Track) {
+    if (t.spotify_uri) { spotify.toggle(t); return }
     const a = getOrCreate(t)
     if (a.paused) { a.play().catch(() => {}) } else { a.pause() }
   }
   function setVol(t: Track, val: number) {
+    if (t.spotify_uri) { spotify.setVolume(t, val); return }
     const a = getOrCreate(t); a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
     if (scene?.id) {
@@ -263,10 +270,14 @@ export default function Stage({
       } catch {}
     }
   }
-  function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
+  function stopAll() {
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
+    spotify.stopAll()
+  }
   function handleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
+    spotify.mute(next)
   }
 
   if (!scene) {
@@ -287,7 +298,13 @@ export default function Stage({
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
   const hasTracks    = allTracks.length > 0
-  const playingCount = Object.values(playing).filter(Boolean).length
+  const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
+  const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
+
+  // Helpers to read merged state for any track
+  function trackPlaying(t: Track) { return t.spotify_uri ? (spotify.states[t.id]?.playing ?? false) : (playing[t.id] ?? false) }
+  function trackVolume(t: Track)  { return t.spotify_uri ? (spotify.states[t.id]?.volume  ?? t.volume) : (volumes[t.id] ?? t.volume) }
+  function trackLoop(t: Track)    { return t.spotify_uri ? (spotify.states[t.id]?.loop    ?? t.loop)   : t.loop }
   const hasDMControls = !!onCharactersChange
 
   return (
@@ -674,14 +691,14 @@ export default function Stage({
               {music.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {music.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
-                  {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>

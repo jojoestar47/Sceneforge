@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
-import Stage        from '@/components/Stage'
-import SceneList    from '@/components/SceneList'
-import SceneEditor  from '@/components/SceneEditor'
-import CampaignHome     from '@/components/CampaignHome'
-import CharacterRoster  from '@/components/CharacterRoster'
-import AppIcon          from '@/components/AppIcon'
+import Stage           from '@/components/Stage'
+import SceneList       from '@/components/SceneList'
+import SceneEditor     from '@/components/SceneEditor'
+import CampaignHome    from '@/components/CampaignHome'
+import CharacterRoster from '@/components/CharacterRoster'
+import AppIcon         from '@/components/AppIcon'
+import SpotifyConnect  from '@/components/SpotifyConnect'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -555,6 +556,7 @@ export default function AppPage() {
               <button className="btn btn-ghost btn-sm" onClick={stopPresenting} style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.4)' }}>⏹ Stop</button>
             </>
           )}
+          <SpotifyConnect />
           <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">⏻</button>
         </div>
       </div>
