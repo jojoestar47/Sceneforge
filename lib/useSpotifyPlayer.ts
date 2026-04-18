@@ -182,10 +182,18 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   async function playTrack(t: Track) {
     if (!deviceIdRef.current || !t.spotify_uri || !playerRef.current) return
 
+    // Capture scene ID before any awaits. If the scene changes while we're
+    // waiting on the token or the Spotify API call, we bail out so we don't
+    // start the wrong track or corrupt activeTrackRef for the new scene.
+    const sceneIdAtStart = prevSceneIdRef.current
+
     // Fetch a fresh token from the server on every play call.
     // This means the token is never held in a long-lived client-side variable.
     const token = await fetchToken()
     if (!token) return
+
+    // Scene changed while we were fetching the token — abort.
+    if (prevSceneIdRef.current !== sceneIdAtStart) return
 
     const body = t.spotify_type === 'playlist'
       ? { context_uri: t.spotify_uri }
@@ -199,6 +207,9 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
         body:    JSON.stringify(body),
       }
     )
+
+    // Scene changed while we were waiting on the Spotify API — abort.
+    if (prevSceneIdRef.current !== sceneIdAtStart) return
 
     activeTrackRef.current = t
 
