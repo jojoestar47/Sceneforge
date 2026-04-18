@@ -188,9 +188,7 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
                 const ry = (x - 0.5) * 22
                 e.currentTarget.style.setProperty('--rx', `${rx}deg`)
                 e.currentTarget.style.setProperty('--ry', `${ry}deg`)
-                e.currentTarget.style.setProperty('--gx', `${x * 100}%`)
-                e.currentTarget.style.setProperty('--gy', `${y * 100}%`)
-                const tilt = e.currentTarget.querySelector('.rf-tilt') as HTMLElement | null
+const tilt = e.currentTarget.querySelector('.rf-tilt') as HTMLElement | null
                 if (tilt) tilt.style.transition = 'transform 0.05s linear, box-shadow 0.1s ease'
               }
 
@@ -242,8 +240,6 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
                         </div>
                       )}
 
-                      {/* Shimmer overlay — animates on .rf-card:hover */}
-                      <div className="rf-shimmer" />
 
                       {/* Name gradient overlay */}
                       <div style={{
@@ -416,25 +412,6 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
           transform: rotateY(180deg);
         }
 
-        /* ── Dynamic shimmer — follows mouse via CSS vars ── */
-        .rf-shimmer {
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          border-radius: 12px;
-          background: radial-gradient(
-            circle at var(--gx, 50%) var(--gy, 50%),
-            rgba(255,255,255,0.28) 0%,
-            rgba(255,255,255,0.10) 28%,
-            transparent 60%
-          );
-          opacity: 0;
-          transition: opacity 0.2s ease;
-          mix-blend-mode: screen;
-        }
-        .rf-card:hover .rf-shimmer {
-          opacity: 1;
-        }
       `}</style>
     </div>
   )
