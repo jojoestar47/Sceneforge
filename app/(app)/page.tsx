@@ -33,6 +33,8 @@ interface ActiveCharacters {
 export default function AppPage() {
   const supabase = createClient()
 
+  const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [userId,        setUserId]        = useState<string>('')
   const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
   const [activeCampId,  setActiveCampId]  = useState<string>('')
@@ -549,6 +551,14 @@ export default function AppPage() {
     setFolders(prev => prev.map(f => f.id === id ? { ...f, name } : f))
   }
 
+  function updateFolderColor(id: string, color: string) {
+    setFolders(prev => prev.map(f => f.id === id ? { ...f, color } : f))
+    if (colorDebounceRef.current) clearTimeout(colorDebounceRef.current)
+    colorDebounceRef.current = setTimeout(() => {
+      supabase.from('scene_folders').update({ color }).eq('id', id)
+    }, 400)
+  }
+
   async function deleteFolder(id: string) {
     const folder = folders.find(f => f.id === id)
     if (!folder || !confirm(`Delete folder "${folder.name}"?\n\nScenes inside will become unfiled.`)) return
@@ -751,6 +761,7 @@ export default function AppPage() {
                 onFolderCreate={createFolder}
                 onFolderRename={renameFolder}
                 onFolderDelete={deleteFolder}
+                onFolderColor={updateFolderColor}
                 onMoveToFolder={moveSceneToFolder}
               />
             </div>

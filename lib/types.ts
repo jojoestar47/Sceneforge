@@ -22,6 +22,7 @@ export interface SceneFolder {
   id: string
   campaign_id: string
   name: string
+  color?: string | null
   order_index: number
   created_at: string
 }

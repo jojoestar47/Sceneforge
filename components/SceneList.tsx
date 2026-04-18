@@ -18,6 +18,7 @@ interface Props {
   onFolderCreate?: (name: string) => void
   onFolderRename?: (id: string, name: string) => void
   onFolderDelete?: (id: string) => void
+  onFolderColor?:  (id: string, color: string) => void
   onMoveToFolder?: (sceneId: string, folderId: string | null) => void
 }
 
@@ -29,7 +30,7 @@ function mediaUrl(m: Scene['bg']): string | null {
 export default function SceneList({
   scenes, folders, activeSceneId, hasCampaign,
   onSelect, onDelete, onEdit, onAdd, onReorder,
-  onFolderCreate, onFolderRename, onFolderDelete, onMoveToFolder,
+  onFolderCreate, onFolderRename, onFolderDelete, onFolderColor, onMoveToFolder,
 }: Props) {
   const [q,              setQ]              = useState('')
   const [dragId,         setDragId]         = useState<string | null>(null)
@@ -60,6 +61,18 @@ export default function SceneList({
 
   useEffect(() => { if (renamingId) renameInputRef.current?.focus() }, [renamingId])
   useEffect(() => { if (creatingFolder) newFolderInputRef.current?.focus() }, [creatingFolder])
+
+  // Auto-open any folder whose scenes match the current search query
+  useEffect(() => {
+    if (!q) return
+    const ql = q.toLowerCase()
+    const matchingFolderIds = new Set(
+      scenes.filter(s => s.folder_id && s.name.toLowerCase().includes(ql)).map(s => s.folder_id as string)
+    )
+    if (matchingFolderIds.size > 0) {
+      setOpenFolders(prev => { const n = new Set(prev); matchingFolderIds.forEach(id => n.add(id)); return n })
+    }
+  }, [q, scenes])
 
   const filtered = scenes.filter(s => !q || s.name.toLowerCase().includes(q.toLowerCase()))
   const canDrag  = !q && !!onReorder && !isTouchDevice
@@ -271,6 +284,9 @@ export default function SceneList({
     const isOpen       = openFolders.has(folder.id)
     const isRenaming   = renamingId === folder.id
     const isDragTarget = folderDragOver === folder.id
+    const color        = folder.color || null
+    const iconColor    = color || (isOpen ? 'var(--accent)' : 'var(--text-3)')
+    const iconFill     = isOpen ? (color ? `${color}22` : 'rgba(201,168,76,0.12)') : 'none'
 
     return (
       <div key={folder.id} style={{ marginBottom: '2px' }}>
@@ -284,30 +300,42 @@ export default function SceneList({
             setDragId(null); setFolderDragOver(null)
           } : undefined}
           style={{
+            position: 'relative',
             display: 'flex', alignItems: 'center', gap: '6px',
             margin: '2px 8px', padding: '0 8px',
             height: '34px', borderRadius: '8px',
             cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none',
             background: isDragTarget ? 'rgba(201,168,76,0.1)' : 'transparent',
             border: `1px solid ${isDragTarget ? 'rgba(201,168,76,0.4)' : 'transparent'}`,
+            overflow: 'hidden',
             transition: 'background 0.15s ease, border-color 0.15s ease',
           }}
         >
+          {/* Color accent bar */}
+          {color && (
+            <div style={{
+              position: 'absolute', left: 0, top: '5px', bottom: '5px',
+              width: '3px', borderRadius: '0 2px 2px 0',
+              background: color,
+              transition: 'background 0.2s ease',
+            }} />
+          )}
+
           {/* Chevron — click to toggle */}
           <div
             onClick={() => !isRenaming && toggleFolder(folder.id)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: color ? '4px' : '0' }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-              style={{ color: 'var(--text-3)', transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+              style={{ color: iconColor, transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1), color 0.2s ease', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
               <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
 
           {/* Folder icon */}
           <div onClick={() => !isRenaming && toggleFolder(folder.id)} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ color: isOpen ? 'var(--accent)' : 'var(--text-3)', transition: 'color 0.2s ease' }}>
-              <path d="M1 3.5C1 2.67 1.67 2 2.5 2h2.17a1 1 0 0 1 .71.29L6.09 3H10.5C11.33 3 12 3.67 12 4.5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11 1 10.33 1 9.5v-6z" stroke="currentColor" strokeWidth="1.1" fill={isOpen ? 'rgba(201,168,76,0.12)' : 'none'}/>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ color: iconColor, transition: 'color 0.2s ease' }}>
+              <path d="M1 3.5C1 2.67 1.67 2 2.5 2h2.17a1 1 0 0 1 .71.29L6.09 3H10.5C11.33 3 12 3.67 12 4.5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11 1 10.33 1 9.5v-6z" stroke="currentColor" strokeWidth="1.1" fill={iconFill}/>
             </svg>
           </div>
 
@@ -330,9 +358,9 @@ export default function SceneList({
               title="Double-click to rename"
               style={{
                 flex: 1, fontSize: '11px', fontWeight: 700, letterSpacing: '0.8px',
-                textTransform: 'uppercase', color: 'var(--text-2)',
+                textTransform: 'uppercase', color: color || 'var(--text-2)',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                transition: 'color 0.15s ease',
+                transition: 'color 0.2s ease',
               }}
             >
               {folder.name}
@@ -342,10 +370,36 @@ export default function SceneList({
           {/* Scene count badge */}
           {!isRenaming && folderScenes.length > 0 && (
             <span style={{
-              fontSize: '9px', fontWeight: 700, color: 'var(--text-3)',
-              background: 'var(--bg-raised)', border: '1px solid var(--border)',
+              fontSize: '9px', fontWeight: 700,
+              color: color || 'var(--text-3)',
+              background: color ? `${color}18` : 'var(--bg-raised)',
+              border: `1px solid ${color ? `${color}44` : 'var(--border)'}`,
               borderRadius: '10px', padding: '1px 6px', flexShrink: 0,
+              transition: 'all 0.2s ease',
             }}>{folderScenes.length}</span>
+          )}
+
+          {/* Color picker swatch */}
+          {!isRenaming && onFolderColor && (
+            <div
+              onClick={e => e.stopPropagation()}
+              title="Change folder color"
+              style={{ position: 'relative', flexShrink: 0, width: '16px', height: '16px' }}
+            >
+              <div style={{
+                width: '16px', height: '16px', borderRadius: '50%',
+                background: color || 'var(--bg-raised)',
+                border: `2px solid ${color || 'var(--border)'}`,
+                boxShadow: color ? `0 0 0 1px ${color}44` : 'none',
+                transition: 'all 0.2s ease',
+              }} />
+              <input
+                type="color"
+                value={color || '#c9a84c'}
+                onChange={e => { e.stopPropagation(); onFolderColor(folder.id, e.target.value) }}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', padding: 0, border: 'none' }}
+              />
+            </div>
           )}
 
           {/* Delete folder button */}
