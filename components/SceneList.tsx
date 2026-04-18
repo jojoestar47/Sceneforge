@@ -6,20 +6,22 @@ import type { Scene, SceneFolder } from '@/lib/types'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
-  scenes:          Scene[]
-  folders:         SceneFolder[]
-  activeSceneId:   string | null
-  hasCampaign:     boolean
-  onSelect:        (id: string) => void
-  onDelete:        (id: string) => void
-  onEdit:          (id: string) => void
-  onAdd:           () => void
-  onReorder?:      (dragId: string, targetId: string) => void
-  onFolderCreate?: (name: string) => void
-  onFolderRename?: (id: string, name: string) => void
-  onFolderDelete?: (id: string) => void
-  onFolderColor?:  (id: string, color: string) => void
-  onMoveToFolder?: (sceneId: string, folderId: string | null) => void
+  scenes:                  Scene[]
+  folders:                 SceneFolder[]
+  activeSceneId:           string | null
+  hasCampaign:             boolean
+  onSelect:                (id: string) => void
+  onDelete:                (id: string) => void
+  onEdit:                  (id: string) => void
+  onAdd:                   (folderId?: string | null) => void
+  onReorder?:              (dragId: string, targetId: string) => void
+  createFolderOpen?:       boolean
+  onCreateFolderOpenChange?: (open: boolean) => void
+  onFolderCreate?:         (name: string) => void
+  onFolderRename?:         (id: string, name: string) => void
+  onFolderDelete?:         (id: string) => void
+  onFolderColor?:          (id: string, color: string) => void
+  onMoveToFolder?:         (sceneId: string, folderId: string | null) => void
 }
 
 function mediaUrl(m: Scene['bg']): string | null {
@@ -30,6 +32,7 @@ function mediaUrl(m: Scene['bg']): string | null {
 export default function SceneList({
   scenes, folders, activeSceneId, hasCampaign,
   onSelect, onDelete, onEdit, onAdd, onReorder,
+  createFolderOpen, onCreateFolderOpenChange,
   onFolderCreate, onFolderRename, onFolderDelete, onFolderColor, onMoveToFolder,
 }: Props) {
   const [q,              setQ]              = useState('')
@@ -61,6 +64,9 @@ export default function SceneList({
 
   useEffect(() => { if (renamingId) renameInputRef.current?.focus() }, [renamingId])
   useEffect(() => { if (creatingFolder) newFolderInputRef.current?.focus() }, [creatingFolder])
+
+  // Sync with external trigger (header button in page.tsx)
+  useEffect(() => { if (createFolderOpen) setCreatingFolder(true) }, [createFolderOpen])
 
   // Auto-open any folder whose scenes match the current search query
   useEffect(() => {
@@ -104,15 +110,17 @@ export default function SceneList({
     if (name && onFolderCreate) onFolderCreate(name)
     setCreatingFolder(false)
     setNewFolderName('')
+    onCreateFolderOpenChange?.(false)
   }
 
   function cancelNewFolder() {
     setCreatingFolder(false)
     setNewFolderName('')
+    onCreateFolderOpenChange?.(false)
   }
 
   // Scene card shared across folder and unfiled sections
-  function renderScene(sc: Scene, idx: number, inFolder: boolean) {
+  function renderScene(sc: Scene, idx: number, inFolder: boolean, sceneGroup: Scene[]) {
     const active     = sc.id === activeSceneId
     const bgUrl      = mediaUrl(sc.bg)
     const musicN     = (sc.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3').length
@@ -121,6 +129,9 @@ export default function SceneList({
     const isOver     = sc.id === dragOverId && sc.id !== dragId
     const isHov      = hoveredId === sc.id
     const num        = scenes.indexOf(sc) + 1
+    const groupIdx   = sceneGroup.indexOf(sc)
+    const canMoveUp  = canDrag && groupIdx > 0
+    const canMoveDown = canDrag && groupIdx < sceneGroup.length - 1
 
     return (
       <div
@@ -164,14 +175,53 @@ export default function SceneList({
           animationDelay: `${idx * 0.04}s`,
         }}
       >
-        {/* Drag handle */}
+        {/* Drag handle + up/down arrows */}
         {canDrag && (
           <div style={{
-            width: '16px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: isHov ? 'var(--text-3)' : 'transparent',
-            fontSize: '10px', userSelect: 'none', WebkitUserSelect: 'none',
-            transition: 'color 0.14s ease',
-          }}>⠿</div>
+            width: '20px', flexShrink: 0, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: '2px',
+            userSelect: 'none', WebkitUserSelect: 'none',
+          }}>
+            <button
+              onClick={e => { e.stopPropagation(); if (canMoveUp) onReorder!(sc.id, sceneGroup[groupIdx - 1].id) }}
+              style={{
+                width: '14px', height: '14px', border: 'none', background: 'none', padding: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: canMoveUp ? 'pointer' : 'default',
+                opacity: isHov && canMoveUp ? 0.7 : 0,
+                transition: 'opacity 0.14s ease, color 0.14s ease',
+                color: 'var(--text-2)',
+              }}
+              onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.opacity = '1' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = isHov && canMoveUp ? '0.7' : '0' }}
+            >
+              <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                <path d="M1 5l3-4 3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <div style={{
+              color: isHov ? 'var(--text-3)' : 'rgba(255,255,255,0.12)',
+              fontSize: '10px', lineHeight: 1,
+              transition: 'color 0.14s ease',
+            }}>⠿</div>
+            <button
+              onClick={e => { e.stopPropagation(); if (canMoveDown) onReorder!(sc.id, sceneGroup[groupIdx + 1].id) }}
+              style={{
+                width: '14px', height: '14px', border: 'none', background: 'none', padding: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: canMoveDown ? 'pointer' : 'default',
+                opacity: isHov && canMoveDown ? 0.7 : 0,
+                transition: 'opacity 0.14s ease, color 0.14s ease',
+                color: 'var(--text-2)',
+              }}
+              onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.opacity = '1' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = isHov && canMoveDown ? '0.7' : '0' }}
+            >
+              <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                <path d="M1 1l3 4 3-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
         )}
 
         {/* Thumbnail */}
@@ -402,6 +452,20 @@ export default function SceneList({
             </div>
           )}
 
+          {/* Add scene to this folder */}
+          {!isRenaming && (
+            <FolderActionButton
+              title="New scene in folder"
+              onClick={e => { e.stopPropagation(); onAdd(folder.id) }}
+              isTouchDevice={isTouchDevice}
+            >
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.1"/>
+                <path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+              </svg>
+            </FolderActionButton>
+          )}
+
           {/* Delete folder button */}
           {!isRenaming && onFolderDelete && (
             <FolderActionButton
@@ -426,7 +490,7 @@ export default function SceneList({
           opacity: isOpen ? 1 : 0,
         }}>
           {folderScenes.length > 0
-            ? folderScenes.map((sc, i) => renderScene(sc, i, true))
+            ? folderScenes.map((sc, i) => renderScene(sc, i, true, folderScenes))
             : (
               <div style={{
                 margin: '4px 8px 4px 20px', padding: '10px 14px',
@@ -548,23 +612,17 @@ export default function SceneList({
                 {unfiled.length}
               </span>
             </div>
-            {unfiled.map((sc, i) => renderScene(sc, i, false))}
+            {unfiled.map((sc, i) => renderScene(sc, i, false, unfiled))}
           </div>
         )}
 
         {/* Flat list — no folders yet */}
-        {!hasFolders && filtered.map((sc, i) => renderScene(sc, i, false))}
+        {!hasFolders && filtered.map((sc, i) => renderScene(sc, i, false, filtered))}
 
-        {/* Buttons */}
+        {/* Add scene (unfiled) */}
         {hasCampaign && (
-          <div style={{ margin: '8px 8px 8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {onFolderCreate && (
-              <AddFolderButton
-                onClick={() => { setCreatingFolder(true); setNewFolderName('') }}
-                disabled={creatingFolder}
-              />
-            )}
-            <AddSceneButton onClick={onAdd} />
+          <div style={{ margin: '4px 8px 8px' }}>
+            <AddSceneButton onClick={() => onAdd(null)} />
           </div>
         )}
       </div>
@@ -608,37 +666,6 @@ function FolderActionButton({ title, onClick, isTouchDevice, children }: {
   )
 }
 
-function AddFolderButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
-  const [hov, setHov] = useState(false)
-  const [isTouchDevice] = useState(() =>
-    typeof window !== 'undefined' && navigator.maxTouchPoints > 0
-  )
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      onMouseEnter={() => !isTouchDevice && setHov(true)}
-      onMouseLeave={() => !isTouchDevice && setHov(false)}
-      style={{
-        width: '100%', height: isTouchDevice ? '48px' : '38px', borderRadius: '10px',
-        touchAction: 'manipulation',
-        border: `1px dashed ${hov ? 'rgba(139,159,232,0.5)' : 'var(--border-lt)'}`,
-        background: hov ? 'rgba(139,159,232,0.04)' : 'transparent',
-        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-        color: hov ? 'var(--accent-2)' : 'var(--text-3)',
-        fontSize: '11px', fontWeight: 600, letterSpacing: '0.4px',
-        transition: 'all 0.15s ease',
-      }}
-    >
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-        <path d="M1 3.5C1 2.67 1.67 2 2.5 2h2.17a1 1 0 0 1 .71.29L6.09 3H10.5C11.33 3 12 3.67 12 4.5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11 1 10.33 1 9.5v-6z" stroke="currentColor" strokeWidth="1.1"/>
-        <path d="M6.5 5.5v3M5 7h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-      </svg>
-      New Folder
-    </button>
-  )
-}
 
 function AddSceneButton({ onClick }: { onClick: () => void }) {
   const [hov, setHov] = useState(false)

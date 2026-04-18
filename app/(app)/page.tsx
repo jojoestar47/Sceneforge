@@ -38,11 +38,13 @@ export default function AppPage() {
   const [userId,        setUserId]        = useState<string>('')
   const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
   const [activeCampId,  setActiveCampId]  = useState<string>('')
-  const [scenes,        setScenes]        = useState<Scene[]>([])
-  const [folders,       setFolders]       = useState<SceneFolder[]>([])
-  const [activeSceneId, setActiveSceneId] = useState<string>('')
-  const [editorOpen,    setEditorOpen]    = useState(false)
-  const [editorSceneId, setEditorSceneId] = useState<string | null>(null)
+  const [scenes,           setScenes]           = useState<Scene[]>([])
+  const [folders,          setFolders]          = useState<SceneFolder[]>([])
+  const [activeSceneId,    setActiveSceneId]    = useState<string>('')
+  const [editorOpen,       setEditorOpen]       = useState(false)
+  const [editorSceneId,    setEditorSceneId]    = useState<string | null>(null)
+  const [createFolderOpen, setCreateFolderOpen] = useState(false)
+  const newSceneFolderRef = useRef<string | null>(null)
   const [newCampName,   setNewCampName]   = useState('')
   const [campModalOpen, setCampModalOpen] = useState(false)
   const [loading,       setLoading]       = useState(true)
@@ -596,7 +598,11 @@ export default function AppPage() {
   }
 
   function handleSceneSaved(saved: Scene) {
-    setScenes(prev => { const e = prev.find(s => s.id === saved.id); return e ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, saved] })
+    const isNew = !scenes.find(s => s.id === saved.id)
+    const targetFolder = isNew ? newSceneFolderRef.current : null
+    newSceneFolderRef.current = null
+    setScenes(prev => { const e = prev.find(s => s.id === saved.id); return e ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, { ...saved, folder_id: targetFolder }] })
+    if (targetFolder) moveSceneToFolder(saved.id, targetFolder)
     handleSelectScene(saved.id)
     setEditorOpen(false)
     resolveSceneUrls(supabase, [saved]).then(([r]) => setScenes(prev => prev.map(s => s.id === r.id ? r : s)))
@@ -650,7 +656,6 @@ export default function AppPage() {
           {activeCampaign ? activeCampaign.name.toUpperCase() : 'REVERIE'}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {activeCampId && <button className="btn btn-red btn-sm" onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}>+ Scene</button>}
           {activeCampId && !isLive && (
             <button className="btn btn-ghost btn-sm" onClick={startPresenting} style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}>▶ Start Presenting</button>
           )}
@@ -729,12 +734,32 @@ export default function AppPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
                   {scenes.length > 0 && (
-                    <span style={{ fontSize: '9px', fontWeight: 700, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1px 7px', color: 'var(--text-3)' }}>{scenes.length}</span>
+                    <span style={{ fontSize: '9px', fontWeight: 700, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '10px', padding: '1px 7px', color: 'var(--text)' }}>{scenes.length}</span>
                   )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  {/* New folder */}
                   <button
-                    onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}
+                    onClick={() => setCreateFolderOpen(true)}
+                    title="New folder"
+                    style={{
+                      width: '24px', height: '24px', borderRadius: '6px',
+                      background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                      color: 'var(--text-2)', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all 0.12s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,159,232,0.5)'; e.currentTarget.style.color = 'var(--accent-2)'; e.currentTarget.style.background = 'rgba(139,159,232,0.06)' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M1 3.5C1 2.67 1.67 2 2.5 2h2.17a1 1 0 0 1 .71.29L6.09 3H10.5C11.33 3 12 3.67 12 4.5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11 1 10.33 1 9.5v-6z" stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M6.5 5.5v3M5 7h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                  {/* New scene */}
+                  <button
+                    onClick={() => { newSceneFolderRef.current = null; setEditorSceneId(null); setEditorOpen(true) }}
                     title="New scene"
                     style={{
                       width: '24px', height: '24px', borderRadius: '6px',
@@ -756,8 +781,10 @@ export default function AppPage() {
                 onSelect={handleSelectScene}
                 onDelete={deleteScene}
                 onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
-                onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }}
+                onAdd={(folderId) => { newSceneFolderRef.current = folderId ?? null; setEditorSceneId(null); setEditorOpen(true) }}
                 onReorder={handleReorder}
+                createFolderOpen={createFolderOpen}
+                onCreateFolderOpenChange={setCreateFolderOpen}
                 onFolderCreate={createFolder}
                 onFolderRename={renameFolder}
                 onFolderDelete={deleteFolder}
