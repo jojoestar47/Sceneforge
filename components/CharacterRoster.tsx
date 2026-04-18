@@ -180,13 +180,37 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
               const isConfirm  = confirmId === c.id
               const isDeleting = deletingId === c.id
 
+              function onMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const x = (e.clientX - rect.left) / rect.width
+                const y = (e.clientY - rect.top) / rect.height
+                const rx = (0.5 - y) * 22
+                const ry = (x - 0.5) * 22
+                e.currentTarget.style.setProperty('--rx', `${rx}deg`)
+                e.currentTarget.style.setProperty('--ry', `${ry}deg`)
+                e.currentTarget.style.setProperty('--gx', `${x * 100}%`)
+                e.currentTarget.style.setProperty('--gy', `${y * 100}%`)
+                const tilt = e.currentTarget.querySelector('.rf-tilt') as HTMLElement | null
+                if (tilt) tilt.style.transition = 'transform 0.05s linear, box-shadow 0.1s ease'
+              }
+
+              function onMouseLeave(e: React.MouseEvent<HTMLDivElement>) {
+                e.currentTarget.style.setProperty('--rx', '0deg')
+                e.currentTarget.style.setProperty('--ry', '0deg')
+                const tilt = e.currentTarget.querySelector('.rf-tilt') as HTMLElement | null
+                if (tilt) tilt.style.transition = 'transform 0.6s cubic-bezier(.22,1,.36,1), box-shadow 0.4s ease'
+              }
+
               return (
                 <div
                   key={c.id}
                   className="rf-card"
-                  style={{ height: '240px', perspective: '1000px', cursor: 'pointer' }}
+                  style={{ height: '240px', perspective: '800px', cursor: 'pointer' }}
+                  onMouseMove={onMouseMove}
+                  onMouseLeave={onMouseLeave}
                   onClick={() => handleCardClick(c.id)}
                 >
+                  <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative' }}>
                   <div
                     className={`rf-inner${isFlipped ? ' rf-flipped' : ''}`}
                     style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -344,6 +368,7 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
                       )}
                     </div>
                   </div>
+                  </div>{/* /rf-tilt */}
                 </div>
               )
             })}
@@ -363,6 +388,19 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
       </div>
 
       <style>{`
+        /* ── 3D tilt wrapper ── */
+        .rf-tilt {
+          transform-style: preserve-3d;
+          transform: scale(1) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+          will-change: transform;
+          border-radius: 12px;
+        }
+        .rf-card:hover .rf-tilt {
+          transform: scale(1.07) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+          box-shadow: 0 28px 52px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.07);
+        }
+
+        /* ── Flip ── */
         .rf-inner {
           transform-style: preserve-3d;
           transition: transform 0.52s cubic-bezier(.22,1,.36,1);
@@ -378,32 +416,24 @@ export default function CharacterRoster({ characters, onDelete, onAdd }: Props) 
           transform: rotateY(180deg);
         }
 
-        /* Shimmer sweep on hover */
+        /* ── Dynamic shimmer — follows mouse via CSS vars ── */
         .rf-shimmer {
           position: absolute;
           inset: 0;
           pointer-events: none;
-          background: linear-gradient(
-            115deg,
-            transparent 20%,
-            rgba(255,255,255,0.09) 40%,
-            rgba(255,255,255,0.18) 50%,
-            rgba(255,255,255,0.09) 60%,
-            transparent 80%
-          );
-          background-size: 200% 100%;
-          background-position: 200% 0;
-          transition: background-position 0s;
           border-radius: 12px;
+          background: radial-gradient(
+            circle at var(--gx, 50%) var(--gy, 50%),
+            rgba(255,255,255,0.28) 0%,
+            rgba(255,255,255,0.10) 28%,
+            transparent 60%
+          );
           opacity: 0;
+          transition: opacity 0.2s ease;
+          mix-blend-mode: screen;
         }
         .rf-card:hover .rf-shimmer {
-          animation: shimmer-sweep 0.55s ease forwards;
           opacity: 1;
-        }
-        @keyframes shimmer-sweep {
-          from { background-position: 200% 0; }
-          to   { background-position: -50% 0; }
         }
       `}</style>
     </div>
