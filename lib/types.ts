@@ -52,6 +52,14 @@ export interface Track {
 
 // ── Characters ────────────────────────────────────────────────
 
+export interface CampaignTag {
+  id: string
+  campaign_id: string
+  name: string
+  color: string           // one of: gold | blue | purple | green | red | orange
+  created_at: string
+}
+
 export interface Character {
   id: string
   campaign_id: string
@@ -59,7 +67,7 @@ export interface Character {
   url?: string            // external URL
   storage_path?: string   // Supabase Storage path
   file_name?: string
-  tags: string[]
+  tags: string[]          // array of CampaignTag IDs
   created_at: string
   updated_at: string
 }
