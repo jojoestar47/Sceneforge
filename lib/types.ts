@@ -18,9 +18,19 @@ export interface MediaRef {
   signed_url?: string
 }
 
+export interface SceneFolder {
+  id: string
+  campaign_id: string
+  name: string
+  color?: string | null
+  order_index: number
+  created_at: string
+}
+
 export interface Scene {
   id: string
   campaign_id: string
+  folder_id?: string | null
   name: string
   location?: string
   notes?: string
