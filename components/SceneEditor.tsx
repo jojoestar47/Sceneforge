@@ -21,7 +21,13 @@ type TabKey = 'scene' | 'tactical' | 'notes'
 interface TrackDraft {
   id?: string; kind: Kind; name: string; url: string
   storage_path?: string; file_name?: string
+  spotify_uri?: string; spotify_type?: 'track' | 'playlist'
   loop: boolean; volume: number; _file?: File
+}
+
+interface CharPoolEntry {
+  character: Character
+  scale:     number
 }
 
 interface Draft {
@@ -29,13 +35,13 @@ interface Draft {
   bg: MediaRef | null; overlay: MediaRef | null; tracks: TrackDraft[]
   _bgFile?: File; _ovFile?: File
   // Characters — flat pool, no pre-assigned positions
-  characterPool: Array<{ character: Character; scale: number }>
+  characterPool: CharPoolEntry[]
 }
 
 function blankDraft(scene: Scene | null): Draft {
   const existing = (kind: Kind): TrackDraft[] =>
     (scene?.tracks || []).filter(t => t.kind === kind)
-      .map(t => ({ id: t.id, kind, name: t.name, url: t.url || '', storage_path: t.storage_path, file_name: t.file_name, loop: t.loop, volume: t.volume }))
+      .map(t => ({ id: t.id, kind, name: t.name, url: t.url || '', storage_path: t.storage_path, file_name: t.file_name, spotify_uri: t.spotify_uri, spotify_type: t.spotify_type, loop: t.loop, volume: t.volume }))
   return {
     name: scene?.name || '', location: scene?.location || '',
     notes: scene?.notes || '', dynamic_music: scene?.dynamic_music || false,
@@ -181,9 +187,9 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       const trackInserts = (await Promise.all(draft.tracks.map(async (t, i) => {
         let storagePath = t.storage_path, fileName = t.file_name, url = t.url || null
         if (t._file) { storagePath = await uploadMedia(supabase, userId, t._file); fileName = t._file.name; url = null }
-        // Skip tracks that have no playable source — they'd appear in the UI but never play
-        if (!storagePath && !url) return null
-        return { scene_id: sceneId!, kind: t.kind, name: t.name, url, storage_path: storagePath || null, file_name: fileName || null, loop: t.loop, volume: t.volume, order_index: i }
+        // Skip tracks that have no playable source and no Spotify URI
+        if (!storagePath && !url && !t.spotify_uri) return null
+        return { scene_id: sceneId!, kind: t.kind, name: t.name, url, storage_path: storagePath || null, file_name: fileName || null, spotify_uri: t.spotify_uri || null, spotify_type: t.spotify_type || null, loop: t.loop, volume: t.volume, order_index: i }
       }))).filter((t): t is NonNullable<typeof t> => t !== null)
       if (trackInserts.length) await supabase.from('tracks').insert(trackInserts)
 
@@ -192,7 +198,6 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       const charInserts = draft.characterPool.map(e => ({
         scene_id:     sceneId!,
         character_id: e.character.id,
-        position:     null,
         scale:        e.scale,
       }))
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
@@ -272,24 +277,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                             }
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {entry.character.name}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', flexShrink: 0 }}>Scale</span>
-                              <input
-                                type="range"
-                                min={0.5} max={2.5} step={0.05}
-                                value={entry.scale}
-                                onChange={e => {
-                                  const scale = Number(e.target.value)
-                                  setDraft(d => ({ ...d, characterPool: d.characterPool.map((en, i) => i === idx ? { ...en, scale } : en) }))
-                                }}
-                                style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px' }}
-                              />
-                              <span style={{ fontSize: '10px', color: 'var(--text-2)', width: '34px', textAlign: 'right', flexShrink: 0 }}>
-                                {Math.round(entry.scale * 100)}%
-                              </span>
                             </div>
                           </div>
                           <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}
@@ -515,39 +504,158 @@ function MediaField({ accept, icon, hint, onFile, onUrl, onClear, value, file }:
   )
 }
 
+type AdderTab = 'file' | 'spotify'
+
+interface SpotifyResult {
+  uri: string; name: string; artist?: string; image: string | null
+  type: 'track' | 'playlist'
+}
+
 function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, 'kind'>) => void }) {
+  const [tab,  setTab]  = useState<AdderTab>('file')
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('')
   const [url,  setUrl]  = useState('')
-  function submit() {
+
+  // Spotify search state
+  const [query,    setQuery]    = useState('')
+  const [results,  setResults]  = useState<SpotifyResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [noConn,   setNoConn]   = useState(false)
+  const searchTimer = useState<ReturnType<typeof setTimeout> | null>(null)
+
+  function submitFile() {
     const n = name || file?.name?.replace(/\.[^.]+$/, '') || 'Track'
     if (file) onAdd({ name: n, url: '', _file: file, loop: true, volume: 0.7 })
     else if (url) onAdd({ name: n, url, loop: true, volume: 0.7 })
     setFile(null); setName(''); setUrl('')
   }
+
+  function handleQueryChange(q: string) {
+    setQuery(q)
+    if (searchTimer[0]) clearTimeout(searchTimer[0])
+    if (!q.trim()) { setResults([]); return }
+    const t = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`)
+        if (res.status === 403 || res.status === 404) { setNoConn(true); return }
+        if (!res.ok) return
+        const data = await res.json()
+        const tracks:    SpotifyResult[] = data.tracks.map((t: any)    => ({ ...t, type: 'track'    as const }))
+        const playlists: SpotifyResult[] = data.playlists.map((p: any) => ({ ...p, type: 'playlist' as const }))
+        setResults([...tracks, ...playlists])
+        setNoConn(false)
+      } finally {
+        setSearching(false)
+      }
+    }, 400)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ;(searchTimer as any)[0] = t
+  }
+
+  function pickSpotify(r: SpotifyResult) {
+    onAdd({ name: r.name, url: '', spotify_uri: r.uri, spotify_type: r.type, loop: true, volume: 0.7 })
+    setQuery(''); setResults([])
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <UploadZone accept="audio/*" label="Drop audio file here" icon="🎵" hint="MP3, OGG, WAV, FLAC" onFile={f => { setFile(f); setName(n => n || f.name.replace(/\.[^.]+$/, '')) }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
-        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+      {/* Tab selector */}
+      <div style={{ display: 'flex', gap: '6px' }}>
+        {(['file', 'spotify'] as AdderTab[]).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{ padding: '5px 12px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', border: `1px solid ${tab === t ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '5px', background: tab === t ? 'var(--accent-bg)' : 'none', color: tab === t ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer' }}>
+            {t === 'spotify' ? '🎧 Spotify' : '📁 File / URL'}
+          </button>
+        ))}
       </div>
-      <input className="finput" value={name} placeholder="Track name" onChange={e => setName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
-      <input className="finput" value={url}  placeholder="https://…mp3" onChange={e => setUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-        <button className="btn btn-red btn-sm" onClick={submit} disabled={!file && !url}>Add {kind === 'ambience' ? 'Sound' : 'Track'}</button>
-      </div>
+
+      {tab === 'file' && (
+        <>
+          <UploadZone accept="audio/*" label="Drop audio file here" icon="🎵" hint="MP3, OGG, WAV, FLAC" onFile={f => { setFile(f); setName(n => n || f.name.replace(/\.[^.]+$/, '')) }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+          </div>
+          <input className="finput" value={name} placeholder="Track name" onChange={e => setName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
+          <input className="finput" value={url}  placeholder="https://…mp3" onChange={e => setUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+            <button className="btn btn-red btn-sm" onClick={submitFile} disabled={!file && !url}>Add {kind === 'ambience' ? 'Sound' : 'Track'}</button>
+          </div>
+        </>
+      )}
+
+      {tab === 'spotify' && (
+        <>
+          {noConn ? (
+            <div style={{ padding: '12px', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)', background: 'var(--editor-row)', borderRadius: '6px' }}>
+              Connect Spotify in the header first to search tracks.
+            </div>
+          ) : (
+            <>
+              <input
+                autoFocus
+                className="finput"
+                value={query}
+                placeholder="Search tracks or playlists…"
+                onChange={e => handleQueryChange(e.target.value)}
+                style={{ fontSize: '12px', padding: '7px 10px' }}
+              />
+              {searching && (
+                <div style={{ fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '6px' }}>Searching…</div>
+              )}
+              {!searching && results.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '220px', overflowY: 'auto' }}>
+                  {results.map(r => (
+                    <button key={r.uri} onClick={() => pickSpotify(r)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', width: '100%', textAlign: 'left' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      {r.image
+                        ? <img src={r.image} alt="" width={36} height={36} style={{ borderRadius: '4px', flexShrink: 0, objectFit: 'cover' }} />
+                        : <div style={{ width: 36, height: 36, borderRadius: '4px', background: 'var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>🎵</div>
+                      }
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                        {r.artist && <div style={{ fontSize: '10px', color: 'var(--text-3)' }}>{r.artist}</div>}
+                      </div>
+                      <span style={{ fontSize: '9px', color: r.type === 'playlist' ? '#1ed760' : 'var(--text-3)', textTransform: 'uppercase', fontWeight: 700, flexShrink: 0 }}>{r.type}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!searching && query && results.length === 0 && (
+                <div style={{ fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '8px' }}>No results</div>
+              )}
+            </>
+          )}
+        </>
+      )}
     </div>
   )
 }
 
 function TrackChip({ track, globalIdx, onRemove }: { track: TrackDraft; globalIdx: number; onRemove: (i: number) => void }) {
+  const isSpotify = !!track.spotify_uri
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--editor-row)', borderRadius: '6px', padding: '7px 12px', marginTop: '4px' }}>
-      <span>🎵</span>
+      {isSpotify
+        ? <SpotifyMark />
+        : <span>🎵</span>
+      }
       <span style={{ flex: 1, fontSize: '12px', color: 'var(--text-2)' }}>{track.name}</span>
-      {track._file && <span style={{ fontSize: '9px', color: 'var(--text-3)', textTransform: 'uppercase' }}>📁 local</span>}
+      {track._file   && <span style={{ fontSize: '9px', color: 'var(--text-3)', textTransform: 'uppercase' }}>📁 local</span>}
+      {isSpotify     && <span style={{ fontSize: '9px', color: '#1ed760', textTransform: 'uppercase', fontWeight: 700 }}>spotify</span>}
       <button onClick={() => onRemove(globalIdx)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '12px', opacity: .6 }}>✕</button>
     </div>
+  )
+}
+
+function SpotifyMark() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="#1ed760">
+      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+    </svg>
   )
 }
 

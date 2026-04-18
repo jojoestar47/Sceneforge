@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
-import Stage        from '@/components/Stage'
-import SceneList    from '@/components/SceneList'
-import SceneEditor  from '@/components/SceneEditor'
-import CampaignHome from '@/components/CampaignHome'
-import AppIcon      from '@/components/AppIcon'
+import Stage           from '@/components/Stage'
+import SceneList       from '@/components/SceneList'
+import SceneEditor     from '@/components/SceneEditor'
+import CampaignHome    from '@/components/CampaignHome'
+import CharacterRoster from '@/components/CharacterRoster'
+import AppIcon         from '@/components/AppIcon'
+import SpotifyConnect  from '@/components/SpotifyConnect'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -16,6 +18,8 @@ function makeJoinCode(): string {
   crypto.getRandomValues(bytes)
   return Array.from(bytes).map(b => chars[b % chars.length]).join('')
 }
+
+const DEFAULT_SLOT_DISPLAY = { zoom: 1, panX: 50, panY: 100, flipped: false }
 
 interface ActiveCharacters {
   left:   Character | null
@@ -37,13 +41,19 @@ export default function AppPage() {
   const [campModalOpen, setCampModalOpen] = useState(false)
   const [loading,       setLoading]       = useState(true)
   const [copied,        setCopied]        = useState(false)
+  const [campView,      setCampView]      = useState<'stage' | 'characters'>('stage')
 
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
-  // Scale per character ID (from pool) — used to auto-set slot scale when placed
   const [characterScales,    setCharacterScales]    = useState<Record<string, number>>({})
+  const [characterDisplayDefaults, setCharacterDisplayDefaults] = useState<Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }>>({})
   const [slotScales,         setSlotScales]         = useState({ left: 1, center: 1, right: 1 })
+  const [slotDisplayProps,   setSlotDisplayProps]   = useState({
+    left:   DEFAULT_SLOT_DISPLAY,
+    center: DEFAULT_SLOT_DISPLAY,
+    right:  DEFAULT_SLOT_DISPLAY,
+  })
   const [activeCharacters,   setActiveCharacters]   = useState<ActiveCharacters>({ left: null, center: null, right: null })
   // Ref so the Realtime callback always reads the current roster without
   // needing campaignCharacters in the effect's dependency array (which would
@@ -90,7 +100,7 @@ export default function AppPage() {
   }, [])
 
   useEffect(() => {
-    if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId) }
+    if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId); setCampView('stage') }
     else setScenes([])
   }, [activeCampId, loadScenes])
 
@@ -116,22 +126,31 @@ export default function AppPage() {
   }, [activeCampId])
 
   // ── On scene change: clear stage slots + load this scene's character pool ──
-  // Stage slots always start empty — the DM places characters manually.
-  // sceneRosterChars is the pool of characters for this scene.
-  // characterScales maps character_id → default scale (set in the editor).
+  // Load scene characters and auto-place any with saved slot positions.
   useEffect(() => {
     setActiveCharacters({ left: null, center: null, right: null })
     setSlotScales({ left: 1, center: 1, right: 1 })
-    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); return }
+    setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
+    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
     supabase.from('scene_characters')
       .select('*, character:characters(*)')
       .eq('scene_id', activeSceneId)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
-        setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
+        setSceneRosterChars(data.map((r: any) => r.character as Character).filter(Boolean))
+
         const scales: Record<string, number> = {}
-        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
+        const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
+
+        data.forEach((r: any) => {
+          if (!r.character_id) return
+          scales[r.character_id] = r.scale ?? 1
+          displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
+        })
+
         setCharacterScales(scales)
+        setCharacterDisplayDefaults(displayDefs)
+        // Stage always starts empty — DM places characters manually each session.
       })
   }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -194,7 +213,14 @@ export default function AppPage() {
     if (!activeCampId || !userId) return
     if (sessionId && isLive) { setShareModalOpen(true); return }
     const code = makeJoinCode()
-    const cs: CharacterState = { left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null, leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right }
+    const cs: CharacterState = {
+      left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null,
+      leftScale: slotScales.left, centerScale: slotScales.center, rightScale: slotScales.right,
+      leftZoom: slotDisplayProps.left.zoom, centerZoom: slotDisplayProps.center.zoom, rightZoom: slotDisplayProps.right.zoom,
+      leftPanX: slotDisplayProps.left.panX, centerPanX: slotDisplayProps.center.panX, rightPanX: slotDisplayProps.right.panX,
+      leftPanY: slotDisplayProps.left.panY, centerPanY: slotDisplayProps.center.panY, rightPanY: slotDisplayProps.right.panY,
+      leftFlipped: slotDisplayProps.left.flipped, centerFlipped: slotDisplayProps.center.flipped, rightFlipped: slotDisplayProps.right.flipped,
+    }
     const { data } = await supabase.from('sessions').upsert({
       campaign_id: activeCampId, join_code: code,
       active_scene_id: activeSceneId || null, is_live: true,
@@ -215,24 +241,90 @@ export default function AppPage() {
     if (isLive && sessionId) {
       // Clear character state when switching scenes — DM places characters
       // manually on the stage rather than auto-loading saved assignments.
-      const cs: CharacterState = { left: null, center: null, right: null, leftScale: 1, centerScale: 1, rightScale: 1 }
+      const cs: CharacterState = {
+        left: null, center: null, right: null,
+        leftScale: 1, centerScale: 1, rightScale: 1,
+        leftZoom: 1, centerZoom: 1, rightZoom: 1,
+        leftPanX: 50, centerPanX: 50, rightPanX: 50,
+        leftPanY: 100, centerPanY: 100, rightPanY: 100,
+        leftFlipped: false, centerFlipped: false, rightFlipped: false,
+      }
       await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
     }
   }
 
   async function handleCharactersChange(chars: ActiveCharacters) {
-    // Scale follows the character — look up each character's saved scale from the pool
+    // Scale follows the character — look up each character's saved default scale.
     const newScales = {
       left:   chars.left   ? (characterScales[chars.left.id]   ?? 1) : 1,
       center: chars.center ? (characterScales[chars.center.id] ?? 1) : 1,
       right:  chars.right  ? (characterScales[chars.right.id]  ?? 1) : 1,
     }
+    // Use saved display defaults for any slot where the character changed.
+    const newDisplay = { ...slotDisplayProps }
+    if (chars.left?.id   !== activeCharacters.left?.id)   newDisplay.left   = chars.left   ? (characterDisplayDefaults[chars.left.id]   ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY
+    if (chars.center?.id !== activeCharacters.center?.id) newDisplay.center = chars.center ? (characterDisplayDefaults[chars.center.id] ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY
+    if (chars.right?.id  !== activeCharacters.right?.id)  newDisplay.right  = chars.right  ? (characterDisplayDefaults[chars.right.id]  ?? DEFAULT_SLOT_DISPLAY) : DEFAULT_SLOT_DISPLAY
     setSlotScales(newScales)
+    setSlotDisplayProps(newDisplay)
     setActiveCharacters(chars)
     if (isLive && sessionId) {
-      const cs: CharacterState = { left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null, leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right }
+      const cs: CharacterState = {
+        left: chars.left?.id || null, center: chars.center?.id || null, right: chars.right?.id || null,
+        leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right,
+        leftZoom: newDisplay.left.zoom, centerZoom: newDisplay.center.zoom, rightZoom: newDisplay.right.zoom,
+        leftPanX: newDisplay.left.panX, centerPanX: newDisplay.center.panX, rightPanX: newDisplay.right.panX,
+        leftPanY: newDisplay.left.panY, centerPanY: newDisplay.center.panY, rightPanY: newDisplay.right.panY,
+        leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
+      }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
+  }
+
+  async function handleSlotDisplayChange(
+    slot: 'left' | 'center' | 'right',
+    scale: number,
+    display: { zoom?: number; panX?: number; panY?: number; flipped?: boolean }
+  ) {
+    const newScales  = { ...slotScales,       [slot]: scale   }
+    const newDisplay = { ...slotDisplayProps, [slot]: display }
+    setSlotScales(newScales)
+    setSlotDisplayProps(newDisplay)
+    if (isLive && sessionId) {
+      const cs: CharacterState = {
+        left: activeCharacters.left?.id || null, center: activeCharacters.center?.id || null, right: activeCharacters.right?.id || null,
+        leftScale: newScales.left, centerScale: newScales.center, rightScale: newScales.right,
+        leftZoom: newDisplay.left.zoom, centerZoom: newDisplay.center.zoom, rightZoom: newDisplay.right.zoom,
+        leftPanX: newDisplay.left.panX, centerPanX: newDisplay.center.panX, rightPanX: newDisplay.right.panX,
+        leftPanY: newDisplay.left.panY, centerPanY: newDisplay.center.panY, rightPanY: newDisplay.right.panY,
+        leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
+      }
+      await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
+    }
+  }
+
+  async function handleSaveSlotDisplay(slot: 'left' | 'center' | 'right') {
+    const char = activeCharacters[slot]
+    if (!char || !activeSceneId) return
+    const display = slotDisplayProps[slot]
+    const scale   = slotScales[slot]
+    // Persist framing for this character in this scene.
+    // Stage placement is always manual — only the framing (scale/zoom/pan/flip) is saved.
+    await supabase.from('scene_characters')
+      .update({
+        scale,
+        zoom:    display.zoom    ?? 1,
+        pan_x:   display.panX   ?? 50,
+        pan_y:   display.panY   ?? 100,
+        flipped: display.flipped ?? false,
+      })
+      .eq('scene_id', activeSceneId)
+      .eq('character_id', char.id)
+    setCharacterDisplayDefaults(prev => ({
+      ...prev,
+      [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false },
+    }))
+    setCharacterScales(prev => ({ ...prev, [char.id]: scale }))
   }
 
   // ── Campaign CRUD ─────────────────────────────────────────────
@@ -332,6 +424,21 @@ export default function AppPage() {
     }
   }
 
+  async function deleteCharacter(charId: string) {
+    const char = campaignCharacters.find(c => c.id === charId)
+    if (!char) return
+    if (char.storage_path) await deleteMedia(supabase, char.storage_path).catch(() => {})
+    await supabase.from('scene_characters').delete().eq('character_id', charId)
+    await supabase.from('characters').delete().eq('id', charId)
+    setCampaignCharacters(prev => prev.filter(c => c.id !== charId))
+    // Clear character from any active stage slot
+    setActiveCharacters(prev => ({
+      left:   prev.left?.id   === charId ? null : prev.left,
+      center: prev.center?.id === charId ? null : prev.center,
+      right:  prev.right?.id  === charId ? null : prev.right,
+    }))
+  }
+
   async function updateCampaignName(campId: string, name: string) {
     await supabase.from('campaigns').update({ name }).eq('id', campId)
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, name } : c))
@@ -396,11 +503,17 @@ export default function AppPage() {
       .select('*, character:characters(*)')
       .eq('scene_id', saved.id)
       .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); return }
-        setSceneRosterChars(data.map(r => r.character as Character).filter(Boolean))
+        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
+        setSceneRosterChars(data.map((r: any) => r.character as Character).filter(Boolean))
         const scales: Record<string, number> = {}
-        data.forEach(r => { if (r.character_id) scales[r.character_id] = r.scale ?? 1 })
+        const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
+        data.forEach((r: any) => {
+          if (!r.character_id) return
+          scales[r.character_id] = r.scale ?? 1
+          displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
+        })
         setCharacterScales(scales)
+        setCharacterDisplayDefaults(displayDefs)
       })
   }
 
@@ -443,9 +556,33 @@ export default function AppPage() {
               <button className="btn btn-ghost btn-sm" onClick={stopPresenting} style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.4)' }}>⏹ Stop</button>
             </>
           )}
+          <SpotifyConnect />
           <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">⏻</button>
         </div>
       </div>
+
+      {/* ── CAMPAIGN TAB BAR ── */}
+      {activeCampId && (
+        <div style={{ height: '38px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '2px', flexShrink: 0 }}>
+          {(['stage', 'characters'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setCampView(tab)}
+              style={{
+                padding: '5px 14px', border: 'none', borderRadius: '6px',
+                background: campView === tab ? 'var(--bg-raised)' : 'transparent',
+                color: campView === tab ? 'var(--text)' : 'var(--text-3)',
+                cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+                letterSpacing: '1.5px', textTransform: 'uppercase',
+                borderBottom: campView === tab ? '2px solid var(--accent)' : '2px solid transparent',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {tab === 'stage' ? 'Stage' : `Characters${campaignCharacters.length ? ` (${campaignCharacters.length})` : ''}`}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── WORKSPACE ── */}
       {!activeCampId ? (
@@ -458,6 +595,11 @@ export default function AppPage() {
           onUpdateDescription={updateCampaignDescription}
           onDelete={deleteCampaignById}
         />
+      ) : campView === 'characters' ? (
+        <CharacterRoster
+          characters={campaignCharacters}
+          onDelete={deleteCharacter}
+        />
       ) : (
         <>
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -467,8 +609,11 @@ export default function AppPage() {
               onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
               characters={activeCharacters}
               slotScales={slotScales}
+              slotDisplayProps={slotDisplayProps}
               campaignCharacters={sceneRosterChars}
               onCharactersChange={handleCharactersChange}
+              onSlotDisplayChange={handleSlotDisplayChange}
+              onSaveSlotDisplay={handleSaveSlotDisplay}
             />
             <div style={{ width: '300px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
               <div style={{ padding: '11px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -488,7 +633,7 @@ export default function AppPage() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1,
                     transition: 'all 0.12s',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(229,53,53,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(229,53,53,0.06)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(201,168,76,0.06)' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
                 >+</button>
               </div>

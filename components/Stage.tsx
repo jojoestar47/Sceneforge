@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Scene, Track, Character } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -17,6 +18,19 @@ interface SlotScales {
   right:  number
 }
 
+interface SlotDisplay {
+  zoom?:    number   // 1.0 – 3.0
+  panX?:    number   // 0–100
+  panY?:    number   // 0–100
+  flipped?: boolean
+}
+
+interface SlotDisplayProps {
+  left:   SlotDisplay
+  center: SlotDisplay
+  right:  SlotDisplay
+}
+
 interface Props {
   scene:              Scene | null
   hasCampaign:        boolean
@@ -24,9 +38,14 @@ interface Props {
   // Character props (DM only — undefined on viewer)
   characters?:        ActiveCharacters
   slotScales?:        SlotScales
+  slotDisplayProps?:  SlotDisplayProps
   campaignCharacters?: Character[]
   onCharactersChange?: (c: ActiveCharacters) => void
+  onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
+  onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
 }
+
+const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
 
 function mediaUrl(m: Scene['bg']): string | null {
   if (!m) return null
@@ -40,7 +59,8 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
 export default function Stage({
   scene, hasCampaign, onEdit,
-  characters, slotScales, campaignCharacters, onCharactersChange,
+  characters, slotScales, slotDisplayProps, campaignCharacters,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -83,6 +103,9 @@ export default function Stage({
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
+  // ── Spotify player ───────────────────────────────────────────
+  const spotify = useSpotifyPlayer(scene)
+
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -110,8 +133,11 @@ export default function Stage({
     }
   }, [])
 
-  // ── Character picker state (DM only) ─────────────────────────
-  const [pickerSlot, setPickerSlot]   = useState<'left' | 'center' | 'right' | null>(null)
+  // ── Character slot panel state (DM only) ─────────────────────
+  // activeSlot: which slot's panel is open; panelMode: adjust existing or pick new
+  const [activeSlot,    setActiveSlot]    = useState<'left' | 'center' | 'right' | null>(null)
+  const [panelMode,     setPanelMode]     = useState<'adjust' | 'pick'>('pick')
+  const [savedConfirm,  setSavedConfirm]  = useState(false)
   const [charSearch, setCharSearch]   = useState('')
   // Track whether this device has touch so we can disable autoFocus (which
   // opens the keyboard on Android and resizes the stage, hiding the popup).
@@ -125,10 +151,9 @@ export default function Stage({
   // when preventDefault is called in some WebView versions).
   const pickerOpenTimeRef = useRef(0)
 
-  // Close picker whenever the scene changes so the click-away overlay
-  // doesn't get stuck across scene switches on Android.
+  // Close panel whenever the scene changes.
   useEffect(() => {
-    setPickerSlot(null)
+    setActiveSlot(null)
     setCharSearch('')
   }, [scene?.id])
 
@@ -137,15 +162,17 @@ export default function Stage({
   )
 
   function pickCharacter(c: Character) {
-    if (!pickerSlot || !onCharactersChange || !characters) return
-    onCharactersChange({ ...characters, [pickerSlot]: c })
-    setPickerSlot(null)
+    if (!activeSlot || !onCharactersChange || !characters) return
+    onCharactersChange({ ...characters, [activeSlot]: c })
+    // After picking, switch to adjust mode so DM can fine-tune immediately.
+    setPanelMode('adjust')
     setCharSearch('')
   }
 
   function removeCharacter(slot: 'left' | 'center' | 'right') {
     if (!onCharactersChange || !characters) return
     onCharactersChange({ ...characters, [slot]: null })
+    if (activeSlot === slot) setActiveSlot(null)
   }
 
   // ── Audio: combined reset + autoplay ─────────────────────────
@@ -173,7 +200,7 @@ export default function Stage({
 
     if (!scene?.tracks?.length) return
     const musicTracks = scene.tracks.filter(
-      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
     )
     const timer = setTimeout(() => {
       musicTracks.forEach(t => {
@@ -202,6 +229,7 @@ export default function Stage({
   }, [])
 
   function getOrCreate(t: Track): HTMLAudioElement {
+    if (t.spotify_uri) return new Audio() // never used — Spotify tracks go through SDK
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
       a.loop = t.loop; a.muted = muted
@@ -225,10 +253,12 @@ export default function Stage({
   }
 
   function toggleTrack(t: Track) {
+    if (t.spotify_uri) { spotify.toggle(t); return }
     const a = getOrCreate(t)
     if (a.paused) { a.play().catch(() => {}) } else { a.pause() }
   }
   function setVol(t: Track, val: number) {
+    if (t.spotify_uri) { spotify.setVolume(t, val); return }
     const a = getOrCreate(t); a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
     if (scene?.id) {
@@ -240,10 +270,14 @@ export default function Stage({
       } catch {}
     }
   }
-  function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
+  function stopAll() {
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
+    spotify.stopAll()
+  }
   function handleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
+    spotify.mute(next)
   }
 
   if (!scene) {
@@ -264,7 +298,13 @@ export default function Stage({
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
   const hasTracks    = allTracks.length > 0
-  const playingCount = Object.values(playing).filter(Boolean).length
+  const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
+  const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
+
+  // Helpers to read merged state for any track
+  function trackPlaying(t: Track) { return t.spotify_uri ? (spotify.states[t.id]?.playing ?? false) : (playing[t.id] ?? false) }
+  function trackVolume(t: Track)  { return t.spotify_uri ? (spotify.states[t.id]?.volume  ?? t.volume) : (volumes[t.id] ?? t.volume) }
+  function trackLoop(t: Track)    { return t.spotify_uri ? (spotify.states[t.id]?.loop    ?? t.loop)   : t.loop }
   const hasDMControls = !!onCharactersChange
 
   return (
@@ -280,6 +320,7 @@ export default function Stage({
         width:  isFullscreen ? '100dvw' : undefined,
         height: isFullscreen ? '100dvh' : undefined,
         position: 'relative',
+        overflow: 'hidden',
         background: '#080a10',
         display: 'flex',
         alignItems: 'center',
@@ -330,6 +371,10 @@ export default function Stage({
           position="left"
           imageUrl={characterImageUrl(characters.left)}
           scale={slotScales?.left ?? 1}
+          imgZoom={slotDisplayProps?.left.zoom}
+          imgPanX={slotDisplayProps?.left.panX}
+          imgPanY={slotDisplayProps?.left.panY}
+          flipped={slotDisplayProps?.left.flipped}
         />
       )}
       {characters?.center && (
@@ -338,6 +383,10 @@ export default function Stage({
           position="center"
           imageUrl={characterImageUrl(characters.center)}
           scale={slotScales?.center ?? 1}
+          imgZoom={slotDisplayProps?.center.zoom}
+          imgPanX={slotDisplayProps?.center.panX}
+          imgPanY={slotDisplayProps?.center.panY}
+          flipped={slotDisplayProps?.center.flipped}
         />
       )}
       {characters?.right && (
@@ -346,6 +395,10 @@ export default function Stage({
           position="right"
           imageUrl={characterImageUrl(characters.right)}
           scale={slotScales?.right ?? 1}
+          imgZoom={slotDisplayProps?.right.zoom}
+          imgPanX={slotDisplayProps?.right.panX}
+          imgPanY={slotDisplayProps?.right.panY}
+          flipped={slotDisplayProps?.right.flipped}
         />
       )}
 
@@ -394,11 +447,13 @@ export default function Stage({
                 <button
                   onPointerDown={e => {
                     e.preventDefault() // blocks subsequent synthetic click on Android
-                    const next = pickerSlot === slot ? null : slot
-                    if (next) pickerOpenTimeRef.current = Date.now()
-                    setPickerSlot(next)
+                    if (activeSlot === slot) { setActiveSlot(null); return }
+                    const mode = char ? 'adjust' : 'pick'
+                    if (mode === 'pick') pickerOpenTimeRef.current = Date.now()
+                    setActiveSlot(slot)
+                    setPanelMode(mode)
                   }}
-                  title={char ? `Change ${slot} character` : `Add ${slot} character`}
+                  title={char ? `Adjust ${slot} character` : `Add ${slot} character`}
                   style={{
                     width: '44px', height: '44px', borderRadius: '8px',
                     border: `1px solid ${char ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.14)'}`,
@@ -430,17 +485,127 @@ export default function Stage({
         </div>
       )}
 
-      {/* ── Character Picker Popup ─────────────────────────────── */}
-      {pickerSlot && hasDMControls && (
+      {/* ── Adjust panel (character in slot) ──────────────────── */}
+      {activeSlot && panelMode === 'adjust' && hasDMControls && characters?.[activeSlot] && (() => {
+        const slot    = activeSlot
+        const char    = characters[slot]!
+        const imgUrl  = characterImageUrl(char)
+        const scale   = slotScales?.[slot] ?? 1
+        const display = slotDisplayProps?.[slot] ?? DEFAULT_CHAR_DISPLAY
+        const zoom    = display.zoom  ?? 1
+        const panX    = display.panX  ?? 50
+        const panY    = display.panY  ?? 100
+        const zoomed  = zoom > 1.05
+        function fire(newScale: number, newDisplay: SlotDisplay) {
+          onSlotDisplayChange?.(slot, newScale, newDisplay)
+        }
+        return (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ position: 'absolute', bottom: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, width: '300px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+          >
+            {/* Header */}
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {imgUrl ? <img src={imgUrl} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '14px' }}>🧑</span>}
+              </div>
+              <span style={{ flex: 1, fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{char.name}</span>
+              <button
+                onClick={() => { setPanelMode('pick'); pickerOpenTimeRef.current = Date.now() }}
+                style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '.8px', padding: '5px 10px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', touchAction: 'manipulation', flexShrink: 0 }}
+              >Change</button>
+              <button onClick={() => setActiveSlot(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px', flexShrink: 0, touchAction: 'manipulation' }}>✕</button>
+            </div>
+
+            {/* Controls */}
+            <div style={{ padding: '10px 14px 14px' }}>
+              {/* Scale */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Scale</span>
+                <input type="range" min={0.5} max={2.5} step={0.05} value={scale}
+                  onChange={e => fire(Number(e.target.value), display)}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
+                />
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{Math.round(scale * 100)}%</span>
+              </div>
+
+              {/* Zoom */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Zoom</span>
+                <input type="range" min={1} max={3} step={0.05} value={zoom}
+                  onChange={e => fire(scale, { ...display, zoom: Number(e.target.value) })}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
+                />
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{zoom.toFixed(1)}x</span>
+              </div>
+
+              {/* Pan sliders — only shown when zoomed in */}
+              {zoomed && [
+                { label: 'Pan X', val: panX, onChange: (v: number) => fire(scale, { ...display, panX: v }) },
+                { label: 'Pan Y', val: panY, onChange: (v: number) => fire(scale, { ...display, panY: v }) },
+              ].map(({ label, val, onChange }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>{label}</span>
+                  <input type="range" min={0} max={100} step={1} value={val}
+                    onChange={e => onChange(Number(e.target.value))}
+                    style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '44px', touchAction: 'none' }}
+                  />
+                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '34px', textAlign: 'right', flexShrink: 0 }}>{val}%</span>
+                </div>
+              ))}
+
+              {/* Flip row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Flip</span>
+                <button onClick={() => fire(scale, { ...display, flipped: !display.flipped })}
+                  style={{
+                    fontSize: '10px', minHeight: '36px', padding: '0 14px', borderRadius: '5px', cursor: 'pointer', touchAction: 'manipulation',
+                    background: display.flipped ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
+                    color: display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.4)',
+                  }}
+                >↔ Mirror</button>
+              </div>
+
+              {/* Save button */}
+              {onSaveSlotDisplay && (
+                <button
+                  onClick={async () => {
+                    await onSaveSlotDisplay(slot)
+                    setSavedConfirm(true)
+                    setTimeout(() => setSavedConfirm(false), 1800)
+                  }}
+                  style={{
+                    width: '100%', minHeight: '40px', borderRadius: '7px', cursor: 'pointer',
+                    touchAction: 'manipulation', fontWeight: 700, fontSize: '11px',
+                    letterSpacing: '1px', textTransform: 'uppercase', border: 'none',
+                    background: savedConfirm ? 'rgba(201,168,76,0.2)' : 'var(--accent)',
+                    color: savedConfirm ? 'var(--accent)' : '#13151d',
+                    transition: 'background 0.2s, color 0.2s',
+                  }}
+                >
+                  {savedConfirm ? '✓ Saved' : 'Save Position'}
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Character Picker Popup ──────────────────────────────── */}
+      {activeSlot && panelMode === 'pick' && hasDMControls && (
         <div
-          onPointerDown={e => e.stopPropagation()} // prevent overlay from closing the picker
+          onPointerDown={e => e.stopPropagation()}
           style={{ position: 'absolute', bottom: '70px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
         >
           <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>
-              {pickerSlot === 'left' ? 'Left' : pickerSlot === 'center' ? 'Center' : 'Right'} Character
+              {activeSlot === 'left' ? 'Left' : activeSlot === 'center' ? 'Center' : 'Right'} Character
             </span>
-            <button onClick={() => setPickerSlot(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+            {characters?.[activeSlot] && (
+              <button onClick={() => setPanelMode('adjust')} style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '.8px', padding: '4px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', touchAction: 'manipulation' }}>← Back</button>
+            )}
+            <button onClick={() => setActiveSlot(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
           </div>
           <div style={{ padding: '8px 12px' }}>
             <input
@@ -481,15 +646,15 @@ export default function Stage({
         </div>
       )}
 
-      {/* Click away to close picker.
-          Time guard: ignore any pointer event within 300ms of the picker opening —
-          this catches the synthetic click Android fires after touchend even when
-          preventDefault is called, which would immediately close the picker. */}
-      {pickerSlot && (
+      {/* Click-away to close panel.
+          Time guard: ignore pointer events within 300ms of the picker opening —
+          catches the synthetic click Android fires after touchend. */}
+      {activeSlot && (
         <div
           style={{ position: 'absolute', inset: 0, zIndex: 25 }}
           onPointerDown={() => {
-            if (Date.now() - pickerOpenTimeRef.current > 300) setPickerSlot(null)
+            if (panelMode === 'pick' && Date.now() - pickerOpenTimeRef.current <= 300) return
+            setActiveSlot(null)
           }}
         />
       )}
@@ -526,14 +691,14 @@ export default function Stage({
               {music.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {music.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
-                  {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>

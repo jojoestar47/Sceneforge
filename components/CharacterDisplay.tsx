@@ -14,14 +14,26 @@ interface Props {
   character: Character
   position: 'left' | 'center' | 'right'
   imageUrl: string | null
-  scale?: number  // 0.5 – 2.5, default 1.0
+  scale?: number    // 0.5 – 2.5, overall slot scale, default 1.0
+  imgZoom?: number  // 1.0 – 3.0, crops within the slot via transform, default 1.0
+  imgPanX?: number  // 0–100, transform-origin X (% of image), default 50
+  imgPanY?: number  // 0–100, transform-origin Y (% of image), default 100
+  flipped?: boolean // horizontal mirror
 }
 
-export default function CharacterDisplay({ character, position, imageUrl, scale = 1 }: Props) {
+export default function CharacterDisplay({
+  character, position, imageUrl,
+  scale = 1, imgZoom = 1, imgPanX = 50, imgPanY = 100, flipped = false,
+}: Props) {
+  const transform =
+    position === 'center'
+      ? `translateX(-50%) scale(${scale})`
+      : `scale(${scale})`
+
   const positionStyle =
     position === 'left'   ? { left: '8%' } :
     position === 'right'  ? { right: '8%' } :
-    /* center */            { left: '50%', transform: 'translateX(-50%)' }
+    /* center */            { left: '50%' }
 
   return (
     <div
@@ -39,30 +51,46 @@ export default function CharacterDisplay({ character, position, imageUrl, scale 
         alignItems: 'center',
         justifyContent: 'flex-end',
         pointerEvents: 'none',
-        // Scale lives here so it's always at the correct value.
-        // Keeping it off the <img> means the entrance animation on the
-        // img can use its own transform (translateY) without overriding
-        // or conflicting with the scale during the animation.
-        transform: `scale(${scale})`,
+        transform,
         transformOrigin: 'bottom center',
       }}
     >
       {imageUrl && (
-        <img
-          key={imageUrl}
-          src={imageUrl}
-          alt={character.name}
+        // Flip wrapper keeps the name label unmirrored.
+        <div
           style={{
             height: '100%',
             width: '100%',
-            objectFit: 'contain',
-            objectPosition: 'bottom center',
-            filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(0,0,0,0.5))',
-            // Only translateY + opacity — scale is on the parent so it
-            // loads at the correct size from the very first frame.
-            animation: 'charFadeIn 0.4s ease-out',
+            transform: flipped ? 'scaleX(-1)' : undefined,
           }}
-        />
+        >
+          {/* Zoom wrapper: scales the image from the chosen anchor point.
+              No overflow:hidden here — that would hard-clip the drop-shadow
+              filter against the slot edge and cause a visible black line.
+              The Stage wrapper's overflow:hidden is the final boundary. */}
+          <div
+            style={{
+              height: '100%',
+              width: '100%',
+              transform: imgZoom !== 1 ? `scale(${imgZoom})` : undefined,
+              transformOrigin: `${imgPanX}% ${imgPanY}%`,
+            }}
+          >
+            <img
+              key={imageUrl}
+              src={imageUrl}
+              alt={character.name}
+              style={{
+                height: '100%',
+                width: '100%',
+                objectFit: 'contain',
+                objectPosition: '50% 100%',
+                filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.8)) drop-shadow(0 0 20px rgba(0,0,0,0.5))',
+                animation: 'charFadeIn 0.4s ease-out',
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Name label — sits at the feet of the character */}

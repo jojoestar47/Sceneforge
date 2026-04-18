@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Scene, Track, Character, CharacterState } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
+import AppIcon from '@/components/AppIcon'
+import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -43,8 +45,17 @@ export default function ViewerPage() {
   const [scene,  setScene]  = useState<Scene | null>(null)
 
   // ── Characters ────────────────────────────────────────────────
-  const [characters,   setCharacters]   = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
-  const [viewerScales, setViewerScales] = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
+  const [characters,       setCharacters]       = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
+  const [viewerScales,     setViewerScales]     = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
+  const [viewerDisplay,    setViewerDisplay]    = useState<{
+    left:   { zoom: number; panX: number; panY: number; flipped: boolean }
+    center: { zoom: number; panX: number; panY: number; flipped: boolean }
+    right:  { zoom: number; panX: number; panY: number; flipped: boolean }
+  }>({
+    left:   { zoom: 1, panX: 50, panY: 100, flipped: false },
+    center: { zoom: 1, panX: 50, panY: 100, flipped: false },
+    right:  { zoom: 1, panX: 50, panY: 100, flipped: false },
+  })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
     if (!state) {
@@ -64,6 +75,11 @@ export default function ViewerPage() {
       center: state.centerScale ?? 1,
       right:  state.rightScale  ?? 1,
     })
+    setViewerDisplay({
+      left:   { zoom: state.leftZoom   ?? 1, panX: state.leftPanX   ?? 50, panY: state.leftPanY   ?? 100, flipped: state.leftFlipped   ?? false },
+      center: { zoom: state.centerZoom ?? 1, panX: state.centerPanX ?? 50, panY: state.centerPanY ?? 100, flipped: state.centerFlipped ?? false },
+      right:  { zoom: state.rightZoom  ?? 1, panX: state.rightPanX  ?? 50, panY: state.rightPanY  ?? 100, flipped: state.rightFlipped  ?? false },
+    })
   }, [supabase])
 
   // ── Audio ─────────────────────────────────────────────────────
@@ -80,6 +96,9 @@ export default function ViewerPage() {
     return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
+
+  // ── Spotify player ────────────────────────────────────────────
+  const spotify = useSpotifyPlayer(scene)
 
   // ── Fullscreen ────────────────────────────────────────────────
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -100,6 +119,7 @@ export default function ViewerPage() {
 
   // ── Audio helpers ─────────────────────────────────────────────
   function getOrCreate(t: Track): HTMLAudioElement {
+    if (t.spotify_uri) return new Audio() // Spotify tracks handled by SDK
     if (!audioRefs.current[t.id]) {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
       const a   = new Audio(src)
@@ -124,10 +144,12 @@ export default function ViewerPage() {
   }
 
   function toggleTrack(t: Track) {
+    if (t.spotify_uri) { spotify.toggle(t); return }
     const a = getOrCreate(t)
     if (a.paused) { a.play().catch(() => {}) } else { a.pause() }
   }
   function setVol(t: Track, val: number) {
+    if (t.spotify_uri) { spotify.setVolume(t, val); return }
     const a = getOrCreate(t); a.volume = val; setVolumes(v => ({ ...v, [t.id]: val }))
     if (scene?.id) {
       try {
@@ -138,8 +160,18 @@ export default function ViewerPage() {
       } catch {}
     }
   }
-  function stopAll() { Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 }) }
-  function toggleMute() { const next = !muted; setMuted(next); Object.values(audioRefs.current).forEach(a => (a.muted = next)) }
+  function stopAll() {
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
+    spotify.stopAll()
+  }
+  function toggleMute() {
+    const next = !muted; setMuted(next)
+    Object.values(audioRefs.current).forEach(a => (a.muted = next))
+    spotify.mute(next)
+  }
+
+  function trackPlaying(t: Track) { return t.spotify_uri ? (spotify.states[t.id]?.playing ?? false) : (playing[t.id] ?? false) }
+  function trackVolume(t: Track)  { return t.spotify_uri ? (spotify.states[t.id]?.volume  ?? t.volume) : (volumes[t.id] ?? t.volume) }
 
   // ── Combined reset + autoplay ─────────────────────────────────
   useEffect(() => {
@@ -162,7 +194,9 @@ export default function ViewerPage() {
     audioRefs.current = {}; audioHandlers.current = {}; setVolumes({}); setPlaying({})
 
     if (!scene?.tracks?.length) return
-    const musicTracks = scene.tracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+    const musicTracks = scene.tracks.filter(
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
+    )
     if (!musicTracks.length) return
 
     if (hasInteracted.current) {
@@ -180,8 +214,11 @@ export default function ViewerPage() {
   function handleFirstTap() {
     hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
-    const musicTracks = (scene?.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+    const musicTracks = (scene?.tracks || []).filter(
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
+    )
     musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
+    spotify.autoPlay()
   }
 
   // ── Load scene ────────────────────────────────────────────────
@@ -253,13 +290,15 @@ export default function ViewerPage() {
   const allTracks    = scene?.tracks || []
   const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
-  const playingCount = Object.values(playing).filter(Boolean).length
+  const hasSpotifyTracks = allTracks.some(t => !!t.spotify_uri)
+  const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
+  const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
 
   // ── Status screens ────────────────────────────────────────────
   if (status === 'loading') return (
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#e53535', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
+        <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: '#c9a84c', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '2px' }}>Connecting…</div>
       </div>
     </div>
@@ -268,11 +307,11 @@ export default function ViewerPage() {
   if (status === 'waiting') return (
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .3 }}>🎭</div>
+        <div style={{ marginBottom: '18px' }}><AppIcon size={48} opacity={0.25} /></div>
         <div style={{ fontFamily: "'Cinzel',serif", fontSize: '13px', color: 'rgba(255,255,255,0.5)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '10px' }}>Waiting for DM</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', letterSpacing: '1px' }}>Session code: {joinCode}</div>
         <div style={{ marginTop: '10px', display: 'flex', gap: '5px', justifyContent: 'center' }}>
-          {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e53535', animation: `dot .8s ease-in-out ${i*.2}s infinite alternate`, opacity: .4 }} />)}
+          {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c9a84c', animation: `dot .8s ease-in-out ${i*.2}s infinite alternate`, opacity: .4 }} />)}
         </div>
       </div>
       <style>{`@keyframes dot{from{opacity:.2;transform:scale(.8)}to{opacity:1;transform:scale(1.1)}}`}</style>
@@ -336,6 +375,10 @@ export default function ViewerPage() {
           position="left"
           imageUrl={characterImageUrl(characters.left)}
           scale={viewerScales.left}
+          imgZoom={viewerDisplay.left.zoom}
+          imgPanX={viewerDisplay.left.panX}
+          imgPanY={viewerDisplay.left.panY}
+          flipped={viewerDisplay.left.flipped}
         />
       )}
       {characters.center && (
@@ -344,6 +387,10 @@ export default function ViewerPage() {
           position="center"
           imageUrl={characterImageUrl(characters.center)}
           scale={viewerScales.center}
+          imgZoom={viewerDisplay.center.zoom}
+          imgPanX={viewerDisplay.center.panX}
+          imgPanY={viewerDisplay.center.panY}
+          flipped={viewerDisplay.center.flipped}
         />
       )}
       {characters.right && (
@@ -352,6 +399,10 @@ export default function ViewerPage() {
           position="right"
           imageUrl={characterImageUrl(characters.right)}
           scale={viewerScales.right}
+          imgZoom={viewerDisplay.right.zoom}
+          imgPanX={viewerDisplay.right.panX}
+          imgPanY={viewerDisplay.right.panY}
+          flipped={viewerDisplay.right.flipped}
         />
       )}
 
@@ -364,7 +415,7 @@ export default function ViewerPage() {
 
       {!scene && (
         <div style={{ zIndex: 1, textAlign: 'center', color: 'rgba(255,255,255,0.2)', position: 'relative' }}>
-          <div style={{ fontSize: '44px', opacity: .3, marginBottom: '12px' }}>🎭</div>
+          <div style={{ marginBottom: '12px' }}><AppIcon size={48} opacity={0.2} /></div>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '3px' }}>Awaiting Scene</div>
         </div>
       )}
@@ -373,6 +424,15 @@ export default function ViewerPage() {
       <button onClick={toggleFs} style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isFs ? '✕' : '⛶'}
       </button>
+
+      {/* Spotify connect prompt — shown when scene has Spotify tracks but player isn't connected */}
+      {hasSpotifyTracks && !spotify.connected && (
+        <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: MIXER_BG, border: '1px solid rgba(30,215,96,0.3)', borderRadius: '10px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', whiteSpace: 'nowrap' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1ed760"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" /></svg>
+          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>This scene has Spotify music</span>
+          <a href="/auth/spotify" style={{ fontSize: '11px', fontWeight: 700, color: '#1ed760', textDecoration: 'none', border: '1px solid rgba(30,215,96,0.5)', borderRadius: '5px', padding: '4px 10px' }}>Connect Spotify</a>
+        </div>
+      )}
 
       {/* Tap to start audio overlay */}
       {needsTap && (
@@ -390,10 +450,10 @@ export default function ViewerPage() {
         <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'left' : 'right']: '14px', zIndex: 20, width: '240px' }}>
           <div onClick={() => setMixerOpen(o => !o)} style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 10px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
-              {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#e53535' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}
+              {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#c9a84c' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1, minWidth: 0 }}>Audio</span>
-            {playingCount > 0 && <span style={{ fontSize: '10px', color: '#e53535', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
+            {playingCount > 0 && <span style={{ fontSize: '10px', color: '#c9a84c', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
             <button
               onClick={e => {
                 e.stopPropagation()
@@ -413,19 +473,19 @@ export default function ViewerPage() {
               {music.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
-                  {amb.map(t => <TrackRow key={t.id} t={t} isPlaying={!!playing[t.id]} volume={volumes[t.id] ?? t.volume} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {amb.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
                 </div>
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <button onClick={e => { e.stopPropagation(); stopAll() }} style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>⏹ Stop All</button>
-                <button onClick={e => { e.stopPropagation(); toggleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? '#e53535' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? '#e53535' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <button onClick={e => { e.stopPropagation(); toggleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? '#c9a84c' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? '#c9a84c' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {muted ? '🔇' : '🔊'}
                 </button>
               </div>
@@ -455,12 +515,12 @@ const fsStyle: React.CSSProperties = {
 function TrackRow({ t, isPlaying, volume, onToggle, onVol }: { t: Track; isPlaying: boolean; volume: number; onToggle: () => void; onVol: (v: number) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#e53535' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(229,53,53,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#e53535' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isPlaying ? '⏸' : '▶'}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{t.name}</div>
-        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#e53535', cursor: 'pointer', touchAction: 'none' }} />
+        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#c9a84c', cursor: 'pointer', touchAction: 'none' }} />
       </div>
     </div>
   )

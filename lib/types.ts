@@ -42,6 +42,8 @@ export interface Track {
   storage_path?: string
   file_name?: string
   signed_url?: string
+  spotify_uri?: string
+  spotify_type?: 'track' | 'playlist'
   loop: boolean
   volume: number
   order_index: number
@@ -78,6 +80,19 @@ export interface CharacterState {
   leftScale:   number          // display scale (0.5 – 2.5), default 1.0
   centerScale: number
   rightScale:  number
+  // Image display overrides (optional for backwards compatibility)
+  leftZoom?:    number   // 1.0 – 3.0
+  centerZoom?:  number
+  rightZoom?:   number
+  leftPanX?:    number   // 0–100, transform-origin X
+  centerPanX?:  number
+  rightPanX?:   number
+  leftPanY?:    number   // 0–100, transform-origin Y
+  centerPanY?:  number
+  rightPanY?:   number
+  leftFlipped?:   boolean
+  centerFlipped?: boolean
+  rightFlipped?:  boolean
 }
 
 // ── Editor draft types ────────────────────────────────────────
