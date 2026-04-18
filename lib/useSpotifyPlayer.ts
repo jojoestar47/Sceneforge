@@ -58,6 +58,26 @@ async function fetchToken(): Promise<string | null> {
   }
 }
 
+// ── Repeat mode helper ────────────────────────────────────────
+// Uses Spotify's native repeat API instead of re-triggering playTrack
+// on track end. This gives completely seamless, gapless looping with no
+// re-buffering or state-change spazz.
+// Single tracks → 'track', playlists → 'context', disabled → 'off'.
+async function applyRepeatMode(
+  loop:        boolean,
+  spotifyType: string | undefined,
+  deviceId:    string,
+  token:       string
+): Promise<void> {
+  const state = !loop
+    ? 'off'
+    : spotifyType === 'playlist' ? 'context' : 'track'
+  await fetch(
+    `https://api.spotify.com/v1/me/player/repeat?state=${state}&device_id=${deviceId}`,
+    { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }
+  ).catch(() => {})
+}
+
 export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   const playerRef      = useRef<any>(null)
   const deviceIdRef    = useRef<string | null>(null)
@@ -153,16 +173,12 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
       player.addListener('player_state_changed', (state: any) => {
         if (!state || !activeTrackRef.current) return
         const t = activeTrackRef.current
-
         setStates(prev => ({
           ...prev,
           [t.id]: { ...prev[t.id], playing: !state.paused },
         }))
-
-        // Loop: Spotify fires paused + position=0 when a track ends
-        if (state.paused && state.position === 0 && loopRef.current[t.id]) {
-          playTrack(t).catch(() => {})
-        }
+        // NOTE: loop is now handled by Spotify's native repeat mode set in
+        // playTrack — no manual re-trigger needed here.
       })
 
       player.connect()
@@ -211,6 +227,16 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     // Scene changed while we were waiting on the Spotify API — abort.
     if (prevSceneIdRef.current !== sceneIdAtStart) return
 
+    // Tell Spotify to loop (or not) using its native repeat API.
+    // This is what makes looping seamless — Spotify handles the transition
+    // internally with no gap, no re-buffering, and no state-change spazz.
+    await applyRepeatMode(
+      loopRef.current[t.id] ?? false,
+      t.spotify_type,
+      deviceIdRef.current,
+      token
+    )
+
     activeTrackRef.current = t
 
     const vol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
@@ -253,6 +279,14 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   function setLoop(t: Track, val: boolean) {
     loopRef.current[t.id] = val
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], loop: val } }))
+    // If this is the currently active track, apply the new repeat mode
+    // immediately so the change takes effect without needing to restart.
+    if (activeTrackRef.current?.id === t.id && deviceIdRef.current) {
+      const deviceId = deviceIdRef.current
+      fetchToken().then(token => {
+        if (token && deviceId) applyRepeatMode(val, t.spotify_type, deviceId, token)
+      }).catch(() => {})
+    }
   }
 
   function stopAll() {
