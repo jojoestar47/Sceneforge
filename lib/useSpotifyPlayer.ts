@@ -44,10 +44,23 @@ function saveVolume(sceneId: string, trackId: string, volume: number) {
   } catch {}
 }
 
+// ── Server token fetch ────────────────────────────────────────
+// Always fetches a fresh token from our API route (which handles
+// refresh if needed). Never stores the token in a long-lived ref.
+async function fetchToken(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/spotify/token')
+    if (!res.ok) return null
+    const { access_token } = await res.json()
+    return access_token ?? null
+  } catch {
+    return null
+  }
+}
+
 export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   const playerRef      = useRef<any>(null)
   const deviceIdRef    = useRef<string | null>(null)
-  const tokenRef       = useRef<string | null>(null)
   const activeTrackRef = useRef<Track | null>(null)
   const loopRef        = useRef<Record<string, boolean>>({})
   const volumeRef      = useRef<Record<string, number>>({})
@@ -95,12 +108,10 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
 
   // ── Load SDK on mount ─────────────────────────────────────────
   useEffect(() => {
+    // Only check if the user has connected Spotify — don't store the token.
+    // The token is fetched fresh from the server each time it's needed.
     fetch('/api/spotify/token').then(r => {
-      if (!r.ok) return
-      r.json().then(({ access_token }) => {
-        tokenRef.current = access_token
-        loadSDK()
-      })
+      if (r.ok) loadSDK()
     }).catch(() => {})
 
     function loadSDK() {
@@ -119,13 +130,12 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
       if (playerRef.current) return
       const player = new window.Spotify.Player({
         name: 'Sceneforge',
+        // The SDK calls this whenever it needs a valid token (on connect and
+        // after expiry). We always fetch fresh from the server — never from a
+        // client-side cache — so the token is never stored longer than needed.
         getOAuthToken: async (cb: (token: string) => void) => {
-          const res = await fetch('/api/spotify/token').catch(() => null)
-          if (res?.ok) {
-            const { access_token } = await res.json()
-            tokenRef.current = access_token
-            cb(access_token)
-          }
+          const token = await fetchToken()
+          if (token) cb(token)
         },
         volume: 0.7,
       })
@@ -172,7 +182,9 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   async function playTrack(t: Track) {
     if (!deviceIdRef.current || !t.spotify_uri || !playerRef.current) return
 
-    const token = tokenRef.current
+    // Fetch a fresh token from the server on every play call.
+    // This means the token is never held in a long-lived client-side variable.
+    const token = await fetchToken()
     if (!token) return
 
     const body = t.spotify_type === 'playlist'

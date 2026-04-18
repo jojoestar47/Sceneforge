@@ -4,7 +4,24 @@ import { cookies } from 'next/headers'
 
 export async function GET(req: NextRequest) {
   const appUrl = process.env.APP_URL!
-  const code   = req.nextUrl.searchParams.get('code')
+  const cookieStore = await cookies()
+
+  // ── CSRF state validation ─────────────────────────────────────
+  // Spotify echoes back the state param we sent. If it's missing or doesn't
+  // match the value we stored in the httpOnly cookie, reject the request —
+  // this prevents login-CSRF / authorization-code injection attacks.
+  const returnedState = req.nextUrl.searchParams.get('state')
+  const storedState   = cookieStore.get('sf_spotify_state')?.value
+
+  // Always clear the state cookie regardless of outcome
+  cookieStore.delete('sf_spotify_state')
+
+  if (!returnedState || !storedState || returnedState !== storedState) {
+    return NextResponse.redirect(`${appUrl}/?spotify=error`)
+  }
+
+  // ── Authorization code exchange ───────────────────────────────
+  const code = req.nextUrl.searchParams.get('code')
   if (!code) return NextResponse.redirect(`${appUrl}/?spotify=error`)
 
   const clientId     = process.env.SPOTIFY_CLIENT_ID!
@@ -29,14 +46,14 @@ export async function GET(req: NextRequest) {
   const { access_token, refresh_token, expires_in } = await tokenRes.json()
   const expires_at = new Date(Date.now() + expires_in * 1000).toISOString()
 
-  const cookieStore = await cookies()
+  // ── Persist tokens for the authenticated user ─────────────────
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll: ()    => cookieStore.getAll(),
-        setAll: (cs)  => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+        getAll: ()   => cookieStore.getAll(),
+        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
       },
     }
   )
