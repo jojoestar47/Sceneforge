@@ -597,14 +597,15 @@ export default function AppPage() {
           onUpdateDescription={updateCampaignDescription}
           onDelete={deleteCampaignById}
         />
-      ) : campView === 'characters' ? (
-        <CharacterRoster
-          characters={campaignCharacters}
-          onDelete={deleteCharacter}
-        />
       ) : (
         <>
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          {/* Stage and Characters tabs are both kept mounted to preserve the
+              Spotify Web Playback SDK connection. Unmounting Stage calls
+              player.disconnect(), which kills the virtual device — on remount
+              the SDK sometimes fails to fire the `ready` event again, leaving
+              music broken until a full page refresh. Toggling display:none keeps
+              both trees alive while hiding the inactive view. */}
+          <div style={{ flex: 1, display: campView === 'stage' ? 'flex' : 'none', overflow: 'hidden' }}>
             <Stage
               scene={activeScene}
               hasCampaign={!!activeCampId}
@@ -643,6 +644,12 @@ export default function AppPage() {
             </div>
           </div>
 
+          <div style={{ flex: 1, display: campView === 'characters' ? 'flex' : 'none', overflow: 'hidden' }}>
+            <CharacterRoster
+              characters={campaignCharacters}
+              onDelete={deleteCharacter}
+            />
+          </div>
         </>
       )}
 
