@@ -104,7 +104,11 @@ export default function Stage({
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
   // ── Spotify player ───────────────────────────────────────────
-  const spotify = useSpotifyPlayer(scene)
+  // disableAutoPlay: the viewer page is the master Spotify playback device.
+  // If Stage also auto-plays on scene change the two virtual devices race —
+  // last write wins and the wrong device ends up with audio. DM can still
+  // manually toggle tracks from the mixer.
+  const spotify = useSpotifyPlayer(scene, { disableAutoPlay: true })
 
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
