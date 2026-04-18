@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 export async function GET(req: NextRequest) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL!
+  const appUrl = process.env.APP_URL!
   const code   = req.nextUrl.searchParams.get('code')
   if (!code) return NextResponse.redirect(`${appUrl}/?spotify=error`)
 

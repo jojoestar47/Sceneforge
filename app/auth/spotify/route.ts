@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 export async function GET() {
   const clientId   = process.env.SPOTIFY_CLIENT_ID!
-  const appUrl     = process.env.NEXT_PUBLIC_APP_URL!
+  const appUrl     = process.env.APP_URL!
   const redirectUri = `${appUrl}/auth/spotify/callback`
 
   const scope = [
