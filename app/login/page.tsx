@@ -71,7 +71,7 @@ export default function LoginPage() {
         <div style={cardStyle}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '42px', marginBottom: '14px' }}>📬</div>
-            <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '16px', color: 'var(--accent)', marginBottom: '14px' }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '16px', color: 'var(--accent)', marginBottom: '14px' }}>
               Check your email
             </div>
             <div style={{ fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6, marginBottom: '20px' }}>
@@ -100,7 +100,7 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px', marginBottom: '8px' }}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px', marginBottom: '8px' }}>
             Reverie
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>TTRPG Scene Director</div>
@@ -114,7 +114,7 @@ export default function LoginPage() {
               onClick={() => { setMode(m); setError('') }}
               style={{
                 flex: 1, padding: '7px', borderRadius: '6px', border: 'none',
-                fontFamily: 'Inter,sans-serif', fontSize: '12px', fontWeight: 600,
+                fontFamily: 'Lora,serif', fontSize: '12px', fontWeight: 600,
                 cursor: 'pointer', transition: 'all .15s',
                 background: mode === m ? 'var(--accent)' : 'transparent',
                 color:      mode === m ? '#fff'          : 'var(--text-2)',
