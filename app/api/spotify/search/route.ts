@@ -3,25 +3,36 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getSpotifyToken } from '@/lib/supabase/spotify-token'
 
-// ── Simple in-process rate limiter ────────────────────────────
-// Limits each authenticated user to 30 search requests per minute.
-// This is per-instance (fine for Vercel serverless — cold starts reset it,
-// but it still prevents sustained abuse within a single execution context).
-const searchRateLimit = new Map<string, { count: number; resetAt: number }>()
+// ── Rate limiting ─────────────────────────────────────────────
+// Uses Upstash Redis for a reliable sliding-window rate limiter that
+// survives Vercel cold starts (unlike an in-process Map which resets
+// each time a new function instance spins up).
+//
+// Requires env vars: UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
+// Set these in Vercel → Settings → Environment Variables, and in
+// .env.local for local development. If they're absent (e.g. local dev
+// without Redis) we fall through and allow the request.
+async function checkRateLimit(userId: string): Promise<boolean> {
+  const url   = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (!url || !token) return true // not configured — allow
 
-function checkRateLimit(userId: string): boolean {
-  const now    = Date.now()
-  const window = 60_000 // 1 minute
-  const limit  = 30
+  try {
+    const { Ratelimit } = await import('@upstash/ratelimit')
+    const { Redis }     = await import('@upstash/redis')
 
-  const entry = searchRateLimit.get(userId)
-  if (!entry || now > entry.resetAt) {
-    searchRateLimit.set(userId, { count: 1, resetAt: now + window })
+    const ratelimit = new Ratelimit({
+      redis:   new Redis({ url, token }),
+      limiter: Ratelimit.slidingWindow(30, '60 s'),
+      prefix:  'sf_search',
+    })
+
+    const { success } = await ratelimit.limit(userId)
+    return success
+  } catch {
+    // If Redis is unreachable, fail open — don't break the search feature
     return true
   }
-  if (entry.count >= limit) return false
-  entry.count++
-  return true
 }
 
 export async function GET(req: NextRequest) {
@@ -29,7 +40,6 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim()
   if (!q) return NextResponse.json({ tracks: [], playlists: [] })
 
-  // Cap query length — Spotify itself limits to ~100 chars; enforce here too
   if (q.length > 100) {
     return NextResponse.json({ error: 'Query too long' }, { status: 400 })
   }
@@ -51,17 +61,18 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // ── Rate limit ────────────────────────────────────────────────
-  if (!checkRateLimit(user.id)) {
+  const allowed = await checkRateLimit(user.id)
+  if (!allowed) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 
   // ── Spotify search ────────────────────────────────────────────
-  const token = await getSpotifyToken(supabase, user.id)
-  if (!token)  return NextResponse.json({ error: 'Not connected' }, { status: 403 })
+  const spotifyToken = await getSpotifyToken(supabase, user.id)
+  if (!spotifyToken) return NextResponse.json({ error: 'Not connected' }, { status: 403 })
 
   const params = new URLSearchParams({ q, type: 'track,playlist', limit: '8' })
   const res = await fetch(`https://api.spotify.com/v1/search?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${spotifyToken}` },
   })
 
   if (!res.ok) return NextResponse.json({ error: 'Search failed' }, { status: 502 })
