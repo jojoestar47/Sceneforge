@@ -6,6 +6,7 @@ export interface Campaign {
   cover_path?:       string | null
   cover_file_name?:  string | null
   cover_signed_url?: string        // resolved client-side, not stored in DB
+  vtt_url?:          string | null
   created_at: string
   updated_at: string
 }

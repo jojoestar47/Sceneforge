@@ -13,6 +13,7 @@ import AppIcon             from '@/components/AppIcon'
 import SpotifyConnect      from '@/components/SpotifyConnect'
 import ShareLiveModal      from '@/components/ShareLiveModal'
 import NewCampaignModal    from '@/components/NewCampaignModal'
+import VTTView             from '@/components/VTTView'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -43,7 +44,7 @@ export default function AppPage() {
   const [campModalOpen, setCampModalOpen] = useState(false)
   const [loading,       setLoading]       = useState(true)
   const [copied,        setCopied]        = useState(false)
-  const [campView,      setCampView]      = useState<'stage' | 'characters'>('stage')
+  const [campView,      setCampView]      = useState<'stage' | 'vtt' | 'characters'>('stage')
 
   // ── Characters ────────────────────────────────────────────────
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
@@ -451,6 +452,11 @@ export default function AppPage() {
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, description } : c))
   }
 
+  async function updateCampaignVttUrl(campId: string, vtt_url: string) {
+    await supabase.from('campaigns').update({ vtt_url }).eq('id', campId)
+    setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, vtt_url } : c))
+  }
+
   async function signOut() { await supabase.auth.signOut(); window.location.href = '/login' }
 
   async function handleReorder(dragId: string, targetId: string) {
@@ -566,7 +572,7 @@ export default function AppPage() {
       {/* ── CAMPAIGN TAB BAR ── */}
       {activeCampId && (
         <div style={{ height: '38px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '2px', flexShrink: 0 }}>
-          {(['stage', 'characters'] as const).map(tab => (
+          {(['stage', 'vtt', 'characters'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setCampView(tab)}
@@ -580,7 +586,7 @@ export default function AppPage() {
                 transition: 'all 0.15s ease',
               }}
             >
-              {tab === 'stage' ? 'Stage' : `Characters${campaignCharacters.length ? ` (${campaignCharacters.length})` : ''}`}
+              {tab === 'stage' ? 'Stage' : tab === 'vtt' ? 'VTT' : `Characters${campaignCharacters.length ? ` (${campaignCharacters.length})` : ''}`}
             </button>
           ))}
         </div>
@@ -643,6 +649,13 @@ export default function AppPage() {
               </div>
               <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} onReorder={handleReorder} />
             </div>
+          </div>
+
+          <div style={{ flex: 1, display: campView === 'vtt' ? 'flex' : 'none', overflow: 'hidden' }}>
+            <VTTView
+              vttUrl={campaigns.find(c => c.id === activeCampId)?.vtt_url}
+              onSaveUrl={url => activeCampId && updateCampaignVttUrl(activeCampId, url)}
+            />
           </div>
 
           <div style={{ flex: 1, display: campView === 'characters' ? 'flex' : 'none', overflow: 'hidden' }}>
