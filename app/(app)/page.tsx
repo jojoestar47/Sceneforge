@@ -13,6 +13,7 @@ import AppIcon             from '@/components/AppIcon'
 import SpotifyConnect      from '@/components/SpotifyConnect'
 import ShareLiveModal      from '@/components/ShareLiveModal'
 import NewCampaignModal    from '@/components/NewCampaignModal'
+import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 function makeJoinCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -207,6 +208,15 @@ export default function AppPage() {
   const activeCampaign = campaigns.find(c => c.id === activeCampId) || null
   const activeScene    = scenes.find(s => s.id === activeSceneId)   || null
   const editorScene    = editorSceneId ? (scenes.find(s => s.id === editorSceneId) || null) : null
+
+  // ── Spotify player (owned here, not in Stage) ─────────────────
+  // Keeping the hook at page level means the SDK player is never torn down
+  // when the user navigates between the home screen and a campaign.
+  // Previously it lived in Stage — Stage unmounting called player.disconnect(),
+  // and the SDK's ready event doesn't reliably fire again on subsequent
+  // connect() calls, breaking auto-play on every visit after the first.
+  // disableAutoPlay: while live the viewer device is the sole playback master.
+  const spotify = useSpotifyPlayer(activeScene, { disableAutoPlay: isLive })
   const viewerUrl      = typeof window !== 'undefined' && joinCode ? `${window.location.origin}/view/${joinCode}` : null
   const qrUrl          = viewerUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}&margin=12` : null
 
@@ -610,7 +620,7 @@ export default function AppPage() {
               scene={activeScene}
               hasCampaign={!!activeCampId}
               onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
-              isLive={isLive}
+              spotify={spotify}
               characters={activeCharacters}
               slotScales={slotScales}
               slotDisplayProps={slotDisplayProps}
