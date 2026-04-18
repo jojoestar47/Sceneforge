@@ -365,12 +365,12 @@ export default function CharacterRoster({
                 <div
                   key={c.id}
                   className="rf-card"
-                  style={{ height: '310px', perspective: '800px', cursor: 'pointer' }}
+                  style={{ height: '310px', perspective: '800px' }}
                   onMouseMove={onMouseMove}
                   onMouseLeave={onMouseLeave}
-                  onClick={() => flipCard(c.id)}
                 >
-                  <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative' }}>
+                  {/* When flipped: override tilt/scale so back-face text renders crisply */}
+                  <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative', ...(isFlipped && { transform: 'none' }) }}>
                     <div
                       className={`rf-inner${isFlipped ? ' rf-flipped' : ''}`}
                       style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -383,6 +383,7 @@ export default function CharacterRoster({
                           position: 'absolute', inset: 0, borderRadius: '12px', overflow: 'hidden',
                           background: imgUrl ? 'var(--bg-raised)' : 'var(--bg-panel)',
                           border: '1px solid var(--border)', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                          pointerEvents: isFlipped ? 'none' : 'auto',
                         }}
                       >
                         {imgUrl ? (
@@ -426,8 +427,25 @@ export default function CharacterRoster({
                           </div>
                         </div>
 
-                        {/* Flip hint */}
-                        <div style={{ position: 'absolute', top: '8px', right: '8px', width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>↺</div>
+                        {/* Manage button — only way to flip */}
+                        <button
+                          onClick={e => { e.stopPropagation(); flipCard(c.id) }}
+                          title="Manage character"
+                          style={{
+                            position: 'absolute', top: '8px', right: '8px',
+                            padding: '4px 9px', borderRadius: '20px', cursor: 'pointer',
+                            background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
+                            border: '1px solid rgba(255,255,255,0.22)',
+                            fontSize: '10px', fontWeight: 600, letterSpacing: '0.5px',
+                            color: 'rgba(255,255,255,0.8)',
+                            display: 'flex', alignItems: 'center', gap: '4px',
+                            transition: 'all 0.15s',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.7)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.5)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)' }}
+                        >
+                          ↺ Edit
+                        </button>
                       </div>
 
                       {/* ── BACK ── */}
@@ -444,7 +462,7 @@ export default function CharacterRoster({
                       >
                         {/* Flip back button */}
                         <button
-                          onClick={() => flipCard(c.id)}
+                          onClick={e => { e.stopPropagation(); flipCard(c.id) }}
                           style={{
                             position: 'absolute', top: '8px', right: '8px',
                             width: '22px', height: '22px', borderRadius: '50%', padding: 0,
@@ -460,33 +478,48 @@ export default function CharacterRoster({
                           {imgUrl ? <img src={imgUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <AppIcon size={22} opacity={0.3} />}
                         </div>
 
-                        {/* Editable name */}
-                        {isEditingName ? (
-                          <input
-                            autoFocus
-                            className="finput"
-                            value={editingNameVal}
-                            onChange={e => setEditingNameVal(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') saveName(c)
-                              if (e.key === 'Escape') setEditingNameId(null)
-                            }}
-                            onBlur={() => saveName(c)}
-                            style={{ fontSize: '11px', padding: '4px 8px', textAlign: 'center', width: '100%' }}
-                            disabled={nameSaving}
-                          />
-                        ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', maxWidth: '100%' }}>
-                            <span style={{ fontFamily: "'Cinzel', serif", fontSize: '10px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text)', textAlign: 'center', lineHeight: 1.3, wordBreak: 'break-word' }}>
-                              {c.name}
-                            </span>
-                            <button
-                              onClick={() => { setEditingNameId(c.id); setEditingNameVal(c.name) }}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '10px', padding: '1px 2px', lineHeight: 1, flexShrink: 0 }}
-                              title="Edit name"
-                            >✏</button>
-                          </div>
-                        )}
+                        {/* Name + rename */}
+                        <div style={{ width: '100%', textAlign: 'center' }}>
+                          {isEditingName ? (
+                            <input
+                              autoFocus
+                              className="finput"
+                              value={editingNameVal}
+                              onChange={e => setEditingNameVal(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveName(c)
+                                if (e.key === 'Escape') setEditingNameId(null)
+                              }}
+                              onBlur={() => saveName(c)}
+                              style={{ fontSize: '13px', padding: '6px 10px', textAlign: 'center', width: '100%' }}
+                              disabled={nameSaving}
+                            />
+                          ) : (
+                            <>
+                              <div style={{
+                                fontFamily: "'Cinzel', serif", fontSize: '13px', fontWeight: 600,
+                                letterSpacing: '0.8px', color: 'var(--text)', lineHeight: 1.3,
+                                marginBottom: '6px', wordBreak: 'break-word',
+                                WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale',
+                              }}>
+                                {c.name}
+                              </div>
+                              <button
+                                onClick={() => { setEditingNameId(c.id); setEditingNameVal(c.name) }}
+                                style={{
+                                  width: '100%', padding: '5px 8px', cursor: 'pointer',
+                                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+                                  borderRadius: '6px', color: 'var(--text-3)', fontSize: '11px',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text-2)' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'var(--text-3)' }}
+                              >
+                                ✏ Rename
+                              </button>
+                            </>
+                          )}
+                        </div>
 
                         {/* Date */}
                         <div style={{ fontSize: '9px', color: 'var(--text-3)', letterSpacing: '0.3px', textAlign: 'center' }}>
@@ -508,7 +541,7 @@ export default function CharacterRoster({
                                 return (
                                   <button
                                     key={tag.id}
-                                    onClick={() => toggleCharacterTag(c, tag.id)}
+                                    onClick={e => { e.stopPropagation(); toggleCharacterTag(c, tag.id) }}
                                     style={{
                                       padding: '4px 10px', borderRadius: '12px', cursor: 'pointer',
                                       fontSize: '10px', fontWeight: 600,
