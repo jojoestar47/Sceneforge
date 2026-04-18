@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Scene, Track, Character, CharacterState } from '@/lib/types'
+import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
@@ -473,14 +474,14 @@ export default function ViewerPage() {
               {music.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
                 </div>
               )}
               {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
-                  {amb.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} />)}
+                  {amb.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
                 </div>
               )}
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
@@ -512,16 +513,55 @@ const fsStyle: React.CSSProperties = {
   position: 'relative',
 }
 
-function TrackRow({ t, isPlaying, volume, onToggle, onVol }: { t: Track; isPlaying: boolean; volume: number; onToggle: () => void; onVol: (v: number) => void }) {
+interface TrackRowProps {
+  t:          Track
+  isPlaying:  boolean
+  volume:     number
+  onToggle:   () => void
+  onVol:      (v: number) => void
+  nowPlaying?: SpotifyNowPlaying | null
+  progress?:  number
+  onSkip?:    (direction: 'next' | 'previous') => void
+}
+
+function TrackRow({ t, isPlaying, volume, onToggle, onVol, nowPlaying, progress, onSkip }: TrackRowProps) {
+  const isSpotify    = !!t.spotify_uri
+  const showMeta     = isSpotify && isPlaying && !!nowPlaying
+  const showProgress = isSpotify && isPlaying && typeof progress === 'number'
+  const showSkip     = isSpotify && isPlaying && !!onSkip && t.spotify_type === 'playlist'
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-      <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {isPlaying ? '⏸' : '▶'}
-      </button>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '6px' }}>{t.name}</div>
-        <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#c9a84c', cursor: 'pointer', touchAction: 'none' }} />
+    <div style={{ marginBottom: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {showMeta && nowPlaying?.albumArt && (
+          <img src={nowPlaying.albumArt} alt="" width={36} height={36} style={{ borderRadius: '4px', flexShrink: 0, objectFit: 'cover' }} />
+        )}
+        <button onClick={e => { e.stopPropagation(); onToggle() }} style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0, border: `1px solid ${isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.15)'}`, background: isPlaying ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)', color: isPlaying ? '#c9a84c' : 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isPlaying ? '⏸' : '▶'}
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: showMeta ? '2px' : '6px' }}>
+            {showMeta ? nowPlaying!.name : t.name}
+          </div>
+          {showMeta && (
+            <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '4px' }}>
+              {nowPlaying!.artist}
+            </div>
+          )}
+          <input type="range" min={0} max={1} step={0.01} value={volume} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); onVol(Number(e.target.value)) }} style={{ width: '100%', height: '20px', accentColor: '#c9a84c', cursor: 'pointer', touchAction: 'none' }} />
+        </div>
       </div>
+      {showProgress && (
+        <div style={{ marginTop: '6px', height: '2px', background: 'rgba(255,255,255,0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${(progress ?? 0) * 100}%`, background: '#1ed760', borderRadius: '1px', transition: 'width 0.5s linear' }} />
+        </div>
+      )}
+      {showSkip && (
+        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', justifyContent: 'center' }}>
+          <button onClick={e => { e.stopPropagation(); onSkip!('previous') }} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', padding: '3px 10px', cursor: 'pointer' }}>⏮</button>
+          <button onClick={e => { e.stopPropagation(); onSkip!('next')     }} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', padding: '3px 10px', cursor: 'pointer' }}>⏭</button>
+        </div>
+      )}
     </div>
   )
 }

@@ -9,15 +9,27 @@ export interface SpotifyTrackState {
   loop:    boolean
 }
 
+export interface SpotifyNowPlaying {
+  name:     string
+  artist:   string
+  albumArt: string | null
+}
+
 export interface SpotifyPlayerApi {
-  states:    Record<string, SpotifyTrackState>
-  connected: boolean
-  toggle:    (t: Track) => void
-  setVolume: (t: Track, val: number) => void
-  setLoop:   (t: Track, val: boolean) => void
-  stopAll:   () => void
-  mute:      (muted: boolean) => void
-  autoPlay:  () => void   // call after user interaction (viewer tap-to-start)
+  states:     Record<string, SpotifyTrackState>
+  connected:  boolean
+  // Now-playing metadata, updated from the SDK's player_state_changed event
+  nowPlaying: SpotifyNowPlaying | null
+  // Playback position (0–1) and total duration (ms), polled every 500ms
+  progress:   number
+  duration:   number
+  toggle:     (t: Track) => void
+  setVolume:  (t: Track, val: number) => void
+  setLoop:    (t: Track, val: boolean) => void
+  stopAll:    () => void
+  mute:       (muted: boolean) => void
+  autoPlay:   () => void   // call after user interaction (viewer tap-to-start)
+  skip:       (direction: 'next' | 'previous') => void
 }
 
 declare global {
@@ -45,8 +57,6 @@ function saveVolume(sceneId: string, trackId: string, volume: number) {
 }
 
 // ── Server token fetch ────────────────────────────────────────
-// Always fetches a fresh token from our API route (which handles
-// refresh if needed). Never stores the token in a long-lived ref.
 async function fetchToken(): Promise<string | null> {
   try {
     const res = await fetch('/api/spotify/token')
@@ -59,10 +69,6 @@ async function fetchToken(): Promise<string | null> {
 }
 
 // ── Repeat mode helper ────────────────────────────────────────
-// Uses Spotify's native repeat API instead of re-triggering playTrack
-// on track end. This gives completely seamless, gapless looping with no
-// re-buffering or state-change spazz.
-// Single tracks → 'track', playlists → 'context', disabled → 'off'.
 async function applyRepeatMode(
   loop:        boolean,
   spotifyType: string | undefined,
@@ -87,8 +93,11 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   const mutedRef       = useRef(false)
   const prevSceneIdRef = useRef<string | null>(null)
 
-  const [connected, setConnected] = useState(false)
-  const [states,    setStates]    = useState<Record<string, SpotifyTrackState>>({})
+  const [connected,   setConnected]   = useState(false)
+  const [states,      setStates]      = useState<Record<string, SpotifyTrackState>>({})
+  const [nowPlaying,  setNowPlaying]  = useState<SpotifyNowPlaying | null>(null)
+  const [progress,    setProgress]    = useState(0)
+  const [duration,    setDuration]    = useState(0)
 
   const spotifyTracks = (scene?.tracks ?? []).filter(t => !!t.spotify_uri)
 
@@ -97,17 +106,17 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     if (scene?.id === prevSceneIdRef.current) return
     prevSceneIdRef.current = scene?.id ?? null
 
-    // Pause any active Spotify playback
     if (playerRef.current) playerRef.current.pause().catch(() => {})
     activeTrackRef.current = null
+    setNowPlaying(null)
+    setProgress(0)
+    setDuration(0)
 
     const init: Record<string, SpotifyTrackState> = {}
     spotifyTracks.forEach(t => {
-      // Restore saved volume from localStorage (same key as local tracks)
       const vol = scene?.id
         ? loadSavedVolume(scene.id, t.id, t.volume)
         : t.volume
-
       loopRef.current[t.id]   = t.loop
       volumeRef.current[t.id] = vol
       init[t.id] = { playing: false, volume: vol, loop: t.loop }
@@ -115,7 +124,7 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     setStates(init)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-play music tracks when SDK connects (or scene changes while connected) ──
+  // ── Auto-play music tracks when SDK connects ──────────────────
   useEffect(() => {
     if (!connected || !scene?.id) return
     const music = spotifyTracks.filter(
@@ -126,10 +135,22 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     return () => clearTimeout(timer)
   }, [scene?.id, connected]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Progress polling (500ms) ──────────────────────────────────
+  // player_state_changed alone isn't frequent enough for a smooth bar.
+  useEffect(() => {
+    if (!connected) return
+    const interval = setInterval(async () => {
+      if (!playerRef.current) return
+      const state = await playerRef.current.getCurrentState().catch(() => null)
+      if (!state || state.paused || state.duration === 0) return
+      setProgress(state.position / state.duration)
+      setDuration(state.duration)
+    }, 500)
+    return () => clearInterval(interval)
+  }, [connected])
+
   // ── Load SDK on mount ─────────────────────────────────────────
   useEffect(() => {
-    // Only check if the user has connected Spotify — don't store the token.
-    // The token is fetched fresh from the server each time it's needed.
     fetch('/api/spotify/token').then(r => {
       if (r.ok) loadSDK()
     }).catch(() => {})
@@ -150,9 +171,6 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
       if (playerRef.current) return
       const player = new window.Spotify.Player({
         name: 'Sceneforge',
-        // The SDK calls this whenever it needs a valid token (on connect and
-        // after expiry). We always fetch fresh from the server — never from a
-        // client-side cache — so the token is never stored longer than needed.
         getOAuthToken: async (cb: (token: string) => void) => {
           const token = await fetchToken()
           if (token) cb(token)
@@ -173,12 +191,29 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
       player.addListener('player_state_changed', (state: any) => {
         if (!state || !activeTrackRef.current) return
         const t = activeTrackRef.current
+
         setStates(prev => ({
           ...prev,
           [t.id]: { ...prev[t.id], playing: !state.paused },
         }))
-        // NOTE: loop is now handled by Spotify's native repeat mode set in
-        // playTrack — no manual re-trigger needed here.
+
+        // Update now-playing metadata from the SDK event payload
+        const sdkTrack = state.track_window?.current_track
+        if (sdkTrack) {
+          setNowPlaying({
+            name:     sdkTrack.name ?? '',
+            artist:   sdkTrack.artists?.[0]?.name ?? '',
+            albumArt: sdkTrack.album?.images?.[0]?.url ?? null,
+          })
+          if (state.duration > 0) {
+            setDuration(state.duration)
+            setProgress(state.position / state.duration)
+          }
+        }
+
+        if (state.paused) {
+          setProgress(state.duration > 0 ? state.position / state.duration : 0)
+        }
       })
 
       player.connect()
@@ -198,17 +233,10 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   async function playTrack(t: Track) {
     if (!deviceIdRef.current || !t.spotify_uri || !playerRef.current) return
 
-    // Capture scene ID before any awaits. If the scene changes while we're
-    // waiting on the token or the Spotify API call, we bail out so we don't
-    // start the wrong track or corrupt activeTrackRef for the new scene.
     const sceneIdAtStart = prevSceneIdRef.current
 
-    // Fetch a fresh token from the server on every play call.
-    // This means the token is never held in a long-lived client-side variable.
     const token = await fetchToken()
     if (!token) return
-
-    // Scene changed while we were fetching the token — abort.
     if (prevSceneIdRef.current !== sceneIdAtStart) return
 
     const body = t.spotify_type === 'playlist'
@@ -224,12 +252,8 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
       }
     )
 
-    // Scene changed while we were waiting on the Spotify API — abort.
     if (prevSceneIdRef.current !== sceneIdAtStart) return
 
-    // Tell Spotify to loop (or not) using its native repeat API.
-    // This is what makes looping seamless — Spotify handles the transition
-    // internally with no gap, no re-buffering, and no state-change spazz.
     await applyRepeatMode(
       loopRef.current[t.id] ?? false,
       t.spotify_type,
@@ -238,6 +262,7 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     )
 
     activeTrackRef.current = t
+    setProgress(0)
 
     const vol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
     await playerRef.current.setVolume(vol).catch(() => {})
@@ -248,16 +273,13 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   // ── Public API ────────────────────────────────────────────────
   function toggle(t: Track) {
     if (!t.spotify_uri || !playerRef.current) return
-
     const isActive  = activeTrackRef.current?.id === t.id
     const isPlaying = states[t.id]?.playing ?? false
-
     if (isActive && isPlaying) {
       playerRef.current.pause().catch(() => {})
       activeTrackRef.current = null
       setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
     } else {
-      // Pause previous if different track
       if (activeTrackRef.current && activeTrackRef.current.id !== t.id) {
         const prevId = activeTrackRef.current.id
         setStates(prev => ({ ...prev, [prevId]: { ...prev[prevId], playing: false } }))
@@ -268,7 +290,6 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
 
   function setVolume(t: Track, val: number) {
     volumeRef.current[t.id] = val
-    // Persist to localStorage using the same key as local tracks
     if (scene?.id) saveVolume(scene.id, t.id, val)
     if (activeTrackRef.current?.id === t.id && playerRef.current && !mutedRef.current) {
       playerRef.current.setVolume(val).catch(() => {})
@@ -279,8 +300,6 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   function setLoop(t: Track, val: boolean) {
     loopRef.current[t.id] = val
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], loop: val } }))
-    // If this is the currently active track, apply the new repeat mode
-    // immediately so the change takes effect without needing to restart.
     if (activeTrackRef.current?.id === t.id && deviceIdRef.current) {
       const deviceId = deviceIdRef.current
       fetchToken().then(token => {
@@ -292,6 +311,8 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   function stopAll() {
     if (playerRef.current) playerRef.current.pause().catch(() => {})
     activeTrackRef.current = null
+    setNowPlaying(null)
+    setProgress(0)
     setStates(prev =>
       Object.fromEntries(Object.entries(prev).map(([id, s]) => [id, { ...s, playing: false }]))
     )
@@ -305,7 +326,6 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     playerRef.current.setVolume(vol).catch(() => {})
   }
 
-  // Called by viewer after first user interaction — plays music Spotify tracks
   function autoPlay() {
     const music = spotifyTracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
@@ -314,5 +334,11 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     playTrack(music[0]).catch(() => {})
   }
 
-  return { states, connected, toggle, setVolume, setLoop, stopAll, mute, autoPlay }
+  function skip(direction: 'next' | 'previous') {
+    if (!playerRef.current) return
+    if (direction === 'next') playerRef.current.nextTrack().catch(() => {})
+    else                      playerRef.current.previousTrack().catch(() => {})
+  }
+
+  return { states, connected, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip }
 }
