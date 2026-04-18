@@ -7,17 +7,39 @@ import UploadZone from '@/components/UploadZone'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
-const COLOR_OPTIONS = [
-  { key: 'gold',   bg: 'rgba(201,168,76,0.15)',  border: 'rgba(201,168,76,0.4)',  text: '#c9a84c' },
-  { key: 'blue',   bg: 'rgba(100,160,255,0.12)', border: 'rgba(100,160,255,0.35)', text: '#64a0ff' },
-  { key: 'purple', bg: 'rgba(160,100,240,0.12)', border: 'rgba(160,100,240,0.35)', text: '#a064f0' },
-  { key: 'green',  bg: 'rgba(80,200,130,0.12)',  border: 'rgba(80,200,130,0.35)',  text: '#50c882' },
-  { key: 'red',    bg: 'rgba(240,100,100,0.12)', border: 'rgba(240,100,100,0.35)', text: '#f06464' },
-  { key: 'orange', bg: 'rgba(240,160,60,0.12)',  border: 'rgba(240,160,60,0.35)',  text: '#f0a03c' },
-] as const
+// Legacy named colours kept for any existing DB rows
+const LEGACY_COLORS: Record<string, string> = {
+  gold: '#c9a84c', blue: '#64a0ff', purple: '#a064f0',
+  green: '#50c882', red: '#f06464', orange: '#f0a03c',
+}
 
-function getColor(colorKey: string) {
-  return COLOR_OPTIONS.find(c => c.key === colorKey) ?? COLOR_OPTIONS[0]
+function getColor(color: string) {
+  const hex = color.startsWith('#') ? color : (LEGACY_COLORS[color] ?? '#c9a84c')
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return {
+    bg:     `rgba(${r},${g},${b},0.15)`,
+    border: `rgba(${r},${g},${b},0.4)`,
+    text:   hex,
+  }
+}
+
+function EditIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 494.936 494.936" fill="currentColor" style={{ display: 'block', flexShrink: 0 }}>
+      <path d="M389.844,182.85c-6.743,0-12.21,5.467-12.21,12.21v222.968c0,23.562-19.174,42.735-42.736,42.735H67.157
+        c-23.562,0-42.736-19.174-42.736-42.735V150.285c0-23.562,19.174-42.735,42.736-42.735h267.741c6.743,0,12.21-5.467,12.21-12.21
+        s-5.467-12.21-12.21-12.21H67.157C30.126,83.13,0,113.255,0,150.285v267.743c0,37.029,30.126,67.155,67.157,67.155h267.741
+        c37.03,0,67.156-30.126,67.156-67.155V195.061C402.054,188.318,396.587,182.85,389.844,182.85z"/>
+      <path d="M483.876,20.791c-14.72-14.72-38.669-14.714-53.377,0L221.352,229.944c-0.28,0.28-3.434,3.559-4.251,5.396l-28.963,65.069
+        c-2.057,4.619-1.056,10.027,2.521,13.6c2.337,2.336,5.461,3.576,8.639,3.576c1.675,0,3.362-0.346,4.96-1.057l65.07-28.963
+        c1.83-0.815,5.114-3.97,5.396-4.25L483.876,74.169c7.131-7.131,11.06-16.61,11.06-26.692
+        C494.936,37.396,491.007,27.915,483.876,20.791z M466.61,56.897L257.457,266.05c-0.035,0.036-0.055,0.078-0.089,0.107
+        l-33.989,15.131L238.51,247.3c0.03-0.036,0.071-0.055,0.107-0.09L447.765,38.058c5.038-5.039,13.819-5.033,18.846,0.005
+        c2.518,2.51,3.905,5.855,3.905,9.414C470.516,51.036,469.127,54.38,466.61,56.897z"/>
+    </svg>
+  )
 }
 
 function characterImageUrl(c: Character): string | null {
@@ -60,7 +82,7 @@ export default function CharacterRoster({
   // Manage tags panel
   const [tagsOpen,    setTagsOpen]    = useState(false)
   const [newTagName,  setNewTagName]  = useState('')
-  const [newTagColor, setNewTagColor] = useState('gold')
+  const [newTagColor, setNewTagColor] = useState('#c9a84c')
   const [tagSaving,   setTagSaving]   = useState(false)
 
   // Search & filter
@@ -235,21 +257,21 @@ export default function CharacterRoster({
                 onKeyDown={e => { if (e.key === 'Enter') handleCreateTag() }}
                 style={{ flex: '1 1 140px', fontSize: '12px', padding: '6px 10px' }}
               />
-              <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                {COLOR_OPTIONS.map(col => (
-                  <button
-                    key={col.key}
-                    onClick={() => setNewTagColor(col.key)}
-                    title={col.key}
-                    style={{
-                      width: '18px', height: '18px', borderRadius: '50%', padding: 0, cursor: 'pointer',
-                      background: col.text,
-                      border: newTagColor === col.key ? '2px solid #fff' : '2px solid transparent',
-                      boxShadow: newTagColor === col.key ? `0 0 0 1px ${col.text}` : 'none',
-                      transition: 'all 0.12s',
-                    }}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{
+                  width: '30px', height: '30px', borderRadius: '8px', overflow: 'hidden',
+                  border: '1px solid var(--border-lt)', flexShrink: 0, position: 'relative',
+                  background: newTagColor,
+                }}>
+                  <input
+                    type="color"
+                    value={newTagColor}
+                    onChange={e => setNewTagColor(e.target.value)}
+                    style={{ position: 'absolute', inset: '-4px', width: 'calc(100% + 8px)', height: 'calc(100% + 8px)', opacity: 0, cursor: 'pointer' }}
+                    title="Pick tag colour"
                   />
-                ))}
+                </div>
+                <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>{newTagColor}</span>
               </div>
               <button
                 className="btn btn-red btn-sm"
@@ -495,29 +517,30 @@ export default function CharacterRoster({
                               disabled={nameSaving}
                             />
                           ) : (
-                            <>
-                              <div style={{
-                                fontFamily: "'Cinzel', serif", fontSize: '13px', fontWeight: 600,
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', width: '100%' }}>
+                              <span style={{
+                                fontFamily: "'Cinzel', serif", fontSize: '12px', fontWeight: 600,
                                 letterSpacing: '0.8px', color: 'var(--text)', lineHeight: 1.3,
-                                marginBottom: '6px', wordBreak: 'break-word',
+                                wordBreak: 'break-word', textAlign: 'center',
                                 WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale',
                               }}>
                                 {c.name}
-                              </div>
+                              </span>
                               <button
                                 onClick={() => { setEditingNameId(c.id); setEditingNameVal(c.name) }}
+                                title="Rename"
                                 style={{
-                                  width: '100%', padding: '5px 8px', cursor: 'pointer',
-                                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
-                                  borderRadius: '6px', color: 'var(--text-3)', fontSize: '11px',
-                                  transition: 'all 0.15s',
+                                  background: 'none', border: 'none', padding: '3px', cursor: 'pointer',
+                                  color: 'var(--text-3)', borderRadius: '4px', flexShrink: 0,
+                                  display: 'flex', alignItems: 'center',
+                                  transition: 'color 0.15s',
                                 }}
-                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text-2)' }}
-                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'var(--text-3)' }}
+                                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
+                                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-3)' }}
                               >
-                                ✏ Rename
+                                <EditIcon size={14} />
                               </button>
-                            </>
+                            </div>
                           )}
                         </div>
 
