@@ -14,6 +14,7 @@ interface Props {
   onEdit:                  (id: string) => void
   onAdd:                   (folderId?: string | null) => void
   onReorder?:              (dragId: string, targetId: string) => void
+  onFolderReorder?:        (dragId: string, targetId: string) => void
   createFolderOpen?:       boolean
   onCreateFolderOpenChange?: (open: boolean) => void
   onFolderCreate?:         (name: string) => void
@@ -30,21 +31,22 @@ function mediaUrl(m: Scene['bg']): string | null {
 
 export default function SceneList({
   scenes, folders, activeSceneId, hasCampaign,
-  onSelect, onDelete, onEdit, onAdd, onReorder,
+  onSelect, onDelete, onEdit, onAdd, onReorder, onFolderReorder,
   createFolderOpen, onCreateFolderOpenChange,
   onFolderCreate, onFolderRename, onFolderDelete, onFolderColor, onMoveToFolder,
 }: Props) {
-  const [q,              setQ]              = useState('')
-  const [dragId,         setDragId]         = useState<string | null>(null)
-  const [dragOverId,     setDragOverId]     = useState<string | null>(null)
-  const [folderDragOver, setFolderDragOver] = useState<string | 'unfiled' | null>(null)
-  const [hoveredId,      setHoveredId]      = useState<string | null>(null)
-  const [openFolders,    setOpenFolders]    = useState<Set<string>>(new Set())
-  const [renamingId,     setRenamingId]     = useState<string | null>(null)
-  const [renameVal,      setRenameVal]      = useState('')
-  const [creatingFolder, setCreatingFolder] = useState(false)
-  const [newFolderName,  setNewFolderName]  = useState('')
-  const [menuFolderId,   setMenuFolderId]   = useState<string | null>(null)
+  const [q,               setQ]               = useState('')
+  const [dragId,          setDragId]          = useState<string | null>(null)
+  const [dragOverId,      setDragOverId]      = useState<string | null>(null)
+  const [folderDragOver,  setFolderDragOver]  = useState<string | 'unfiled' | null>(null)
+  const [hoveredId,       setHoveredId]       = useState<string | null>(null)
+  const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null)
+  const [openFolders,     setOpenFolders]     = useState<Set<string>>(new Set())
+  const [renamingId,      setRenamingId]      = useState<string | null>(null)
+  const [renameVal,       setRenameVal]       = useState('')
+  const [creatingFolder,  setCreatingFolder]  = useState(false)
+  const [newFolderName,   setNewFolderName]   = useState('')
+  const [menuFolderId,    setMenuFolderId]    = useState<string | null>(null)
   const [isTouchDevice] = useState(() =>
     typeof window !== 'undefined' && navigator.maxTouchPoints > 0
   )
@@ -52,9 +54,21 @@ export default function SceneList({
   const renameInputRef    = useRef<HTMLInputElement>(null)
   const newFolderInputRef = useRef<HTMLInputElement>(null)
   const prevFolderIds     = useRef<Set<string>>(new Set())
+  const folderLoadDone    = useRef(false)
 
-  // Auto-open newly added folders
+  // Auto-open only newly *created* folders, not the initial campaign load
   useEffect(() => {
+    if (folders.length === 0) {
+      folderLoadDone.current = false
+      prevFolderIds.current  = new Set()
+      return
+    }
+    if (!folderLoadDone.current) {
+      // First non-empty load — record IDs silently, start all closed
+      folderLoadDone.current = true
+      prevFolderIds.current  = new Set(folders.map(f => f.id))
+      return
+    }
     const newIds = folders.filter(f => !prevFolderIds.current.has(f.id)).map(f => f.id)
     if (newIds.length) {
       setOpenFolders(prev => { const n = new Set(prev); newIds.forEach(id => n.add(id)); return n })
@@ -340,13 +354,16 @@ export default function SceneList({
   }
 
   // Folder row with animated expand/collapse
-  function renderFolder(folder: SceneFolder, folderScenes: Scene[]) {
+  function renderFolder(folder: SceneFolder, folderScenes: Scene[], folderIndex: number) {
     const isOpen       = openFolders.has(folder.id)
     const isRenaming   = renamingId === folder.id
     const isDragTarget = folderDragOver === folder.id
     const color        = folder.color || null
     const iconColor    = color || (isOpen ? 'var(--accent)' : 'var(--text-3)')
     const iconFill     = isOpen ? (color ? `${color}22` : 'rgba(201,168,76,0.12)') : 'none'
+    const isHovFolder  = hoveredFolderId === folder.id
+    const canMoveUp    = !!onFolderReorder && folderIndex > 0
+    const canMoveDown  = !!onFolderReorder && folderIndex < folders.length - 1
 
     const menuOpen = menuFolderId === folder.id
 
@@ -354,6 +371,8 @@ export default function SceneList({
       <div key={folder.id} style={{ marginBottom: '2px', position: 'relative' }}>
         {/* ── Folder header ── */}
         <div
+          onMouseEnter={() => !isTouchDevice && setHoveredFolderId(folder.id)}
+          onMouseLeave={() => !isTouchDevice && setHoveredFolderId(p => p === folder.id ? null : p)}
           onDragOver={canDrag && dragId ? e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setFolderDragOver(folder.id) } : undefined}
           onDragLeave={canDrag ? () => setFolderDragOver(p => p === folder.id ? null : p) : undefined}
           onDrop={canDrag && dragId ? e => {
@@ -424,6 +443,44 @@ export default function SceneList({
               borderRadius: '10px', padding: '1px 6px', flexShrink: 0,
               transition: 'all 0.2s ease',
             }}>{folderScenes.length}</span>
+          )}
+
+          {/* Folder reorder arrows */}
+          {!isRenaming && onFolderReorder && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0 }}>
+              <button
+                onClick={e => { e.stopPropagation(); if (canMoveUp) onFolderReorder(folder.id, folders[folderIndex - 1].id) }}
+                style={{
+                  width: '14px', height: '13px', border: 'none', background: 'none', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: canMoveUp ? 'pointer' : 'default',
+                  opacity: isHovFolder && canMoveUp ? 0.7 : 0,
+                  transition: 'opacity 0.14s ease', color: 'var(--text-2)',
+                }}
+                onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = isHovFolder && canMoveUp ? '0.7' : '0' }}
+              >
+                <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                  <path d="M1 5l3-4 3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); if (canMoveDown) onFolderReorder(folder.id, folders[folderIndex + 1].id) }}
+                style={{
+                  width: '14px', height: '13px', border: 'none', background: 'none', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: canMoveDown ? 'pointer' : 'default',
+                  opacity: isHovFolder && canMoveDown ? 0.7 : 0,
+                  transition: 'opacity 0.14s ease', color: 'var(--text-2)',
+                }}
+                onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = isHovFolder && canMoveDown ? '0.7' : '0' }}
+              >
+                <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                  <path d="M1 1l3 4 3-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
           )}
 
           {/* Ellipsis menu button */}
@@ -641,7 +698,7 @@ export default function SceneList({
         )}
 
         {/* Folders */}
-        {hasFolders && folderedScenes.map(({ folder, scenes: fs }) => renderFolder(folder, fs))}
+        {hasFolders && folderedScenes.map(({ folder, scenes: fs }, i) => renderFolder(folder, fs, i))}
 
         {/* Unfiled section — only shown when folders exist */}
         {hasFolders && unfiled.length > 0 && (

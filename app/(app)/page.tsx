@@ -539,6 +539,20 @@ export default function AppPage() {
   }
 
   // ── Folder CRUD ───────────────────────────────────────────────
+  async function handleFolderReorder(dragId: string, targetId: string) {
+    const copy    = [...folders]
+    const fromIdx = copy.findIndex(f => f.id === dragId)
+    const toIdx   = copy.findIndex(f => f.id === targetId)
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return
+    const [item] = copy.splice(fromIdx, 1)
+    copy.splice(toIdx, 0, item)
+    const updated = copy.map((f, i) => ({ ...f, order_index: i }))
+    setFolders(updated)
+    await Promise.all(updated.map(f =>
+      supabase.from('scene_folders').update({ order_index: f.order_index }).eq('id', f.id)
+    ))
+  }
+
   async function createFolder(name: string) {
     if (!activeCampId) return
     const order_index = folders.length
@@ -823,6 +837,7 @@ export default function AppPage() {
                 </div>
               </div>
               <SceneList
+                key={activeCampId}
                 scenes={scenes}
                 folders={folders}
                 activeSceneId={activeSceneId}
@@ -832,6 +847,7 @@ export default function AppPage() {
                 onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
                 onAdd={(folderId) => { newSceneFolderRef.current = folderId ?? null; setEditorSceneId(null); setEditorOpen(true) }}
                 onReorder={handleReorder}
+                onFolderReorder={handleFolderReorder}
                 createFolderOpen={createFolderOpen}
                 onCreateFolderOpenChange={setCreateFolderOpen}
                 onFolderCreate={createFolder}
