@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent, ReactNode } from 'react'
 import type { Scene, SceneFolder } from '@/lib/types'
 import AppIcon from '@/components/AppIcon'
 
@@ -45,6 +44,7 @@ export default function SceneList({
   const [renameVal,      setRenameVal]      = useState('')
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName,  setNewFolderName]  = useState('')
+  const [menuFolderId,   setMenuFolderId]   = useState<string | null>(null)
   const [isTouchDevice] = useState(() =>
     typeof window !== 'undefined' && navigator.maxTouchPoints > 0
   )
@@ -67,6 +67,16 @@ export default function SceneList({
 
   // Sync with external trigger (header button in page.tsx)
   useEffect(() => { if (createFolderOpen) setCreatingFolder(true) }, [createFolderOpen])
+
+  // Close folder menu on outside click
+  useEffect(() => {
+    if (!menuFolderId) return
+    const close = (e: globalThis.MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('[data-folder-menu]')) setMenuFolderId(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [menuFolderId])
 
   // Auto-open any folder whose scenes match the current search query
   useEffect(() => {
@@ -338,8 +348,10 @@ export default function SceneList({
     const iconColor    = color || (isOpen ? 'var(--accent)' : 'var(--text-3)')
     const iconFill     = isOpen ? (color ? `${color}22` : 'rgba(201,168,76,0.12)') : 'none'
 
+    const menuOpen = menuFolderId === folder.id
+
     return (
-      <div key={folder.id} style={{ marginBottom: '2px' }}>
+      <div key={folder.id} style={{ marginBottom: '2px', position: 'relative' }}>
         {/* ── Folder header ── */}
         <div
           onDragOver={canDrag && dragId ? e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setFolderDragOver(folder.id) } : undefined}
@@ -350,32 +362,19 @@ export default function SceneList({
             setDragId(null); setFolderDragOver(null)
           } : undefined}
           style={{
-            position: 'relative',
             display: 'flex', alignItems: 'center', gap: '6px',
             margin: '2px 8px', padding: '0 8px',
             height: '34px', borderRadius: '8px',
             cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none',
-            background: isDragTarget ? 'rgba(201,168,76,0.1)' : 'transparent',
+            background: isDragTarget ? 'rgba(201,168,76,0.08)' : 'transparent',
             border: `1px solid ${isDragTarget ? 'rgba(201,168,76,0.4)' : 'transparent'}`,
-            overflow: 'hidden',
-            transition: 'background 0.15s ease, border-color 0.15s ease',
+            boxShadow: color ? `inset 3px 0 0 ${color}` : 'none',
+            transition: 'background 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease',
           }}
         >
-          {/* Color accent bar */}
-          {color && (
-            <div style={{
-              position: 'absolute', left: 0, top: '5px', bottom: '5px',
-              width: '3px', borderRadius: '0 2px 2px 0',
-              background: color,
-              transition: 'background 0.2s ease',
-            }} />
-          )}
-
-          {/* Chevron — click to toggle */}
-          <div
-            onClick={() => !isRenaming && toggleFolder(folder.id)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: color ? '4px' : '0' }}
-          >
+          {/* Chevron */}
+          <div onClick={() => !isRenaming && toggleFolder(folder.id)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
               style={{ color: iconColor, transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1), color 0.2s ease', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
               <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -389,7 +388,7 @@ export default function SceneList({
             </svg>
           </div>
 
-          {/* Name — double-click to rename */}
+          {/* Name */}
           {isRenaming ? (
             <input
               ref={renameInputRef}
@@ -404,8 +403,6 @@ export default function SceneList({
           ) : (
             <span
               onClick={() => toggleFolder(folder.id)}
-              onDoubleClick={() => !isTouchDevice && startRename(folder)}
-              title="Double-click to rename"
               style={{
                 flex: 1, fontSize: '11px', fontWeight: 700, letterSpacing: '0.8px',
                 textTransform: 'uppercase', color: color || 'var(--text-2)',
@@ -418,67 +415,129 @@ export default function SceneList({
           )}
 
           {/* Scene count badge */}
-          {!isRenaming && folderScenes.length > 0 && (
+          {!isRenaming && (
             <span style={{
               fontSize: '9px', fontWeight: 700,
-              color: color || 'var(--text-3)',
-              background: color ? `${color}18` : 'var(--bg-raised)',
-              border: `1px solid ${color ? `${color}44` : 'var(--border)'}`,
+              color: color || 'var(--text)',
+              background: color ? `${color}22` : 'rgba(255,255,255,0.1)',
+              border: `1px solid ${color ? `${color}44` : 'rgba(255,255,255,0.15)'}`,
               borderRadius: '10px', padding: '1px 6px', flexShrink: 0,
               transition: 'all 0.2s ease',
             }}>{folderScenes.length}</span>
           )}
 
-          {/* Color picker swatch */}
-          {!isRenaming && onFolderColor && (
-            <div
-              onClick={e => e.stopPropagation()}
-              title="Change folder color"
-              style={{ position: 'relative', flexShrink: 0, width: '16px', height: '16px' }}
+          {/* Ellipsis menu button */}
+          {!isRenaming && (
+            <button
+              data-folder-menu="true"
+              onClick={e => { e.stopPropagation(); setMenuFolderId(menuOpen ? null : folder.id) }}
+              style={{
+                width: '22px', height: '22px', borderRadius: '5px', flexShrink: 0,
+                background: menuOpen ? 'var(--bg-hover)' : 'transparent',
+                border: `1px solid ${menuOpen ? 'var(--border-lt)' : 'transparent'}`,
+                color: 'var(--text-3)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '13px', letterSpacing: '1px', lineHeight: 1,
+                transition: 'all 0.12s ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-lt)'; e.currentTarget.style.color = 'var(--text-2)' }}
+              onMouseLeave={e => { if (!menuOpen) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text-3)' } }}
+            >···</button>
+          )}
+        </div>
+
+        {/* ── Folder actions popover ── */}
+        {menuOpen && (
+          <div
+            data-folder-menu="true"
+            style={{
+              position: 'absolute', right: '8px', top: '36px', zIndex: 100,
+              background: 'var(--bg-card, var(--bg-raised))', border: '1px solid var(--border)',
+              borderRadius: '9px', padding: '4px',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
+              minWidth: '160px',
+              animation: 'sceneIn 0.12s ease both',
+            }}
+          >
+            {/* Color picker row */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <div style={{
-                width: '16px', height: '16px', borderRadius: '50%',
-                background: color || 'var(--bg-raised)',
-                border: `2px solid ${color || 'var(--border)'}`,
-                boxShadow: color ? `0 0 0 1px ${color}44` : 'none',
-                transition: 'all 0.2s ease',
+                width: '12px', height: '12px', borderRadius: '50%', flexShrink: 0,
+                background: color || 'var(--border-lt)', border: `1px solid ${color || 'var(--border)'}`,
               }} />
+              <span style={{ fontSize: '11px', color: 'var(--text-2)', flex: 1 }}>Folder color</span>
               <input
                 type="color"
                 value={color || '#c9a84c'}
-                onChange={e => { e.stopPropagation(); onFolderColor(folder.id, e.target.value) }}
-                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', padding: 0, border: 'none' }}
+                onChange={e => onFolderColor && onFolderColor(folder.id, e.target.value)}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%', border: 'none', borderRadius: '6px' }}
               />
             </div>
-          )}
 
-          {/* Add scene to this folder */}
-          {!isRenaming && (
-            <FolderActionButton
-              title="New scene in folder"
-              onClick={e => { e.stopPropagation(); onAdd(folder.id) }}
-              isTouchDevice={isTouchDevice}
+            {/* New scene in folder */}
+            <button
+              onClick={() => { setMenuFolderId(null); onAdd(folder.id) }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '6px 10px', borderRadius: '6px', border: 'none',
+                background: 'transparent', color: 'var(--text-2)', cursor: 'pointer', fontSize: '11px',
+                textAlign: 'left', transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
-              <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.1"/>
-                <path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, color: 'var(--text-3)' }}>
+                <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.1"/>
+                <path d="M5 2.5v5M2.5 5h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
               </svg>
-            </FolderActionButton>
-          )}
+              New scene here
+            </button>
 
-          {/* Delete folder button */}
-          {!isRenaming && onFolderDelete && (
-            <FolderActionButton
-              title="Delete folder"
-              onClick={e => { e.stopPropagation(); onFolderDelete(folder.id) }}
-              isTouchDevice={isTouchDevice}
+            {/* Rename */}
+            <button
+              onClick={() => { setMenuFolderId(null); startRename(folder) }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '6px 10px', borderRadius: '6px', border: 'none',
+                background: 'transparent', color: 'var(--text-2)', cursor: 'pointer', fontSize: '11px',
+                textAlign: 'left', transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, color: 'var(--text-3)' }}>
+                <path d="M7 1.5l1.5 1.5L3 8.5H1.5V7L7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round"/>
               </svg>
-            </FolderActionButton>
-          )}
-        </div>
+              Rename
+            </button>
+
+            {/* Divider */}
+            <div style={{ height: '1px', background: 'var(--border)', margin: '3px 6px' }} />
+
+            {/* Delete */}
+            {onFolderDelete && (
+              <button
+                onClick={() => { setMenuFolderId(null); onFolderDelete(folder.id) }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '6px 10px', borderRadius: '6px', border: 'none',
+                  background: 'transparent', color: 'rgba(229,53,53,0.8)', cursor: 'pointer', fontSize: '11px',
+                  textAlign: 'left', transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(229,53,53,0.08)'; e.currentTarget.style.color = '#e53535' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(229,53,53,0.8)' }}
+              >
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                Delete folder
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Animated content ── */}
         <div style={{
@@ -619,12 +678,6 @@ export default function SceneList({
         {/* Flat list — no folders yet */}
         {!hasFolders && filtered.map((sc, i) => renderScene(sc, i, false, filtered))}
 
-        {/* Add scene (unfiled) */}
-        {hasCampaign && (
-          <div style={{ margin: '4px 8px 8px' }}>
-            <AddSceneButton onClick={() => onAdd(null)} />
-          </div>
-        )}
       </div>
 
       <style>{`
@@ -636,36 +689,6 @@ export default function SceneList({
     </div>
   )
 }
-
-// ── Sub-components ────────────────────────────────────────────────
-
-function FolderActionButton({ title, onClick, isTouchDevice, children }: {
-  title: string
-  onClick: (e: MouseEvent<HTMLButtonElement>) => void
-  isTouchDevice: boolean
-  children: ReactNode
-}) {
-  const [hov, setHov] = useState(false)
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      onMouseEnter={() => !isTouchDevice && setHov(true)}
-      onMouseLeave={() => !isTouchDevice && setHov(false)}
-      style={{
-        width: '20px', height: '20px', borderRadius: '5px', flexShrink: 0,
-        background: hov ? 'rgba(201,168,76,0.1)' : 'transparent',
-        border: `1px solid ${hov ? 'rgba(201,168,76,0.3)' : 'transparent'}`,
-        color: hov ? 'var(--accent)' : 'var(--text-3)',
-        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        transition: 'all 0.12s ease',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 
 function AddSceneButton({ onClick }: { onClick: () => void }) {
   const [hov, setHov] = useState(false)
