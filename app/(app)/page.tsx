@@ -610,6 +610,7 @@ export default function AppPage() {
               scene={activeScene}
               hasCampaign={!!activeCampId}
               onEdit={() => { setEditorSceneId(activeSceneId || null); setEditorOpen(true) }}
+              isLive={isLive}
               characters={activeCharacters}
               slotScales={slotScales}
               slotDisplayProps={slotDisplayProps}

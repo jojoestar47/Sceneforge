@@ -35,6 +35,10 @@ interface Props {
   scene:              Scene | null
   hasCampaign:        boolean
   onEdit:             () => void
+  // When true, Spotify auto-play is suppressed so the viewer device stays
+  // the sole playback master during a live session. When false (default,
+  // i.e. not yet presenting) the DM can hear music while building scenes.
+  isLive?:            boolean
   // Character props (DM only — undefined on viewer)
   characters?:        ActiveCharacters
   slotScales?:        SlotScales
@@ -58,7 +62,7 @@ const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 
 export default function Stage({
-  scene, hasCampaign, onEdit,
+  scene, hasCampaign, onEdit, isLive = false,
   characters, slotScales, slotDisplayProps, campaignCharacters,
   onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay,
 }: Props) {
@@ -104,11 +108,11 @@ export default function Stage({
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
   // ── Spotify player ───────────────────────────────────────────
-  // disableAutoPlay: the viewer page is the master Spotify playback device.
-  // If Stage also auto-plays on scene change the two virtual devices race —
-  // last write wins and the wrong device ends up with audio. DM can still
-  // manually toggle tracks from the mixer.
-  const spotify = useSpotifyPlayer(scene, { disableAutoPlay: true })
+  // Auto-play is allowed when NOT live so the DM can hear music while
+  // building and testing scenes. Once presenting, it's disabled so only
+  // the viewer device drives Spotify — prevents the two virtual devices
+  // from racing and the wrong device ending up with audio.
+  const spotify = useSpotifyPlayer(scene, { disableAutoPlay: isLive })
 
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
