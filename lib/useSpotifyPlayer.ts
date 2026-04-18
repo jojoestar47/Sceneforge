@@ -17,6 +17,7 @@ export interface SpotifyPlayerApi {
   setLoop:   (t: Track, val: boolean) => void
   stopAll:   () => void
   mute:      (muted: boolean) => void
+  autoPlay:  () => void   // call after user interaction (viewer tap-to-start)
 }
 
 declare global {
@@ -26,10 +27,24 @@ declare global {
   }
 }
 
-export function useSpotifyPlayer(
-  scene: Scene | null,
-  canAutoPlay: boolean = true
-): SpotifyPlayerApi {
+// ── localStorage helpers ──────────────────────────────────────
+function loadSavedVolume(sceneId: string, trackId: string, fallback: number): number {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`sf_vol_${sceneId}`) || '{}')
+    return typeof saved[trackId] === 'number' ? saved[trackId] : fallback
+  } catch { return fallback }
+}
+
+function saveVolume(sceneId: string, trackId: string, volume: number) {
+  try {
+    const key   = `sf_vol_${sceneId}`
+    const saved = JSON.parse(localStorage.getItem(key) || '{}')
+    saved[trackId] = volume
+    localStorage.setItem(key, JSON.stringify(saved))
+  } catch {}
+}
+
+export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   const playerRef      = useRef<any>(null)
   const deviceIdRef    = useRef<string | null>(null)
   const tokenRef       = useRef<string | null>(null)
@@ -55,21 +70,28 @@ export function useSpotifyPlayer(
 
     const init: Record<string, SpotifyTrackState> = {}
     spotifyTracks.forEach(t => {
+      // Restore saved volume from localStorage (same key as local tracks)
+      const vol = scene?.id
+        ? loadSavedVolume(scene.id, t.id, t.volume)
+        : t.volume
+
       loopRef.current[t.id]   = t.loop
-      volumeRef.current[t.id] = t.volume
-      init[t.id] = { playing: false, volume: t.volume, loop: t.loop }
+      volumeRef.current[t.id] = vol
+      init[t.id] = { playing: false, volume: vol, loop: t.loop }
     })
     setStates(init)
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Auto-play music tracks on scene switch
-    if (!connected || !canAutoPlay) return
+  // ── Auto-play music tracks when SDK connects (or scene changes while connected) ──
+  useEffect(() => {
+    if (!connected || !scene?.id) return
     const music = spotifyTracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
     if (!music.length) return
     const timer = setTimeout(() => { playTrack(music[0]).catch(() => {}) }, 350)
     return () => clearTimeout(timer)
-  }, [scene?.id, connected, canAutoPlay]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scene?.id, connected]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load SDK on mount ─────────────────────────────────────────
   useEffect(() => {
@@ -98,7 +120,6 @@ export function useSpotifyPlayer(
       const player = new window.Spotify.Player({
         name: 'Sceneforge',
         getOAuthToken: async (cb: (token: string) => void) => {
-          // Fetch a fresh token if needed
           const res = await fetch('/api/spotify/token').catch(() => null)
           if (res?.ok) {
             const { access_token } = await res.json()
@@ -198,6 +219,8 @@ export function useSpotifyPlayer(
 
   function setVolume(t: Track, val: number) {
     volumeRef.current[t.id] = val
+    // Persist to localStorage using the same key as local tracks
+    if (scene?.id) saveVolume(scene.id, t.id, val)
     if (activeTrackRef.current?.id === t.id && playerRef.current && !mutedRef.current) {
       playerRef.current.setVolume(val).catch(() => {})
     }
@@ -220,10 +243,19 @@ export function useSpotifyPlayer(
   function mute(muted: boolean) {
     mutedRef.current = muted
     if (!playerRef.current || !activeTrackRef.current) return
-    const t = activeTrackRef.current
+    const t   = activeTrackRef.current
     const vol = muted ? 0 : (volumeRef.current[t.id] ?? 0.7)
     playerRef.current.setVolume(vol).catch(() => {})
   }
 
-  return { states, connected, toggle, setVolume, setLoop, stopAll, mute }
+  // Called by viewer after first user interaction — plays music Spotify tracks
+  function autoPlay() {
+    const music = spotifyTracks.filter(
+      t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
+    )
+    if (!music.length || !connected) return
+    playTrack(music[0]).catch(() => {})
+  }
+
+  return { states, connected, toggle, setVolume, setLoop, stopAll, mute, autoPlay }
 }

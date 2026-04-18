@@ -98,7 +98,7 @@ export default function ViewerPage() {
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
   // ── Spotify player ────────────────────────────────────────────
-  const spotify = useSpotifyPlayer(scene, hasInteracted.current)
+  const spotify = useSpotifyPlayer(scene)
 
   // ── Fullscreen ────────────────────────────────────────────────
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -218,6 +218,7 @@ export default function ViewerPage() {
       t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
     )
     musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
+    spotify.autoPlay()
   }
 
   // ── Load scene ────────────────────────────────────────────────
