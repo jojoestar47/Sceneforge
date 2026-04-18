@@ -455,6 +455,11 @@ export default function AppPage() {
     if (data) setCampaignCharacters(prev => [...prev, data as Character].sort((a, b) => a.name.localeCompare(b.name)))
   }
 
+  async function updateCharacterTags(charId: string, tags: string[]) {
+    await supabase.from('characters').update({ tags }).eq('id', charId)
+    setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, tags } : c))
+  }
+
   async function deleteCharacter(charId: string) {
     const char = campaignCharacters.find(c => c.id === charId)
     if (!char) return
@@ -679,6 +684,7 @@ export default function AppPage() {
               characters={campaignCharacters}
               onDelete={deleteCharacter}
               onAdd={createCharacter}
+              onUpdateTags={updateCharacterTags}
             />
           </div>
         </>

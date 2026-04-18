@@ -59,6 +59,7 @@ export interface Character {
   url?: string            // external URL
   storage_path?: string   // Supabase Storage path
   file_name?: string
+  tags: string[]
   created_at: string
   updated_at: string
 }
