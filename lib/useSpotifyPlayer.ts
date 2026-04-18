@@ -84,7 +84,7 @@ async function applyRepeatMode(
   ).catch(() => {})
 }
 
-export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
+export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false } = {}): SpotifyPlayerApi {
   const playerRef      = useRef<any>(null)
   const deviceIdRef    = useRef<string | null>(null)
   const activeTrackRef = useRef<Track | null>(null)
@@ -124,16 +124,21 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
     setStates(init)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-play music tracks when SDK connects ──────────────────
+  // ── Auto-play music tracks when SDK connects ─────────────────
+  // Disabled on the DM stage (disableAutoPlay=true) so only the viewer
+  // device drives Spotify playback. Both pages create a virtual Spotify
+  // device; if both auto-play on scene change they race — last write wins
+  // and the wrong device may end up with audio. The DM can still manually
+  // toggle tracks from the mixer.
   useEffect(() => {
-    if (!connected || !scene?.id) return
+    if (disableAutoPlay || !connected || !scene?.id) return
     const music = spotifyTracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
     if (!music.length) return
     const timer = setTimeout(() => { playTrack(music[0]).catch(() => {}) }, 350)
     return () => clearTimeout(timer)
-  }, [scene?.id, connected]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scene?.id, connected, disableAutoPlay]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Progress polling (500ms) ──────────────────────────────────
   // player_state_changed alone isn't frequent enough for a smooth bar.
@@ -243,7 +248,7 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
       ? { context_uri: t.spotify_uri }
       : { uris: [t.spotify_uri] }
 
-    await fetch(
+    const playRes = await fetch(
       `https://api.spotify.com/v1/me/player/play?device_id=${deviceIdRef.current}`,
       {
         method:  'PUT',
@@ -251,6 +256,11 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
         body:    JSON.stringify(body),
       }
     )
+
+    // 204 = success, 202 = accepted (device waking up) — anything else is a
+    // real failure. Don't update local state if Spotify rejected the request,
+    // or we'd show the track as playing when nothing is audible.
+    if (!playRes.ok && playRes.status !== 202) return
 
     if (prevSceneIdRef.current !== sceneIdAtStart) return
 
@@ -327,6 +337,7 @@ export function useSpotifyPlayer(scene: Scene | null): SpotifyPlayerApi {
   }
 
   function autoPlay() {
+    if (disableAutoPlay) return
     const music = spotifyTracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
