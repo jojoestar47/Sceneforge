@@ -590,7 +590,7 @@ export default function AppPage() {
 
   if (loading) return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg)' }}>
-      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px' }}>Reverie</div>
+      <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: '22px', color: 'var(--accent)', letterSpacing: '2px' }}>Reverie</div>
       <div style={{ width: '160px', height: '3px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
         <div style={{ height: '100%', background: 'var(--accent)', borderRadius: '2px', animation: 'loadBar 1.2s ease-in-out infinite' }} />
       </div>
@@ -604,7 +604,7 @@ export default function AppPage() {
       {/* ── TOP BAR ── */}
       <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
         <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}><AppIcon size={20} /></div>
-        <div onClick={() => setActiveCampId('')} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Playfair Display',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <div onClick={() => setActiveCampId('')} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Cormorant Garamond',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           {activeCampaign ? activeCampaign.name.toUpperCase() : 'REVERIE'}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>

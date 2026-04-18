@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__deploy_to_vercel",
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_teams",
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_projects",
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_deployments"
+    ]
+  }
+}

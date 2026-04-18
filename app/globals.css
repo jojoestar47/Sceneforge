@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 
 :root {
   --bg:          #13151d;
@@ -25,7 +25,7 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Lora', serif;
+  font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -40,7 +40,7 @@ html, body {
 .btn {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 6px 13px; border-radius: 6px; border: 1px solid;
-  font-family: 'Lora', serif; font-size: 11px; font-weight: 600;
+  font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 600;
   cursor: pointer; transition: all .14s; letter-spacing: .3px; white-space: nowrap;
   text-decoration: none;
 }
@@ -55,7 +55,7 @@ html, body {
 
 .add-pill {
   background: var(--bg-raised); border: 1px solid var(--border-lt); color: var(--text);
-  border-radius: 20px; padding: 7px 16px; font-family: 'Lora', serif;
+  border-radius: 20px; padding: 7px 16px; font-family: 'DM Sans', sans-serif;
   font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
   cursor: pointer; transition: all .13s; display: inline-flex; align-items: center;
   gap: 6px; flex-shrink: 0; white-space: nowrap;
@@ -67,7 +67,7 @@ html, body {
 .finput, .fselect, .ftextarea {
   width: 100%; background: var(--bg-raised); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 10px; color: var(--text);
-  font-family: 'Lora', serif; font-size: 13px; outline: none;
+  font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none;
   transition: border-color .13s;
 }
 .finput:focus, .fselect:focus, .ftextarea:focus { border-color: var(--accent); }

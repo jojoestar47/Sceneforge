@@ -299,7 +299,7 @@ export default function ViewerPage() {
   if (status === 'loading') return (
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '22px', color: '#c9a84c', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
+        <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: '22px', color: '#c9a84c', letterSpacing: '2px', marginBottom: '14px' }}>Reverie</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '2px' }}>Connecting…</div>
       </div>
     </div>
@@ -309,7 +309,7 @@ export default function ViewerPage() {
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ marginBottom: '18px' }}><AppIcon size={48} opacity={0.25} /></div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '13px', color: 'rgba(255,255,255,0.5)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '10px' }}>Waiting for DM</div>
+        <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: '13px', color: 'rgba(255,255,255,0.5)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '10px' }}>Waiting for DM</div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', letterSpacing: '1px' }}>Session code: {joinCode}</div>
         <div style={{ marginTop: '10px', display: 'flex', gap: '5px', justifyContent: 'center' }}>
           {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c9a84c', animation: `dot .8s ease-in-out ${i*.2}s infinite alternate`, opacity: .4 }} />)}
@@ -323,7 +323,7 @@ export default function ViewerPage() {
     <div style={fsStyle}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: '42px', marginBottom: '18px', opacity: .2 }}>⚔️</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '13px', color: 'rgba(255,255,255,0.4)', letterSpacing: '4px', textTransform: 'uppercase' }}>Session Ended</div>
+        <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: '13px', color: 'rgba(255,255,255,0.4)', letterSpacing: '4px', textTransform: 'uppercase' }}>Session Ended</div>
       </div>
     </div>
   )
@@ -409,7 +409,7 @@ export default function ViewerPage() {
 
       {/* Scene name */}
       {scene && (
-        <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Playfair Display',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
+        <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Cormorant Garamond',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
           {scene.name}
         </div>
       )}
@@ -440,7 +440,7 @@ export default function ViewerPage() {
         <div onClick={handleFirstTap} style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'rgba(7,8,16,0.65)' }}>
           <div style={{ textAlign: 'center', padding: '28px 36px', background: MIXER_BG, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}>
             <div style={{ fontSize: '52px', marginBottom: '16px' }}>🎵</div>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>Tap to Start Audio</div>
+            <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>Tap to Start Audio</div>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1px' }}>Tap anywhere on this card</div>
           </div>
         </div>
