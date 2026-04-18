@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import type { Campaign, Scene, Character, CampaignTag, CharacterState } from '@/lib/types'
+import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import SceneList           from '@/components/SceneList'
 import SceneEditor         from '@/components/SceneEditor'
@@ -37,6 +37,7 @@ export default function AppPage() {
   const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
   const [activeCampId,  setActiveCampId]  = useState<string>('')
   const [scenes,        setScenes]        = useState<Scene[]>([])
+  const [folders,       setFolders]       = useState<SceneFolder[]>([])
   const [activeSceneId, setActiveSceneId] = useState<string>('')
   const [editorOpen,    setEditorOpen]    = useState(false)
   const [editorSceneId, setEditorSceneId] = useState<string | null>(null)
@@ -93,19 +94,22 @@ export default function AppPage() {
 
   useEffect(() => { loadCampaigns().finally(() => setLoading(false)) }, [loadCampaigns])
 
-  // ── Load scenes ───────────────────────────────────────────────
+  // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
-    const { data } = await supabase
-      .from('scenes').select('*, tracks(*)').eq('campaign_id', campId).order('order_index')
-    if (data) {
-      const resolved = await resolveSceneUrls(supabase, data as Scene[])
+    const [{ data: scenesData }, { data: foldersData }] = await Promise.all([
+      supabase.from('scenes').select('*, tracks(*)').eq('campaign_id', campId).order('order_index'),
+      supabase.from('scene_folders').select('*').eq('campaign_id', campId).order('order_index'),
+    ])
+    if (scenesData) {
+      const resolved = await resolveSceneUrls(supabase, scenesData as Scene[])
       setScenes(resolved)
     } else setScenes([])
+    setFolders((foldersData as SceneFolder[]) || [])
   }, [])
 
   useEffect(() => {
     if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId); setCampView('stage') }
-    else setScenes([])
+    else { setScenes([]); setFolders([]) }
   }, [activeCampId, loadScenes])
 
   // ── Refresh signed URLs every 6 hours so media never expires mid-session ──
@@ -530,6 +534,34 @@ export default function AppPage() {
     ))
   }
 
+  // ── Folder CRUD ───────────────────────────────────────────────
+  async function createFolder(name: string) {
+    if (!activeCampId) return
+    const order_index = folders.length
+    const { data } = await supabase.from('scene_folders')
+      .insert({ campaign_id: activeCampId, name, order_index })
+      .select().single()
+    if (data) setFolders(prev => [...prev, data as SceneFolder])
+  }
+
+  async function renameFolder(id: string, name: string) {
+    await supabase.from('scene_folders').update({ name }).eq('id', id)
+    setFolders(prev => prev.map(f => f.id === id ? { ...f, name } : f))
+  }
+
+  async function deleteFolder(id: string) {
+    const folder = folders.find(f => f.id === id)
+    if (!folder || !confirm(`Delete folder "${folder.name}"?\n\nScenes inside will become unfiled.`)) return
+    await supabase.from('scene_folders').delete().eq('id', id)
+    setFolders(prev => prev.filter(f => f.id !== id))
+    setScenes(prev => prev.map(s => s.folder_id === id ? { ...s, folder_id: null } : s))
+  }
+
+  async function moveSceneToFolder(sceneId: string, folderId: string | null) {
+    await supabase.from('scenes').update({ folder_id: folderId }).eq('id', sceneId)
+    setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, folder_id: folderId } : s))
+  }
+
   async function deleteScene(id: string) {
     const sc = scenes.find(s => s.id === id)
     if (!sc || !confirm(`Delete scene "${sc.name}"?`)) return
@@ -690,21 +722,37 @@ export default function AppPage() {
                     <span style={{ fontSize: '9px', fontWeight: 700, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1px 7px', color: 'var(--text-3)' }}>{scenes.length}</span>
                   )}
                 </div>
-                <button
-                  onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}
-                  title="New scene"
-                  style={{
-                    width: '24px', height: '24px', borderRadius: '6px',
-                    background: 'var(--bg-raised)', border: '1px solid var(--border)',
-                    color: 'var(--text-2)', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1,
-                    transition: 'all 0.12s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(201,168,76,0.06)' }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
-                >+</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    onClick={() => { setEditorSceneId(null); setEditorOpen(true) }}
+                    title="New scene"
+                    style={{
+                      width: '24px', height: '24px', borderRadius: '6px',
+                      background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                      color: 'var(--text-2)', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1,
+                      transition: 'all 0.12s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(201,168,76,0.06)' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
+                  >+</button>
+                </div>
               </div>
-              <SceneList scenes={scenes} activeSceneId={activeSceneId} hasCampaign={!!activeCampId} onSelect={handleSelectScene} onDelete={deleteScene} onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }} onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }} onReorder={handleReorder} />
+              <SceneList
+                scenes={scenes}
+                folders={folders}
+                activeSceneId={activeSceneId}
+                hasCampaign={!!activeCampId}
+                onSelect={handleSelectScene}
+                onDelete={deleteScene}
+                onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
+                onAdd={() => { setEditorSceneId(null); setEditorOpen(true) }}
+                onReorder={handleReorder}
+                onFolderCreate={createFolder}
+                onFolderRename={renameFolder}
+                onFolderDelete={deleteFolder}
+                onMoveToFolder={moveSceneToFolder}
+              />
             </div>
           </div>
 
