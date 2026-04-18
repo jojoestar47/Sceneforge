@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 
 export default function SpotifyConnect() {
-  const [connected, setConnected] = useState<boolean | null>(null) // null = loading
+  const [connected,    setConnected]    = useState<boolean | null>(null) // null = loading
+  const [disconnecting, setDisconnecting] = useState(false)
 
   useEffect(() => {
     fetch('/api/spotify/token')
@@ -12,8 +13,20 @@ export default function SpotifyConnect() {
   }, [])
 
   async function disconnect() {
-    await fetch('/api/spotify/token', { method: 'DELETE' })
-    setConnected(false)
+    setDisconnecting(true)
+    try {
+      const res = await fetch('/api/spotify/token', { method: 'DELETE' })
+      if (res.ok) {
+        setConnected(false)
+      }
+      // If the DELETE failed (network error, server error), we leave the button
+      // in the connected state so the user can try again rather than showing
+      // them a false "disconnected" while the token is still in the database.
+    } catch {
+      // Network error — stay connected so user can retry
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   if (connected === null) return null
@@ -22,6 +35,7 @@ export default function SpotifyConnect() {
     return (
       <button
         onClick={disconnect}
+        disabled={disconnecting}
         title="Disconnect Spotify"
         style={{
           display:     'flex',
@@ -31,15 +45,16 @@ export default function SpotifyConnect() {
           border:      '1px solid rgba(30,215,96,0.35)',
           borderRadius: '6px',
           padding:     '4px 10px',
-          cursor:      'pointer',
+          cursor:      disconnecting ? 'default' : 'pointer',
           color:       '#1ed760',
           fontSize:    '11px',
           fontWeight:  700,
           whiteSpace:  'nowrap',
+          opacity:     disconnecting ? 0.6 : 1,
         }}
       >
         <SpotifyIcon size={13} />
-        Connected
+        {disconnecting ? 'Disconnecting…' : 'Connected'}
       </button>
     )
   }
