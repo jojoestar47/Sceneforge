@@ -436,6 +436,25 @@ export default function AppPage() {
     }
   }
 
+  async function createCharacter(name: string, file: File | null, url: string) {
+    if (!activeCampId || !userId) return
+    let storagePath: string | undefined
+    let imageUrl: string | undefined
+    if (file) {
+      storagePath = await uploadMedia(supabase, userId, file)
+    } else {
+      imageUrl = url || undefined
+    }
+    const { data } = await supabase.from('characters').insert({
+      campaign_id:  activeCampId,
+      name,
+      url:          imageUrl || null,
+      storage_path: storagePath || null,
+      file_name:    file?.name || null,
+    }).select('*').single()
+    if (data) setCampaignCharacters(prev => [...prev, data as Character].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
   async function deleteCharacter(charId: string) {
     const char = campaignCharacters.find(c => c.id === charId)
     if (!char) return
@@ -659,6 +678,7 @@ export default function AppPage() {
             <CharacterRoster
               characters={campaignCharacters}
               onDelete={deleteCharacter}
+              onAdd={createCharacter}
             />
           </div>
         </>
