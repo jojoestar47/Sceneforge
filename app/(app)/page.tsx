@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import type { Campaign, Scene, Character, CharacterState } from '@/lib/types'
+import type { Campaign, Scene, Character, CampaignTag, CharacterState } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import SceneList           from '@/components/SceneList'
 import SceneEditor         from '@/components/SceneEditor'
@@ -46,7 +46,8 @@ export default function AppPage() {
   const [copied,        setCopied]        = useState(false)
   const [campView,      setCampView]      = useState<'stage' | 'characters'>('stage')
 
-  // ── Characters ────────────────────────────────────────────────
+  // ── Characters & tags ──────────────────────────���──────────────
+  const [campaignTags,       setCampaignTags]       = useState<CampaignTag[]>([])
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [sceneRosterChars,   setSceneRosterChars]   = useState<Character[]>([])
   const [characterScales,    setCharacterScales]    = useState<Record<string, number>>({})
@@ -121,11 +122,13 @@ export default function AppPage() {
   // Keep the ref in sync with state so closures always see fresh data
   useEffect(() => { campaignCharactersRef.current = campaignCharacters }, [campaignCharacters])
 
-  // ── Load campaign characters ──────────────────────────────────
+  // ── Load campaign characters + tags ──────────────────────────
   useEffect(() => {
-    if (!activeCampId) { setCampaignCharacters([]); return }
+    if (!activeCampId) { setCampaignCharacters([]); setCampaignTags([]); return }
     supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
       .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
+    supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name')
+      .then(({ data }) => { if (data) setCampaignTags(data as CampaignTag[]) })
   }, [activeCampId])
 
   // ── On scene change: clear stage slots + load this scene's character pool ──
@@ -436,6 +439,56 @@ export default function AppPage() {
     }
   }
 
+  async function createCharacter(name: string, file: File | null, url: string) {
+    if (!activeCampId || !userId) return
+    let storagePath: string | undefined
+    let imageUrl: string | undefined
+    if (file) {
+      storagePath = await uploadMedia(supabase, userId, file)
+    } else {
+      imageUrl = url || undefined
+    }
+    const { data } = await supabase.from('characters').insert({
+      campaign_id:  activeCampId,
+      name,
+      url:          imageUrl || null,
+      storage_path: storagePath || null,
+      file_name:    file?.name || null,
+    }).select('*').single()
+    if (data) setCampaignCharacters(prev => [...prev, data as Character].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function createCampaignTag(name: string, color: string) {
+    if (!activeCampId) return
+    const { data } = await supabase.from('campaign_tags').insert({ campaign_id: activeCampId, name, color }).select('*').single()
+    if (data) setCampaignTags(prev => [...prev, data as CampaignTag].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function deleteCampaignTag(tagId: string) {
+    const affected = campaignCharacters.filter(c => c.tags?.includes(tagId))
+    await Promise.all(affected.map(c =>
+      supabase.from('characters').update({ tags: c.tags.filter(t => t !== tagId) }).eq('id', c.id)
+    ))
+    await supabase.from('campaign_tags').delete().eq('id', tagId)
+    setCampaignTags(prev => prev.filter(t => t.id !== tagId))
+    setCampaignCharacters(prev => prev.map(c => ({ ...c, tags: (c.tags ?? []).filter(t => t !== tagId) })))
+  }
+
+  async function updateCharacterTags(charId: string, tags: string[]) {
+    await supabase.from('characters').update({ tags }).eq('id', charId)
+    setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, tags } : c))
+  }
+
+  async function updateCharacterName(charId: string, name: string) {
+    await supabase.from('characters').update({ name }).eq('id', charId)
+    setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, name } : c))
+    setActiveCharacters(prev => ({
+      left:   prev.left?.id   === charId ? { ...prev.left,   name } : prev.left,
+      center: prev.center?.id === charId ? { ...prev.center, name } : prev.center,
+      right:  prev.right?.id  === charId ? { ...prev.right,  name } : prev.right,
+    }))
+  }
+
   async function deleteCharacter(charId: string) {
     const char = campaignCharacters.find(c => c.id === charId)
     if (!char) return
@@ -658,7 +711,13 @@ export default function AppPage() {
           <div style={{ flex: 1, display: campView === 'characters' ? 'flex' : 'none', overflow: 'hidden' }}>
             <CharacterRoster
               characters={campaignCharacters}
+              campaignTags={campaignTags}
               onDelete={deleteCharacter}
+              onAdd={createCharacter}
+              onUpdateTags={updateCharacterTags}
+              onUpdateName={updateCharacterName}
+              onCreateTag={createCampaignTag}
+              onDeleteTag={deleteCampaignTag}
             />
           </div>
         </>
