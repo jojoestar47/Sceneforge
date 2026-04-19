@@ -4,7 +4,23 @@
       "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__deploy_to_vercel",
       "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_teams",
       "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_projects",
-      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_deployments"
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__list_deployments",
+      "Bash(npx tsc *)",
+      "Bash(npx next *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Read(//mnt/**)",
+      "Read(//e//**)",
+      "Read(//e/Script Station//**)",
+      "Bash(git -C \"E:\\\\Script Station\\\\Sceneforge\\\\Sceneforge\\\\.claude\\\\worktrees\\\\exciting-pasteur-b86599\" diff --stat)",
+      "Bash(git -C \"E:\\\\Script Station\\\\Sceneforge\\\\Sceneforge\\\\.claude\\\\worktrees\\\\exciting-pasteur-b86599\" status --short)",
+      "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__list_projects",
+      "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__list_migrations",
+      "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__apply_migration",
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__get_project",
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__get_deployment",
+      "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__get_deployment_build_logs",
+      "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__get_project_url",
+      "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__get_publishable_keys"
     ]
   }
 }

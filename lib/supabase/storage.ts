@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Campaign, MediaRef, Scene, Track } from '@/lib/types'
 
 const BUCKET   = 'scene-media'
-const EXPIRES  = 8 * 60 * 60 // 8 hours — gives headroom for long sessions
+const EXPIRES  = 4 * 60 * 60 // 4 hours — URLs refreshed every 3h so they never expire mid-session
 const UPLOAD_TIMEOUT_MS = 120_000 // 2 minutes max per upload
 
 /** Upload a file to Storage, return the storage_path */
@@ -50,27 +50,74 @@ export async function resolveMedia(
   return { ...media, signed_url: url }
 }
 
-/** Resolve signed URLs on all media refs within a scene array */
+/**
+ * Resolve signed URLs on all media refs within a scene array.
+ * Batches all storage paths into a single createSignedUrls call instead of
+ * one call per asset — dramatically faster for campaigns with many scenes.
+ */
 export async function resolveSceneUrls(
   supabase: SupabaseClient,
   scenes: Scene[]
 ): Promise<Scene[]> {
-  return Promise.all(
-    scenes.map(async sc => ({
-      ...sc,
-      bg:      await resolveMedia(supabase, sc.bg),
-      overlay: await resolveMedia(supabase, sc.overlay),
-      tracks:  sc.tracks
-        ? await Promise.all(sc.tracks.map(t => resolveTrack(supabase, t)))
-        : undefined,
-    }))
-  )
-}
+  // Collect every storage path that needs a signed URL, tagged by location
+  type PathRef = { path: string; sceneIdx: number; kind: 'bg' | 'overlay' | 'track'; trackIdx?: number }
+  const refs: PathRef[] = []
 
-async function resolveTrack(supabase: SupabaseClient, t: Track): Promise<Track> {
-  if (!t.storage_path) return t
-  const url = await signedUrl(supabase, t.storage_path)
-  return { ...t, signed_url: url }
+  scenes.forEach((sc, si) => {
+    if (sc.bg?.storage_path)      refs.push({ path: sc.bg.storage_path,      sceneIdx: si, kind: 'bg' })
+    if (sc.overlay?.storage_path) refs.push({ path: sc.overlay.storage_path, sceneIdx: si, kind: 'overlay' })
+    sc.tracks?.forEach((t, ti) => {
+      if (t.storage_path) refs.push({ path: t.storage_path, sceneIdx: si, kind: 'track', trackIdx: ti })
+    })
+  })
+
+  if (!refs.length) return scenes
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(refs.map(r => r.path), EXPIRES)
+
+  if (error || !data) {
+    // Fall back to individual resolution on failure
+    return Promise.all(
+      scenes.map(async sc => ({
+        ...sc,
+        bg:      await resolveMedia(supabase, sc.bg),
+        overlay: await resolveMedia(supabase, sc.overlay),
+        tracks:  sc.tracks
+          ? await Promise.all(sc.tracks.map(async t => {
+              if (!t.storage_path) return t
+              const url = await signedUrl(supabase, t.storage_path)
+              return { ...t, signed_url: url }
+            }))
+          : undefined,
+      }))
+    )
+  }
+
+  // Build a path → signedUrl map from the batch response
+  const urlMap = new Map<string, string>()
+  data.forEach((item, i) => {
+    if (item.signedUrl) urlMap.set(refs[i].path, item.signedUrl)
+  })
+
+  // Apply resolved URLs back to the scene graph
+  return scenes.map((sc, si) => {
+    const sceneRefs = refs.filter(r => r.sceneIdx === si)
+    const bgRef      = sceneRefs.find(r => r.kind === 'bg')
+    const overlayRef = sceneRefs.find(r => r.kind === 'overlay')
+    const trackRefs  = sceneRefs.filter(r => r.kind === 'track')
+
+    return {
+      ...sc,
+      bg:      bgRef && sc.bg      ? { ...sc.bg,      signed_url: urlMap.get(bgRef.path) }      : sc.bg,
+      overlay: overlayRef && sc.overlay ? { ...sc.overlay, signed_url: urlMap.get(overlayRef.path) } : sc.overlay,
+      tracks: sc.tracks?.map((t, ti) => {
+        const ref = trackRefs.find(r => r.trackIdx === ti)
+        return ref ? { ...t, signed_url: urlMap.get(ref.path) } : t
+      }),
+    }
+  })
 }
 
 /** Resolve cover signed URLs for an array of campaigns */

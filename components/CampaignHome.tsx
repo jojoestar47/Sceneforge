@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import Image from 'next/image'
 import type { Campaign } from '@/lib/types'
 import AppIcon from '@/components/AppIcon'
 
@@ -189,10 +190,12 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                     overflow: 'hidden',
                   }}>
                     {hasCover ? (
-                      <img
-                        src={c.cover_signed_url}
+                      <Image
+                        src={c.cover_signed_url!}
                         alt={c.name}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.04)' : 'scale(1)' }}
+                        fill
+                        sizes="(max-width: 600px) 50vw, 25vw"
+                        style={{ objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.04)' : 'scale(1)' }}
                       />
                     ) : (
                       <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -380,11 +383,15 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 Cover Image
               </label>
               {settingsCamp.cover_signed_url && (
-                <img
-                  src={settingsCamp.cover_signed_url}
-                  alt=""
-                  style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', marginBottom: '4px' }}
-                />
+                <div style={{ position: 'relative', width: '100%', height: '120px', borderRadius: '8px', overflow: 'hidden', marginBottom: '4px' }}>
+                  <Image
+                    src={settingsCamp.cover_signed_url}
+                    alt=""
+                    fill
+                    sizes="400px"
+                    style={{ objectFit: 'cover' }}
+                  />
+                </div>
               )}
               <button
                 onClick={() => fileInputRef.current?.click()}

@@ -1,12 +1,7 @@
 import type { NextConfig } from 'next'
+import { withSentryConfig } from '@sentry/nextjs'
 
 const nextConfig: NextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },
@@ -14,4 +9,11 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default nextConfig
+export default withSentryConfig(nextConfig, {
+  silent: true,
+  // Only upload source maps when SENTRY_AUTH_TOKEN is set (CI/Vercel)
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  disableSourceMapUpload: !process.env.SENTRY_AUTH_TOKEN,
+})
