@@ -21,7 +21,9 @@
       "mcp__489a4740-e420-48d1-892f-a601bc50bbcd__get_deployment_build_logs",
       "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__get_project_url",
       "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__get_publishable_keys",
-      "Bash(gh pr create --title 'Go-live hardening: security, error handling, performance' --body ' *)"
+      "Bash(gh pr create --title 'Go-live hardening: security, error handling, performance' --body ' *)",
+      "mcp__22dcd3c5-0a17-470a-9597-d34d329696b4__execute_sql",
+      "Bash(npm install *)"
     ]
   }
 }
