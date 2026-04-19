@@ -100,7 +100,7 @@ export default function AppPage() {
     }
   }, [])
 
-  useEffect(() => { loadCampaigns().finally(() => setLoading(false)) }, [loadCampaigns])
+  useEffect(() => { loadCampaigns().then(() => setLoading(false), () => setLoading(false)) }, [loadCampaigns])
 
   // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
