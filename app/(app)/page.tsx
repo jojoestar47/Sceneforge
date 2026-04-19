@@ -72,6 +72,10 @@ export default function AppPage() {
   // Mirror scenes in a ref so the URL-refresh interval always sees the latest list
   // without needing scenes in its dependency array (which would reset the timer).
   const scenesRef = useRef<Scene[]>([])
+
+  // Undo-delete: scene is removed from UI immediately; DB delete fires after 5s unless undone
+  interface PendingSceneDelete { scene: Scene; insertAfterId: string | null; timer: ReturnType<typeof setTimeout> }
+  const [pendingSceneDeletes, setPendingSceneDeletes] = useState<Record<string, PendingSceneDelete>>({})
   useEffect(() => { scenesRef.current = scenes }, [scenes])
 
   // ── Session / Live Presenting ──────────────────────────────────
@@ -96,7 +100,7 @@ export default function AppPage() {
     }
   }, [])
 
-  useEffect(() => { loadCampaigns().finally(() => setLoading(false)) }, [loadCampaigns])
+  useEffect(() => { loadCampaigns().then(() => setLoading(false), () => setLoading(false)) }, [loadCampaigns])
 
   // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
@@ -116,14 +120,14 @@ export default function AppPage() {
     else { setScenes([]); setFolders([]) }
   }, [activeCampId, loadScenes])
 
-  // ── Refresh signed URLs every 6 hours so media never expires mid-session ──
+  // ── Refresh signed URLs every 3 hours (URLs expire in 4h, 1h safety margin) ──
   useEffect(() => {
     if (!activeCampId) return
     const interval = setInterval(async () => {
       if (!scenesRef.current.length) return
       const refreshed = await resolveSceneUrls(supabase, scenesRef.current)
       setScenes(refreshed)
-    }, 6 * 60 * 60 * 1000) // matches the 8h expiry with margin
+    }, 3 * 60 * 60 * 1000)
     return () => clearInterval(interval)
   }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -585,13 +589,8 @@ export default function AppPage() {
     setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, folder_id: folderId } : s))
   }
 
-  async function deleteScene(id: string) {
-    const sc = scenes.find(s => s.id === id)
-    if (!sc || !confirm(`Delete scene "${sc.name}"?`)) return
-
-    // Fetch tracks before deleting so we can clean their storage files
-    const { data: sceneTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', id)
-
+  async function executeSceneDelete(sc: Scene) {
+    const { data: sceneTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', sc.id)
     const storagePaths = [
       sc.bg?.storage_path,
       sc.overlay?.storage_path,
@@ -599,13 +598,53 @@ export default function AppPage() {
     ].filter((p): p is string => !!p)
 
     await deleteMediaBatch(supabase, storagePaths).catch(() => {})
+    await supabase.from('scene_characters').delete().eq('scene_id', sc.id)
+    await supabase.from('tracks').delete().eq('scene_id', sc.id)
+    await supabase.from('scenes').delete().eq('id', sc.id)
+  }
 
-    await supabase.from('scene_characters').delete().eq('scene_id', id)
-    await supabase.from('tracks').delete().eq('scene_id', id)
-    await supabase.from('scenes').delete().eq('id', id)
+  function deleteScene(id: string) {
+    const idx = scenes.findIndex(s => s.id === id)
+    const sc  = scenes[idx]
+    if (!sc) return
 
+    const insertAfterId = idx > 0 ? scenes[idx - 1].id : null
+
+    // Remove from UI immediately
     setScenes(prev => prev.filter(s => s.id !== id))
     if (activeSceneId === id) setActiveSceneId('')
+
+    // Schedule actual DB delete after 5 seconds
+    const timer = setTimeout(() => {
+      executeSceneDelete(sc)
+      setPendingSceneDeletes(prev => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    }, 5000)
+
+    setPendingSceneDeletes(prev => ({ ...prev, [id]: { scene: sc, insertAfterId, timer } }))
+  }
+
+  function undoDeleteScene(id: string) {
+    const pending = pendingSceneDeletes[id]
+    if (!pending) return
+
+    clearTimeout(pending.timer)
+    setPendingSceneDeletes(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+
+    // Re-insert the scene at its original position
+    setScenes(prev => {
+      if (!pending.insertAfterId) return [pending.scene, ...prev]
+      const idx = prev.findIndex(s => s.id === pending.insertAfterId)
+      if (idx === -1) return [...prev, pending.scene]
+      return [...prev.slice(0, idx + 1), pending.scene, ...prev.slice(idx + 1)]
+    })
   }
 
   function handleSceneSaved(saved: Scene) {
@@ -900,6 +939,35 @@ export default function AppPage() {
           onCreate={createCampaign}
           onClose={() => setCampModalOpen(false)}
         />
+      )}
+
+      {/* ── UNDO DELETE TOASTS ── */}
+      {Object.values(pendingSceneDeletes).length > 0 && (
+        <div style={{
+          position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 9999,
+          pointerEvents: 'none',
+        }}>
+          {Object.entries(pendingSceneDeletes).map(([id, p]) => (
+            <div key={id} style={{
+              background: 'var(--bg-raised)', border: '1px solid var(--border-lt)',
+              borderRadius: '8px', padding: '10px 14px',
+              display: 'flex', alignItems: 'center', gap: '12px',
+              color: 'var(--text)', fontSize: '12px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+              pointerEvents: 'all',
+              animation: 'scenePickerIn 0.18s ease both',
+            }}>
+              <span style={{ color: 'var(--text-2)' }}>Scene &quot;{p.scene.name}&quot; deleted</span>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => undoDeleteScene(id)}
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       <style>{`@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}@keyframes scenePickerIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>

@@ -85,7 +85,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
     setCharsLoading(true)
     supabase.from('characters').select('*').eq('campaign_id', campaignId).order('name')
       .then(({ data }) => { if (data) setCampaignChars(data as Character[]) })
-      .finally(() => setCharsLoading(false))
+      .then(() => setCharsLoading(false), () => setCharsLoading(false))
   }, [campaignId])
 
   // Load scene's character pool

@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     {
       cookies: {
         getAll: ()   => cookieStore.getAll(),
-        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+        setAll: (cs: Array<{ name: string; value: string; options: Record<string, unknown> }>) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options as never)),
       },
     }
   )

@@ -4,18 +4,33 @@ import { cookies } from 'next/headers'
 import { getSpotifyToken } from '@/lib/supabase/spotify-token'
 
 // ── Rate limiting ─────────────────────────────────────────────
-// Uses Upstash Redis for a reliable sliding-window rate limiter that
-// survives Vercel cold starts (unlike an in-process Map which resets
-// each time a new function instance spins up).
-//
-// Requires env vars: UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
-// Set these in Vercel → Settings → Environment Variables, and in
-// .env.local for local development. If they're absent (e.g. local dev
-// without Redis) we fall through and allow the request.
+// Primary: Upstash Redis sliding window (survives cold starts).
+// Fallback: in-memory map (per warm instance, better than nothing).
+// 30 requests per user per 60 seconds.
+
+const WINDOW_MS = 60_000
+const MAX_REQS  = 30
+
+// In-memory fallback: map of userId → sorted array of timestamps
+const memoryStore = new Map<string, number[]>()
+
+function checkMemoryLimit(userId: string): boolean {
+  const now = Date.now()
+  const hits = (memoryStore.get(userId) ?? []).filter(t => now - t < WINDOW_MS)
+  if (hits.length >= MAX_REQS) return false
+  hits.push(now)
+  memoryStore.set(userId, hits)
+  return true
+}
+
 async function checkRateLimit(userId: string): Promise<boolean> {
   const url   = process.env.UPSTASH_REDIS_REST_URL
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
-  if (!url || !token) return true // not configured — allow
+
+  if (!url || !token) {
+    // No Redis configured — use in-memory fallback
+    return checkMemoryLimit(userId)
+  }
 
   try {
     const { Ratelimit } = await import('@upstash/ratelimit')
@@ -23,15 +38,15 @@ async function checkRateLimit(userId: string): Promise<boolean> {
 
     const ratelimit = new Ratelimit({
       redis:   new Redis({ url, token }),
-      limiter: Ratelimit.slidingWindow(30, '60 s'),
+      limiter: Ratelimit.slidingWindow(MAX_REQS, '60 s'),
       prefix:  'sf_search',
     })
 
     const { success } = await ratelimit.limit(userId)
     return success
   } catch {
-    // If Redis is unreachable, fail open — don't break the search feature
-    return true
+    // Redis unreachable — fall back to in-memory
+    return checkMemoryLimit(userId)
   }
 }
 
@@ -52,7 +67,7 @@ export async function GET(req: NextRequest) {
     {
       cookies: {
         getAll: ()   => cookieStore.getAll(),
-        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+        setAll: (cs: Array<{ name: string; value: string; options: Record<string, unknown> }>) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options as never)),
       },
     }
   )
