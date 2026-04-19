@@ -281,7 +281,7 @@ const CharacterCard = memo(function CharacterCard({
               <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '6px' }}>Tags</div>
               {campaignTags.length === 0 ? (
                 <div style={{ fontSize: '9px', color: 'var(--text-3)', lineHeight: 1.6, textAlign: 'center' }}>
-                  Use <strong style={{ color: 'var(--text-2)' }}>🏷 TAGS</strong> to create some
+                  Use <strong style={{ color: 'var(--text-2)' }}>TAGS</strong> to create some
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
@@ -491,7 +491,11 @@ export default function CharacterRoster({
                 display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s',
               }}
             >
-              🏷 TAGS {campaignTags.length > 0 && <span style={{ opacity: 0.55, fontWeight: 400 }}>({campaignTags.length})</span>}
+              <svg viewBox="0 0 104 104" xmlns="http://www.w3.org/2000/svg" width="14" height="14" style={{ flexShrink: 0 }}>
+                <path d="M12 12 L12 52 L52 92 Q56 96 60 92 L92 60 Q96 56 92 52 L52 12 Z" fill="none" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" strokeLinecap="round"/>
+                <circle cx="32" cy="32" r="6" fill="currentColor"/>
+              </svg>
+              TAGS {campaignTags.length > 0 && <span style={{ opacity: 0.55, fontWeight: 400 }}>({campaignTags.length})</span>}
             </button>
 
             <button
