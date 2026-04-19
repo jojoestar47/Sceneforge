@@ -44,6 +44,7 @@ export default function AppPage() {
   const supabase = createClient()
 
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const [userId,        setUserId]        = useState<string>('')
   const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
@@ -793,122 +794,171 @@ export default function AppPage() {
               onSlotDisplayChange={handleSlotDisplayChange}
               onSaveSlotDisplay={handleSaveSlotDisplay}
             />
-            <div style={{ width: '300px', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-              <div style={{ padding: '11px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
-                  {scenes.length > 0 && (
-                    <span style={{ fontSize: '9px', fontWeight: 700, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '10px', padding: '1px 7px', color: 'var(--text)' }}>{scenes.length}</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  {/* New folder */}
-                  <button
-                    onClick={() => setCreateFolderOpen(true)}
-                    title="New folder"
-                    style={{
-                      width: '24px', height: '24px', borderRadius: '6px',
-                      background: 'var(--bg-raised)', border: '1px solid var(--border)',
-                      color: 'var(--text-2)', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.12s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,159,232,0.5)'; e.currentTarget.style.color = 'var(--accent-2)'; e.currentTarget.style.background = 'rgba(139,159,232,0.06)' }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                      <path d="M1 3.5C1 2.67 1.67 2 2.5 2h2.17a1 1 0 0 1 .71.29L6.09 3H10.5C11.33 3 12 3.67 12 4.5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11 1 10.33 1 9.5v-6z" stroke="currentColor" strokeWidth="1.1"/>
-                      <path d="M6.5 5.5v3M5 7h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                    </svg>
-                  </button>
-                  {/* New scene — opens folder picker if folders exist */}
-                  <div style={{ position: 'relative' }}>
-                    <button
-                      onClick={() => {
-                        if (folders.length > 0) { setFolderPickerOpen(p => !p) }
-                        else { newSceneFolderRef.current = null; setEditorSceneId(null); setEditorOpen(true) }
-                      }}
-                      title="New scene"
-                      style={{
-                        width: '24px', height: '24px', borderRadius: '6px',
-                        background: folderPickerOpen ? 'rgba(201,168,76,0.06)' : 'var(--bg-raised)',
-                        border: `1px solid ${folderPickerOpen ? 'rgba(201,168,76,0.5)' : 'var(--border)'}`,
-                        color: folderPickerOpen ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1,
-                        transition: 'all 0.12s',
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(201,168,76,0.06)' }}
-                      onMouseLeave={e => { if (!folderPickerOpen) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' } }}
-                    >+</button>
-                    {folderPickerOpen && (
-                      <div
+            {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
+            <div style={{
+              width: sidebarOpen ? '300px' : '36px',
+              background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)',
+              display: 'flex', flexDirection: 'column', flexShrink: 0,
+              transition: 'width 0.2s ease', overflow: 'hidden',
+            }}>
+              {sidebarOpen ? (
+                <>
+                  {/* Open header */}
+                  <div style={{ padding: '11px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: '276px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-2)' }}>Scenes</span>
+                      {scenes.length > 0 && (
+                        <span style={{ fontSize: '9px', fontWeight: 700, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '10px', padding: '1px 7px', color: 'var(--text)' }}>{scenes.length}</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      {/* New folder */}
+                      <button
+                        onClick={() => setCreateFolderOpen(true)}
+                        title="New folder"
                         style={{
-                          position: 'absolute', right: 0, top: '30px', zIndex: 200,
-                          background: 'var(--bg-card, var(--bg-raised))', border: '1px solid var(--border)',
-                          borderRadius: '9px', padding: '4px', minWidth: '160px',
-                          boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
-                          animation: 'scenePickerIn 0.12s ease both',
+                          width: '24px', height: '24px', borderRadius: '6px',
+                          background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                          color: 'var(--text-2)', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.12s',
                         }}
-                        onMouseLeave={() => setFolderPickerOpen(false)}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,159,232,0.5)'; e.currentTarget.style.color = 'var(--accent-2)'; e.currentTarget.style.background = 'rgba(139,159,232,0.06)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
                       >
-                        <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--text-3)', padding: '4px 10px 2px' }}>Add scene to…</div>
-                        {folders.map(f => (
-                          <button
-                            key={f.id}
-                            onClick={() => { setFolderPickerOpen(false); newSceneFolderRef.current = f.id; setEditorSceneId(null); setEditorOpen(true) }}
-                            style={{
-                              width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
-                              padding: '6px 10px', borderRadius: '6px', border: 'none',
-                              background: 'transparent', color: 'var(--text-2)', cursor: 'pointer',
-                              fontSize: '11px', textAlign: 'left', transition: 'background 0.1s',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                          >
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: f.color || 'var(--border-lt)', flexShrink: 0, display: 'inline-block', border: `1px solid ${f.color || 'var(--border)'}` }} />
-                            {f.name}
-                          </button>
-                        ))}
-                        <div style={{ height: '1px', background: 'var(--border)', margin: '3px 6px' }} />
+                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                          <path d="M1 3.5C1 2.67 1.67 2 2.5 2h2.17a1 1 0 0 1 .71.29L6.09 3H10.5C11.33 3 12 3.67 12 4.5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11 1 10.33 1 9.5v-6z" stroke="currentColor" strokeWidth="1.1"/>
+                          <path d="M6.5 5.5v3M5 7h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                        </svg>
+                      </button>
+                      {/* New scene — opens folder picker if folders exist */}
+                      <div style={{ position: 'relative' }}>
                         <button
-                          onClick={() => { setFolderPickerOpen(false); newSceneFolderRef.current = null; setEditorSceneId(null); setEditorOpen(true) }}
-                          style={{
-                            width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
-                            padding: '6px 10px', borderRadius: '6px', border: 'none',
-                            background: 'transparent', color: 'var(--text-3)', cursor: 'pointer',
-                            fontSize: '11px', textAlign: 'left', transition: 'background 0.1s',
+                          onClick={() => {
+                            if (folders.length > 0) { setFolderPickerOpen(p => !p) }
+                            else { newSceneFolderRef.current = null; setEditorSceneId(null); setEditorOpen(true) }
                           }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'transparent', flexShrink: 0, display: 'inline-block', border: '1px dashed var(--border-lt)' }} />
-                          No folder
-                        </button>
+                          title="New scene"
+                          style={{
+                            width: '24px', height: '24px', borderRadius: '6px',
+                            background: folderPickerOpen ? 'rgba(201,168,76,0.06)' : 'var(--bg-raised)',
+                            border: `1px solid ${folderPickerOpen ? 'rgba(201,168,76,0.5)' : 'var(--border)'}`,
+                            color: folderPickerOpen ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1,
+                            transition: 'all 0.12s',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'rgba(201,168,76,0.06)' }}
+                          onMouseLeave={e => { if (!folderPickerOpen) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.background = 'var(--bg-raised)' } }}
+                        >+</button>
+                        {folderPickerOpen && (
+                          <div
+                            style={{
+                              position: 'absolute', right: 0, top: '30px', zIndex: 200,
+                              background: 'var(--bg-card, var(--bg-raised))', border: '1px solid var(--border)',
+                              borderRadius: '9px', padding: '4px', minWidth: '160px',
+                              boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
+                              animation: 'scenePickerIn 0.12s ease both',
+                            }}
+                            onMouseLeave={() => setFolderPickerOpen(false)}
+                          >
+                            <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--text-3)', padding: '4px 10px 2px' }}>Add scene to…</div>
+                            {folders.map(f => (
+                              <button
+                                key={f.id}
+                                onClick={() => { setFolderPickerOpen(false); newSceneFolderRef.current = f.id; setEditorSceneId(null); setEditorOpen(true) }}
+                                style={{
+                                  width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                                  padding: '6px 10px', borderRadius: '6px', border: 'none',
+                                  background: 'transparent', color: 'var(--text-2)', cursor: 'pointer',
+                                  fontSize: '11px', textAlign: 'left', transition: 'background 0.1s',
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: f.color || 'var(--border-lt)', flexShrink: 0, display: 'inline-block', border: `1px solid ${f.color || 'var(--border)'}` }} />
+                                {f.name}
+                              </button>
+                            ))}
+                            <div style={{ height: '1px', background: 'var(--border)', margin: '3px 6px' }} />
+                            <button
+                              onClick={() => { setFolderPickerOpen(false); newSceneFolderRef.current = null; setEditorSceneId(null); setEditorOpen(true) }}
+                              style={{
+                                width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                                padding: '6px 10px', borderRadius: '6px', border: 'none',
+                                background: 'transparent', color: 'var(--text-3)', cursor: 'pointer',
+                                fontSize: '11px', textAlign: 'left', transition: 'background 0.1s',
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'transparent', flexShrink: 0, display: 'inline-block', border: '1px dashed var(--border-lt)' }} />
+                              No folder
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
+                      {/* Collapse sidebar */}
+                      <button
+                        onClick={() => setSidebarOpen(false)}
+                        title="Collapse scenes"
+                        style={{
+                          width: '24px', height: '24px', borderRadius: '6px',
+                          background: 'var(--bg-raised)', border: '1px solid var(--border)',
+                          color: 'var(--text-2)', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '12px', transition: 'all 0.12s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-lt)'; e.currentTarget.style.color = 'var(--text)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)' }}
+                      >▶</button>
+                    </div>
                   </div>
-                </div>
-              </div>
-              <SceneList
-                key={activeCampId}
-                scenes={scenes}
-                folders={folders}
-                activeSceneId={activeSceneId}
-                hasCampaign={!!activeCampId}
-                onSelect={handleSelectScene}
-                onDelete={deleteScene}
-                onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
-                onAdd={(folderId) => { newSceneFolderRef.current = folderId ?? null; setEditorSceneId(null); setEditorOpen(true) }}
-                onReorder={handleReorder}
-                onFolderReorder={handleFolderReorder}
-                createFolderOpen={createFolderOpen}
-                onCreateFolderOpenChange={setCreateFolderOpen}
-                onFolderCreate={createFolder}
-                onFolderRename={renameFolder}
-                onFolderDelete={deleteFolder}
-                onFolderColor={updateFolderColor}
-                onMoveToFolder={moveSceneToFolder}
-              />
+                  <SceneList
+                    key={activeCampId}
+                    scenes={scenes}
+                    folders={folders}
+                    activeSceneId={activeSceneId}
+                    hasCampaign={!!activeCampId}
+                    onSelect={handleSelectScene}
+                    onDelete={deleteScene}
+                    onEdit={id => { setEditorSceneId(id); setEditorOpen(true) }}
+                    onAdd={(folderId) => { newSceneFolderRef.current = folderId ?? null; setEditorSceneId(null); setEditorOpen(true) }}
+                    onReorder={handleReorder}
+                    onFolderReorder={handleFolderReorder}
+                    createFolderOpen={createFolderOpen}
+                    onCreateFolderOpenChange={setCreateFolderOpen}
+                    onFolderCreate={createFolder}
+                    onFolderRename={renameFolder}
+                    onFolderDelete={deleteFolder}
+                    onFolderColor={updateFolderColor}
+                    onMoveToFolder={moveSceneToFolder}
+                  />
+                </>
+              ) : (
+                /* Collapsed strip — expand button */
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  title="Show scenes"
+                  style={{
+                    width: '36px', height: '100%', border: 'none',
+                    background: 'transparent', color: 'var(--text-3)',
+                    cursor: 'pointer', display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', paddingTop: '12px', gap: '10px',
+                    transition: 'color 0.12s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}
+                >
+                  <span style={{ fontSize: '12px' }}>◀</span>
+                  {scenes.length > 0 && (
+                    <span style={{
+                      fontSize: '9px', fontWeight: 700,
+                      background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)',
+                      borderRadius: '10px', padding: '2px 5px', color: 'var(--text-2)',
+                    }}>{scenes.length}</span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

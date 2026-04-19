@@ -233,7 +233,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
 
       {/* Scrollable content */}
       <div style={{ position: 'relative', flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-        <div style={{ maxWidth: '1120px', margin: '0 auto', padding: '56px 48px 80px', width: '100%' }}>
+        <div className="ch-content">
 
           {/* Hero header */}
           <div style={{ marginBottom: '52px', animation: 'homeIn 0.55s cubic-bezier(.22,1,.36,1) both' }}>
@@ -483,6 +483,16 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
           to   { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .ch-content {
+          max-width: 1120px; margin: 0 auto;
+          padding: 56px 48px 80px; width: 100%;
+        }
+        @media (max-width: 640px) {
+          .ch-content { padding: 32px 20px 60px; }
+        }
+        @media (max-width: 900px) and (min-width: 641px) {
+          .ch-content { padding: 40px 32px 72px; }
+        }
       `}</style>
     </div>
   )

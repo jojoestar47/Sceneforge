@@ -428,7 +428,7 @@ export default function ViewerPage() {
 
       {/* Spotify connect prompt — shown when scene has Spotify tracks but player isn't connected */}
       {hasSpotifyTracks && !spotify.connected && (
-        <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: MIXER_BG, border: '1px solid rgba(30,215,96,0.3)', borderRadius: '10px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', whiteSpace: 'nowrap' }}>
+        <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: MIXER_BG, border: '1px solid rgba(30,215,96,0.3)', borderRadius: '10px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: 'calc(100vw - 40px)' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="#1ed760"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" /></svg>
           <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>This scene has Spotify music</span>
           <a href="/auth/spotify" style={{ fontSize: '11px', fontWeight: 700, color: '#1ed760', textDecoration: 'none', border: '1px solid rgba(30,215,96,0.5)', borderRadius: '5px', padding: '4px 10px' }}>Connect Spotify</a>
@@ -438,7 +438,7 @@ export default function ViewerPage() {
       {/* Tap to start audio overlay */}
       {needsTap && (
         <div onClick={handleFirstTap} style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'rgba(7,8,16,0.65)' }}>
-          <div style={{ textAlign: 'center', padding: '28px 36px', background: MIXER_BG, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}>
+          <div style={{ textAlign: 'center', padding: '28px 36px', background: MIXER_BG, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', maxWidth: 'calc(100vw - 40px)' }}>
             <div style={{ fontSize: '52px', marginBottom: '16px' }}>🎵</div>
             <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: '13px', color: 'rgba(255,255,255,0.9)', letterSpacing: '4px', textTransform: 'uppercase', marginBottom: '8px' }}>Tap to Start Audio</div>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1px' }}>Tap anywhere on this card</div>
@@ -448,7 +448,7 @@ export default function ViewerPage() {
 
       {/* Audio Mixer */}
       {allTracks.length > 0 && (
-        <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'left' : 'right']: '14px', zIndex: 20, width: '240px' }}>
+        <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'left' : 'right']: '14px', zIndex: 20, width: 'min(240px, calc(100vw - 28px))' }}>
           <div onClick={() => setMixerOpen(o => !o)} style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 10px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#c9a84c' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}

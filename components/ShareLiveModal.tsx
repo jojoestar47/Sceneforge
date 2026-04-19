@@ -12,6 +12,7 @@ export default function ShareLiveModal({
   joinCode, viewerUrl, qrUrl, copied, onCopy, onClose, onStop,
 }: ShareLiveModalProps) {
   return (
+    <>
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
@@ -28,7 +29,7 @@ export default function ShareLiveModal({
         </div>
 
         {/* Body */}
-        <div style={{ padding: '22px 24px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+        <div className="slm-body">
           {/* QR code */}
           <div style={{ flexShrink: 0, textAlign: 'center' }}>
             {qrUrl && (
@@ -74,5 +75,20 @@ export default function ShareLiveModal({
         </div>
       </div>
     </div>
+    <style>{`
+      .slm-body {
+        padding: 22px 24px;
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+      }
+      @media (max-width: 440px) {
+        .slm-body {
+          flex-direction: column;
+          align-items: center;
+        }
+      }
+    `}</style>
+    </>
   )
 }
