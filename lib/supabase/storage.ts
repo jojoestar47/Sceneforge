@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Campaign, MediaRef, Scene, Track } from '@/lib/types'
+import type { Campaign, Character, MediaRef, Scene, Track } from '@/lib/types'
 
 const BUCKET   = 'scene-media'
 const EXPIRES  = 4 * 60 * 60 // 4 hours — URLs refreshed every 3h so they never expire mid-session
@@ -118,6 +118,38 @@ export async function resolveSceneUrls(
       }),
     }
   })
+}
+
+/** Resolve signed URLs for characters that use Supabase storage */
+export async function resolveCharacterUrls(
+  supabase: SupabaseClient,
+  characters: Character[]
+): Promise<Character[]> {
+  const withPath = characters.filter(c => c.storage_path)
+  if (!withPath.length) return characters
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(withPath.map(c => c.storage_path!), EXPIRES)
+
+  if (error || !data) {
+    return Promise.all(characters.map(async c => {
+      if (!c.storage_path) return c
+      try {
+        const url = await signedUrl(supabase, c.storage_path)
+        return { ...c, signed_url: url }
+      } catch { return c }
+    }))
+  }
+
+  const urlMap = new Map<string, string>()
+  data.forEach((item, i) => {
+    if (item.signedUrl) urlMap.set(withPath[i].id, item.signedUrl)
+  })
+
+  return characters.map(c =>
+    c.storage_path && urlMap.has(c.id) ? { ...c, signed_url: urlMap.get(c.id) } : c
+  )
 }
 
 /** Resolve cover signed URLs for an array of campaigns */

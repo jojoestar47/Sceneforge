@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import Image from 'next/image'
 import type { Scene, Track, MediaRef, Character } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
@@ -12,7 +12,7 @@ interface Props {
   scene: Scene | null
   campaignId: string
   userId: string
-  onSave: (scene: Scene) => void
+  onSave: (scene: Scene, newCharacters?: Character[]) => void
   onClose: () => void
 }
 
@@ -72,12 +72,17 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const [newCharUrl,  setNewCharUrl]  = useState('')
   const [newCharSaving, setNewCharSaving] = useState(false)
 
+  // Track characters created inside the editor so the parent can merge them
+  // without refetching the whole campaign roster on save.
+  const createdCharsRef = useRef<Character[]>([])
+
   useEffect(() => {
     setDraft(blankDraft(scene))
     setTab('scene')
     setError('')
     setCharPickerOpen(false)
     setNewCharOpen(false)
+    createdCharsRef.current = []
   }, [scene?.id])
 
   // Load all campaign characters
@@ -137,6 +142,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
         const newChar = data as Character
         setCampaignChars(prev => [...prev, newChar].sort((a, b) => a.name.localeCompare(b.name)))
         setDraft(d => ({ ...d, characterPool: [...d.characterPool, { character: newChar, scale: 1 }] }))
+        createdCharsRef.current = [...createdCharsRef.current, newChar]
         setNewCharOpen(false); setNewCharName(''); setNewCharFile(null); setNewCharUrl('')
       }
     } catch (e) {
@@ -204,7 +210,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
       const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId!).single()
-      onSave(savedScene as Scene)
+      onSave(savedScene as Scene, createdCharsRef.current)
+      createdCharsRef.current = []
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save scene')
     } finally {
