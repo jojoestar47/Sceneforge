@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { resolveSceneUrls, resolveCampaignCovers, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
+import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import SceneList           from '@/components/SceneList'
@@ -151,8 +151,11 @@ export default function AppPage() {
     Promise.all([
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name'),
       supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name'),
-    ]).then(([{ data: chars }, { data: tags }]) => {
-      if (chars) setCampaignCharacters(chars as Character[])
+    ]).then(async ([{ data: chars }, { data: tags }]) => {
+      if (chars) {
+        const resolved = await resolveCharacterUrls(supabase, chars as Character[])
+        setCampaignCharacters(resolved)
+      }
       if (tags)  setCampaignTags(tags as CampaignTag[])
     })
   }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -482,7 +485,10 @@ export default function AppPage() {
       storage_path: storagePath || null,
       file_name:    file?.name || null,
     }).select('*').single()
-    if (data) setCampaignCharacters(prev => [...prev, data as Character].sort((a, b) => a.name.localeCompare(b.name)))
+    if (data) {
+      const [resolved] = await resolveCharacterUrls(supabase, [data as Character])
+      setCampaignCharacters(prev => [...prev, resolved].sort((a, b) => a.name.localeCompare(b.name)))
+    }
   }
 
   async function createCampaignTag(name: string, color: string) {
@@ -672,13 +678,15 @@ export default function AppPage() {
     handleSelectScene(saved.id)
     setEditorOpen(false)
     resolveSceneUrls(supabase, [saved]).then(([r]) => setScenes(prev => prev.map(s => s.id === r.id ? r : s)))
-    // Merge any new characters the editor created — skip the full refetch.
+    // Merge any new characters the editor created — resolve their signed URLs then merge.
     if (newCharacters.length) {
-      setCampaignCharacters(prev => {
-        const existing = new Set(prev.map(c => c.id))
-        const additions = newCharacters.filter(c => !existing.has(c.id))
-        if (!additions.length) return prev
-        return [...prev, ...additions].sort((a, b) => a.name.localeCompare(b.name))
+      resolveCharacterUrls(supabase, newCharacters).then(resolved => {
+        setCampaignCharacters(prev => {
+          const existing = new Set(prev.map(c => c.id))
+          const additions = resolved.filter(c => !existing.has(c.id))
+          if (!additions.length) return prev
+          return [...prev, ...additions].sort((a, b) => a.name.localeCompare(b.name))
+        })
       })
     }
     // If editing the active scene, roster/framing may have changed — refresh.

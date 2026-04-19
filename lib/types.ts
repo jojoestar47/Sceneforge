@@ -76,6 +76,7 @@ export interface Character {
   name: string
   url?: string            // external URL
   storage_path?: string   // Supabase Storage path
+  signed_url?: string     // resolved signed URL (runtime-only, not in DB)
   file_name?: string
   tags: string[]          // array of CampaignTag IDs
   created_at: string
