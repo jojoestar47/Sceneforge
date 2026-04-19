@@ -11,7 +11,7 @@ export async function GET() {
     {
       cookies: {
         getAll: ()   => cookieStore.getAll(),
-        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+        setAll: (cs: Array<{ name: string; value: string; options: Record<string, unknown> }>) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options as never)),
       },
     }
   )
@@ -33,7 +33,7 @@ export async function DELETE() {
     {
       cookies: {
         getAll: ()   => cookieStore.getAll(),
-        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+        setAll: (cs: Array<{ name: string; value: string; options: Record<string, unknown> }>) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options as never)),
       },
     }
   )
