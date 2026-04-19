@@ -78,3 +78,10 @@ html, body {
   display: block; margin-bottom: 6px; font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .9px; color: var(--text-2);
 }
+
+/* Touch-device: enlarge minimum tap targets */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 36px; padding: 6px 12px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+}
