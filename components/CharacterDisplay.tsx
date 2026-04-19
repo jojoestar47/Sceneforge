@@ -5,7 +5,9 @@ import type { Character } from '@/lib/types'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
 export function characterImageUrl(c: Character): string | null {
-  if (c.storage_path) return c.signed_url || null
+  if (c.storage_path)
+    return c.signed_url
+      || `${SUPABASE_URL}/storage/v1/object/public/scene-media/${c.storage_path}`
   return c.url || null
 }
 
