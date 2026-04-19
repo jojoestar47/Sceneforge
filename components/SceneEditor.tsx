@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import type { Scene, Track, MediaRef, Character } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
@@ -272,7 +273,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                         <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: '14px', borderBottom: '1px solid var(--border)' }}>
                           <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {imgUrl
-                              ? <img src={imgUrl} alt={entry.character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ? <Image src={imgUrl} alt={entry.character.name} width={48} height={48} style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
                               : <span style={{ fontSize: '20px', opacity: .4 }}>🧑</span>
                             }
                           </div>
@@ -343,7 +344,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                           >
                             <div style={{ width: '34px', height: '34px', borderRadius: '6px', background: 'var(--bg-raised)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {characterImageUrl(c)
-                                ? <img src={characterImageUrl(c)!} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ? <Image src={characterImageUrl(c)!} alt={c.name} width={34} height={34} style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
                                 : <span style={{ fontSize: '14px' }}>🧑</span>
                               }
                             </div>
