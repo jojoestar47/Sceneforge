@@ -715,26 +715,28 @@ export default function AppPage() {
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* ── TOP BAR ── */}
-      <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
+      <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
         <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}><AppIcon size={20} /></div>
-        <div onClick={() => setActiveCampId('')} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: "'Cormorant Garamond',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <div onClick={() => setActiveCampId('')} className="topbar-title">
           {activeCampaign ? activeCampaign.name.toUpperCase() : 'REVERIE'}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
           {activeCampId && !isLive && (
-            <button className="btn btn-ghost btn-sm" onClick={startPresenting} style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}>▶ Start Presenting</button>
+            <button className="btn btn-ghost btn-sm" onClick={startPresenting} title="Start Presenting" style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}>
+              ▶<span className="topbar-label"> Present</span>
+            </button>
           )}
           {activeCampId && isLive && (
             <>
-              <button onClick={() => setShareModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', color: '#e53535', fontSize: '11px', fontWeight: 700 }}>
-                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#e53535', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block' }} />
-                LIVE · {joinCode}
+              <button onClick={() => setShareModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 9px', cursor: 'pointer', color: '#e53535', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#e53535', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
+                LIVE<span className="topbar-label"> · {joinCode}</span>
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={stopPresenting} style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.4)' }}>⏹ Stop</button>
+              <button className="btn btn-ghost btn-sm" onClick={stopPresenting} title="Stop presenting" style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.4)', flexShrink: 0 }}>⏹</button>
             </>
           )}
           <SpotifyConnect />
-          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out">⏻</button>
+          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out" style={{ flexShrink: 0 }}>⏻</button>
         </div>
       </div>
 

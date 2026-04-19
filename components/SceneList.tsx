@@ -117,7 +117,8 @@ export default function SceneList({
     const ql = debouncedQ.toLowerCase()
     return scenes.filter(s => s.name.toLowerCase().includes(ql))
   }, [scenes, debouncedQ])
-  const canDrag  = !debouncedQ && !!onReorder && !isTouchDevice
+  const canDrag    = !debouncedQ && !!onReorder && !isTouchDevice
+  const canReorder = !debouncedQ && !!onReorder
   const hasFolders = folders.length > 0
 
   function toggleFolder(id: string) {
@@ -166,8 +167,8 @@ export default function SceneList({
     const isHov      = hoveredId === sc.id
     const num        = scenes.indexOf(sc) + 1
     const groupIdx   = sceneGroup.indexOf(sc)
-    const canMoveUp  = canDrag && groupIdx > 0
-    const canMoveDown = canDrag && groupIdx < sceneGroup.length - 1
+    const canMoveUp   = canReorder && groupIdx > 0
+    const canMoveDown = canReorder && groupIdx < sceneGroup.length - 1
 
     return (
       <div
@@ -211,52 +212,88 @@ export default function SceneList({
           animationDelay: `${idx * 0.04}s`,
         }}
       >
-        {/* Drag handle + up/down arrows */}
-        {canDrag && (
+        {/* Reorder controls — drag handle on desktop, tap arrows on touch */}
+        {canReorder && (
           <div style={{
-            width: '20px', flexShrink: 0, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: '2px',
-            userSelect: 'none', WebkitUserSelect: 'none',
+            width: isTouchDevice ? '30px' : '20px', flexShrink: 0, display: 'flex',
+            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: isTouchDevice ? '4px' : '2px', userSelect: 'none', WebkitUserSelect: 'none',
           }}>
-            <button
-              onClick={e => { e.stopPropagation(); if (canMoveUp) onReorder!(sc.id, sceneGroup[groupIdx - 1].id) }}
-              style={{
-                width: '14px', height: '14px', border: 'none', background: 'none', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: canMoveUp ? 'pointer' : 'default',
-                opacity: isHov && canMoveUp ? 0.7 : 0,
-                transition: 'opacity 0.14s ease, color 0.14s ease',
-                color: 'var(--text-2)',
-              }}
-              onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.opacity = '1' }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = isHov && canMoveUp ? '0.7' : '0' }}
-            >
-              <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-                <path d="M1 5l3-4 3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            <div style={{
-              color: isHov ? 'var(--text-3)' : 'rgba(255,255,255,0.12)',
-              fontSize: '10px', lineHeight: 1,
-              transition: 'color 0.14s ease',
-            }}>⠿</div>
-            <button
-              onClick={e => { e.stopPropagation(); if (canMoveDown) onReorder!(sc.id, sceneGroup[groupIdx + 1].id) }}
-              style={{
-                width: '14px', height: '14px', border: 'none', background: 'none', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: canMoveDown ? 'pointer' : 'default',
-                opacity: isHov && canMoveDown ? 0.7 : 0,
-                transition: 'opacity 0.14s ease, color 0.14s ease',
-                color: 'var(--text-2)',
-              }}
-              onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.opacity = '1' }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = isHov && canMoveDown ? '0.7' : '0' }}
-            >
-              <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-                <path d="M1 1l3 4 3-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+            {isTouchDevice ? (
+              <>
+                <button
+                  onClick={e => { e.stopPropagation(); if (canMoveUp) onReorder!(sc.id, sceneGroup[groupIdx - 1].id) }}
+                  style={{
+                    width: '28px', height: '28px', border: 'none', borderRadius: '6px', padding: 0,
+                    background: canMoveUp ? 'var(--bg-hover)' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: canMoveUp ? 'pointer' : 'default',
+                    color: canMoveUp ? 'var(--text-2)' : 'var(--text-3)',
+                    opacity: canMoveUp ? 1 : 0.25, touchAction: 'manipulation',
+                  }}
+                >
+                  <svg width="10" height="7" viewBox="0 0 10 7" fill="none">
+                    <path d="M1 6l4-5 4 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); if (canMoveDown) onReorder!(sc.id, sceneGroup[groupIdx + 1].id) }}
+                  style={{
+                    width: '28px', height: '28px', border: 'none', borderRadius: '6px', padding: 0,
+                    background: canMoveDown ? 'var(--bg-hover)' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: canMoveDown ? 'pointer' : 'default',
+                    color: canMoveDown ? 'var(--text-2)' : 'var(--text-3)',
+                    opacity: canMoveDown ? 1 : 0.25, touchAction: 'manipulation',
+                  }}
+                >
+                  <svg width="10" height="7" viewBox="0 0 10 7" fill="none">
+                    <path d="M1 1l4 5 4-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={e => { e.stopPropagation(); if (canMoveUp) onReorder!(sc.id, sceneGroup[groupIdx - 1].id) }}
+                  style={{
+                    width: '14px', height: '14px', border: 'none', background: 'none', padding: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: canMoveUp ? 'pointer' : 'default',
+                    opacity: isHov && canMoveUp ? 0.7 : 0,
+                    transition: 'opacity 0.14s ease, color 0.14s ease',
+                    color: 'var(--text-2)',
+                  }}
+                  onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.opacity = '1' }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = isHov && canMoveUp ? '0.7' : '0' }}
+                >
+                  <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                    <path d="M1 5l3-4 3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <div style={{
+                  color: isHov ? 'var(--text-3)' : 'rgba(255,255,255,0.12)',
+                  fontSize: '10px', lineHeight: 1, transition: 'color 0.14s ease',
+                }}>⠿</div>
+                <button
+                  onClick={e => { e.stopPropagation(); if (canMoveDown) onReorder!(sc.id, sceneGroup[groupIdx + 1].id) }}
+                  style={{
+                    width: '14px', height: '14px', border: 'none', background: 'none', padding: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: canMoveDown ? 'pointer' : 'default',
+                    opacity: isHov && canMoveDown ? 0.7 : 0,
+                    transition: 'opacity 0.14s ease, color 0.14s ease',
+                    color: 'var(--text-2)',
+                  }}
+                  onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.opacity = '1' }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = isHov && canMoveDown ? '0.7' : '0' }}
+                >
+                  <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                    <path d="M1 1l3 4 3-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         )}
 

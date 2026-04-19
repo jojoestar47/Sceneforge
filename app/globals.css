@@ -85,3 +85,25 @@ html, body {
   .btn-sm { min-height: 36px; padding: 6px 12px; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
+
+/* ── Top bar responsive ── */
+.topbar-title {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  font-family: 'Cormorant Garamond', serif; font-size: 14px;
+  letter-spacing: 5px; font-weight: 500; color: var(--text);
+  cursor: pointer; white-space: nowrap; pointer-events: auto;
+  max-width: calc(100% - 280px);
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* Label spans inside top-bar buttons — hidden on narrow screens */
+.topbar-label { display: inline; }
+
+@media (max-width: 620px) {
+  .topbar-title {
+    position: static; transform: none;
+    flex: 1; text-align: center;
+    font-size: 12px; letter-spacing: 3px;
+    min-width: 0; max-width: none;
+  }
+  .topbar-label { display: none; }
+}

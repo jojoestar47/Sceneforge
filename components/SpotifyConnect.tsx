@@ -54,7 +54,7 @@ export default function SpotifyConnect() {
         }}
       >
         <SpotifyIcon size={13} />
-        {disconnecting ? 'Disconnecting…' : 'Connected'}
+        <span className="topbar-label">{disconnecting ? 'Disconnecting…' : 'Connected'}</span>
       </button>
     )
   }
@@ -80,7 +80,7 @@ export default function SpotifyConnect() {
       }}
     >
       <SpotifyIcon size={13} color="currentColor" />
-      Spotify
+      <span className="topbar-label">Spotify</span>
     </a>
   )
 }
