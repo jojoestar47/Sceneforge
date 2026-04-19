@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Scene, SceneFolder } from '@/lib/types'
 import AppIcon from '@/components/AppIcon'
 
@@ -36,6 +36,7 @@ export default function SceneList({
   onFolderCreate, onFolderRename, onFolderDelete, onFolderColor, onMoveToFolder,
 }: Props) {
   const [q,               setQ]               = useState('')
+  const [debouncedQ,      setDebouncedQ]      = useState('')
   const [dragId,          setDragId]          = useState<string | null>(null)
   const [dragOverId,      setDragOverId]      = useState<string | null>(null)
   const [folderDragOver,  setFolderDragOver]  = useState<string | 'unfiled' | null>(null)
@@ -92,20 +93,31 @@ export default function SceneList({
     return () => document.removeEventListener('mousedown', close)
   }, [menuFolderId])
 
+  // Debounce the search input so filtering/folder-opening doesn't run on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 150)
+    return () => clearTimeout(t)
+  }, [q])
+
   // Auto-open any folder whose scenes match the current search query
   useEffect(() => {
-    if (!q) return
-    const ql = q.toLowerCase()
-    const matchingFolderIds = new Set(
-      scenes.filter(s => s.folder_id && s.name.toLowerCase().includes(ql)).map(s => s.folder_id as string)
-    )
+    if (!debouncedQ) return
+    const ql = debouncedQ.toLowerCase()
+    const matchingFolderIds = new Set<string>()
+    for (const s of scenes) {
+      if (s.folder_id && s.name.toLowerCase().includes(ql)) matchingFolderIds.add(s.folder_id)
+    }
     if (matchingFolderIds.size > 0) {
       setOpenFolders(prev => { const n = new Set(prev); matchingFolderIds.forEach(id => n.add(id)); return n })
     }
-  }, [q, scenes])
+  }, [debouncedQ, scenes])
 
-  const filtered = scenes.filter(s => !q || s.name.toLowerCase().includes(q.toLowerCase()))
-  const canDrag  = !q && !!onReorder && !isTouchDevice
+  const filtered = useMemo(() => {
+    if (!debouncedQ) return scenes
+    const ql = debouncedQ.toLowerCase()
+    return scenes.filter(s => s.name.toLowerCase().includes(ql))
+  }, [scenes, debouncedQ])
+  const canDrag  = !debouncedQ && !!onReorder && !isTouchDevice
   const hasFolders = folders.length > 0
 
   function toggleFolder(id: string) {
@@ -257,7 +269,7 @@ export default function SceneList({
           {bgUrl
             ? sc.bg?.type === 'video'
               ? <video src={bgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline preload="metadata" />
-              : <img src={bgUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.07)' : 'scale(1)' }} />
+              : <img src={bgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.07)' : 'scale(1)' }} />
             : <AppIcon size={22} opacity={0.2} />
           }
           <div style={{

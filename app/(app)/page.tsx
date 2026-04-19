@@ -30,6 +30,16 @@ interface ActiveCharacters {
   right:  Character | null
 }
 
+interface SceneCharacterRow {
+  character_id: string | null
+  scale?: number | null
+  zoom?: number | null
+  pan_x?: number | null
+  pan_y?: number | null
+  flipped?: boolean | null
+  character?: Character | null
+}
+
 export default function AppPage() {
   const supabase = createClient()
 
@@ -92,15 +102,16 @@ export default function AppPage() {
   }, [])
 
   // ── Load campaigns ────────────────────────────────────────────
-  const loadCampaigns = useCallback(async () => {
-    const { data } = await supabase.from('campaigns').select('*').order('created_at')
-    if (data) {
-      const resolved = await resolveCampaignCovers(supabase, data)
-      setCampaigns(resolved)
-    }
-  }, [])
-
-  useEffect(() => { loadCampaigns().then(() => setLoading(false), () => setLoading(false)) }, [loadCampaigns])
+  useEffect(() => {
+    supabase.from('campaigns').select('*').order('created_at')
+      .then(async ({ data }) => {
+        if (data) {
+          const resolved = await resolveCampaignCovers(supabase, data)
+          setCampaigns(resolved)
+        }
+      })
+      .then(() => setLoading(false), () => setLoading(false))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
@@ -134,43 +145,47 @@ export default function AppPage() {
   // Keep the ref in sync with state so closures always see fresh data
   useEffect(() => { campaignCharactersRef.current = campaignCharacters }, [campaignCharacters])
 
-  // ── Load campaign characters + tags ──────────────────────────
+  // ── Load campaign characters + tags (parallel) ───────────────
   useEffect(() => {
     if (!activeCampId) { setCampaignCharacters([]); setCampaignTags([]); return }
-    supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
-      .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
-    supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name')
-      .then(({ data }) => { if (data) setCampaignTags(data as CampaignTag[]) })
-  }, [activeCampId])
+    Promise.all([
+      supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name'),
+      supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name'),
+    ]).then(([{ data: chars }, { data: tags }]) => {
+      if (chars) setCampaignCharacters(chars as Character[])
+      if (tags)  setCampaignTags(tags as CampaignTag[])
+    })
+  }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch this scene's character pool + saved framing defaults ──
+  const loadSceneRoster = useCallback(async (sceneId: string) => {
+    const { data } = await supabase.from('scene_characters')
+      .select('*, character:characters(*)')
+      .eq('scene_id', sceneId)
+    if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
+    const rows = data as SceneCharacterRow[]
+    setSceneRosterChars(rows.map(r => r.character).filter((c): c is Character => !!c))
+
+    const scales: Record<string, number> = {}
+    const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
+    rows.forEach(r => {
+      if (!r.character_id) return
+      scales[r.character_id] = r.scale ?? 1
+      displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
+    })
+    setCharacterScales(scales)
+    setCharacterDisplayDefaults(displayDefs)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── On scene change: clear stage slots + load this scene's character pool ──
-  // Load scene characters and auto-place any with saved slot positions.
+  // Stage always starts empty — DM places characters manually each session.
   useEffect(() => {
     setActiveCharacters({ left: null, center: null, right: null })
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
     if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
-    supabase.from('scene_characters')
-      .select('*, character:characters(*)')
-      .eq('scene_id', activeSceneId)
-      .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
-        setSceneRosterChars(data.map((r: any) => r.character as Character).filter(Boolean))
-
-        const scales: Record<string, number> = {}
-        const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
-
-        data.forEach((r: any) => {
-          if (!r.character_id) return
-          scales[r.character_id] = r.scale ?? 1
-          displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
-        })
-
-        setCharacterScales(scales)
-        setCharacterDisplayDefaults(displayDefs)
-        // Stage always starts empty — DM places characters manually each session.
-      })
-  }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
+    loadSceneRoster(activeSceneId)
+  }, [activeSceneId, loadSceneRoster])
 
   // ── Load existing live session ────────────────────────────────
   const loadSession = useCallback(async (campId: string) => {
@@ -647,8 +662,9 @@ export default function AppPage() {
     })
   }
 
-  function handleSceneSaved(saved: Scene) {
+  function handleSceneSaved(saved: Scene, newCharacters: Character[] = []) {
     const isNew = !scenes.find(s => s.id === saved.id)
+    const isSameScene = saved.id === activeSceneId
     const targetFolder = isNew ? newSceneFolderRef.current : null
     newSceneFolderRef.current = null
     setScenes(prev => { const e = prev.find(s => s.id === saved.id); return e ? prev.map(s => s.id === saved.id ? saved : s) : [...prev, { ...saved, folder_id: targetFolder }] })
@@ -656,28 +672,18 @@ export default function AppPage() {
     handleSelectScene(saved.id)
     setEditorOpen(false)
     resolveSceneUrls(supabase, [saved]).then(([r]) => setScenes(prev => prev.map(s => s.id === r.id ? r : s)))
-    // Reload campaign characters in case a new one was created
-    if (activeCampId) {
-      supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name')
-        .then(({ data }) => { if (data) setCampaignCharacters(data as Character[]) })
-    }
-    // Refresh this scene's character pool — the editor may have changed entries or scales.
-    supabase.from('scene_characters')
-      .select('*, character:characters(*)')
-      .eq('scene_id', saved.id)
-      .then(({ data }) => {
-        if (!data) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
-        setSceneRosterChars(data.map((r: any) => r.character as Character).filter(Boolean))
-        const scales: Record<string, number> = {}
-        const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
-        data.forEach((r: any) => {
-          if (!r.character_id) return
-          scales[r.character_id] = r.scale ?? 1
-          displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
-        })
-        setCharacterScales(scales)
-        setCharacterDisplayDefaults(displayDefs)
+    // Merge any new characters the editor created — skip the full refetch.
+    if (newCharacters.length) {
+      setCampaignCharacters(prev => {
+        const existing = new Set(prev.map(c => c.id))
+        const additions = newCharacters.filter(c => !existing.has(c.id))
+        if (!additions.length) return prev
+        return [...prev, ...additions].sort((a, b) => a.name.localeCompare(b.name))
       })
+    }
+    // If editing the active scene, roster/framing may have changed — refresh.
+    // When switching scenes, the activeSceneId effect already loads the roster.
+    if (isSameScene) loadSceneRoster(saved.id)
   }
 
   function copyUrl() {
