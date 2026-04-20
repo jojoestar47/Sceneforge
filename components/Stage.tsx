@@ -47,6 +47,7 @@ interface Props {
   onCharactersChange?: (c: ActiveCharacters) => void
   onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
   onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
+  onHandoutShow?: (handoutId: string | null) => void
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -64,7 +65,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -114,6 +115,11 @@ export default function Stage({
   // ── Handouts ─────────────────────────────────────────────────
   const [handoutsOpen,   setHandoutsOpen]   = useState(false)
   const [activeHandout,  setActiveHandout]  = useState<Handout | null>(null)
+
+  function showHandout(h: Handout | null) {
+    setActiveHandout(h)
+    onHandoutShow?.(h?.id ?? null)
+  }
 
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -165,8 +171,8 @@ export default function Stage({
     setActiveSlot(null)
     setCharSearch('')
     setHandoutsOpen(false)
-    setActiveHandout(null)
-  }, [scene?.id])
+    showHandout(null)
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredChars = (campaignCharacters || []).filter(c =>
     !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
@@ -513,7 +519,7 @@ export default function Stage({
                   return (
                     <button
                       key={h.id}
-                      onClick={() => { setActiveHandout(h); setHandoutsOpen(false) }}
+                      onClick={() => { showHandout(h); setHandoutsOpen(false) }}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
@@ -549,7 +555,7 @@ export default function Stage({
 
       {/* ── Handout lightbox ── */}
       {activeHandout && (
-        <HandoutLightbox handout={activeHandout} onClose={() => setActiveHandout(null)} />
+        <HandoutLightbox handout={activeHandout} onClose={() => showHandout(null)} />
       )}
 
       {/* ── DM Character Slots ──────────────────────────────────

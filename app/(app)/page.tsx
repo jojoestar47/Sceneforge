@@ -284,6 +284,11 @@ export default function AppPage() {
     setIsLive(false); setSessionId(null); setJoinCode(null)
   }
 
+  async function handleHandoutShow(handoutId: string | null) {
+    if (!sessionId || !isLive) return
+    await supabase.from('sessions').update({ active_handout_id: handoutId }).eq('id', sessionId)
+  }
+
   // ── Scene + character selection ───────────────────────────────
   async function handleSelectScene(id: string) {
     setActiveSceneId(id)
@@ -804,6 +809,7 @@ export default function AppPage() {
               onCharactersChange={handleCharactersChange}
               onSlotDisplayChange={handleSlotDisplayChange}
               onSaveSlotDisplay={handleSaveSlotDisplay}
+              onHandoutShow={handleHandoutShow}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{
@@ -931,7 +937,7 @@ export default function AppPage() {
                       {activeScene.handouts!.map(h => {
                         const imgUrl = h.media?.signed_url || h.media?.url || null
                         return (
-                          <button key={h.id} onClick={() => setActiveHandout(h)}
+                          <button key={h.id} onClick={() => { setActiveHandout(h); handleHandoutShow(h.id) }}
                             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
                             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
@@ -1072,7 +1078,7 @@ export default function AppPage() {
 
       {/* ── HANDOUT LIGHTBOX ── */}
       {activeHandout && (
-        <HandoutLightbox handout={activeHandout} onClose={() => setActiveHandout(null)} />
+        <HandoutLightbox handout={activeHandout} onClose={() => { setActiveHandout(null); handleHandoutShow(null) }} />
       )}
 
       <style>{`@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}@keyframes scenePickerIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
