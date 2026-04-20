@@ -736,7 +736,12 @@ export default function AppPage() {
             </>
           )}
           <SpotifyConnect />
-          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out" style={{ flexShrink: 0 }}>⏻</button>
+          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Sign out" style={{ flexShrink: 0 }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M6.5 1v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M9.5 2.8a5 5 0 1 1-6 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
+            </svg>
+          </button>
         </div>
       </div>
 
