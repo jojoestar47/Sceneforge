@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState } from '@/lib/types'
+import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import SceneList           from '@/components/SceneList'
 import SceneEditor         from '@/components/SceneEditor'
@@ -45,6 +45,7 @@ export default function AppPage() {
 
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activeHandout, setActiveHandout] = useState<Handout | null>(null)
 
   const [userId,        setUserId]        = useState<string>('')
   const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
@@ -187,6 +188,7 @@ export default function AppPage() {
     setActiveCharacters({ left: null, center: null, right: null })
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
+    setActiveHandout(null)
     if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
     loadSceneRoster(activeSceneId)
   }, [activeSceneId, loadSceneRoster])
@@ -921,6 +923,31 @@ export default function AppPage() {
                       >▶</button>
                     </div>
                   </div>
+                  {/* ── Handouts quick-access ── */}
+                  {activeScene && (activeScene.handouts?.length ?? 0) > 0 && (
+                    <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0, minWidth: '276px' }}>
+                      <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '4px' }}>Handouts</div>
+                      {activeScene.handouts!.map(h => {
+                        const imgUrl = h.media?.signed_url || h.media?.url || null
+                        return (
+                          <button key={h.id} onClick={() => setActiveHandout(h)}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                          >
+                            <div style={{ width: '28px', height: '28px', borderRadius: '4px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {imgUrl
+                                ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <span style={{ fontSize: '12px', opacity: 0.4 }}>🗺</span>
+                              }
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                            <span style={{ fontSize: '9px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                   <SceneList
                     key={activeCampId}
                     scenes={scenes}
@@ -1041,6 +1068,27 @@ export default function AppPage() {
           ))}
         </div>
       )}
+
+      {/* ── HANDOUT LIGHTBOX ── */}
+      {activeHandout && (() => {
+        const imgUrl = activeHandout.media?.signed_url || activeHandout.media?.url || null
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            onClick={() => setActiveHandout(null)}
+          >
+            <div onPointerDown={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '85vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.8)', fontFamily: "'Cinzel',serif", letterSpacing: '2px' }}>{activeHandout.name}</span>
+                <button onClick={() => setActiveHandout(null)} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '14px', cursor: 'pointer', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+              {imgUrl && (
+                <img src={imgUrl} alt={activeHandout.name} style={{ maxWidth: '100%', maxHeight: 'calc(85vh - 60px)', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 80px rgba(0,0,0,0.8)' }}
+                  onClick={e => e.stopPropagation()} />
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       <style>{`@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}@keyframes scenePickerIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </div>

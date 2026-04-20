@@ -228,14 +228,20 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
         await deleteMediaBatch(supabase, orphanedHandoutPaths)
       }
       const handoutInserts = await Promise.all(draft.handouts.map(async (h, i) => {
-        let media = h.media
+        // Strip signed_url before storing — it's ephemeral and must not be persisted in DB
+        let media: MediaRef | null = h.media
+          ? { type: h.media.type, url: h.media.url, storage_path: h.media.storage_path, file_name: h.media.file_name }
+          : null
         if (h._file) {
           const path = await uploadMedia(supabase, userId, h._file)
           media = { type: 'image', storage_path: path, file_name: h._file.name }
         }
         return { scene_id: sceneId!, name: h.name, media: media || null, order_index: i }
       }))
-      if (handoutInserts.length) await supabase.from('handouts').insert(handoutInserts)
+      if (handoutInserts.length) {
+        const { error: handoutInsertError } = await supabase.from('handouts').insert(handoutInserts)
+        if (handoutInsertError) throw handoutInsertError
+      }
 
       const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('id', sceneId!).single()
       onSave(savedScene as Scene, createdCharsRef.current)
@@ -646,11 +652,15 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
     setQuery(''); setResults([])
   }
 
+  // Ambience tracks are played simultaneously — Spotify's single-stream limit
+  // means a Spotify ambience track would steal the stream from music. File/URL only.
+  const availableTabs: AdderTab[] = kind === 'ambience' ? ['file'] : ['file', 'spotify']
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {/* Tab selector */}
       <div style={{ display: 'flex', gap: '6px' }}>
-        {(['file', 'spotify'] as AdderTab[]).map(t => (
+        {availableTabs.map(t => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '5px 12px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', border: `1px solid ${tab === t ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '5px', background: tab === t ? 'var(--accent-bg)' : 'none', color: tab === t ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer' }}>
             {t === 'spotify' ? '🎧 Spotify' : '📁 File / URL'}
           </button>
