@@ -786,8 +786,8 @@ function MiniTrackRow({ t, isPlaying, volume, onToggle, onVol, nowPlaying, progr
       {/* Skip controls — only shown for playlists */}
       {showSkip && (
         <div style={{ display: 'flex', gap: '6px', marginTop: '6px', justifyContent: 'center' }}>
-          <button onClick={e => { e.stopPropagation(); onSkip!('previous') }} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', padding: '3px 10px', cursor: 'pointer' }}>⏮</button>
-          <button onClick={e => { e.stopPropagation(); onSkip!('next')     }} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', padding: '3px 10px', cursor: 'pointer' }}>⏭</button>
+          <button onClick={e => { e.stopPropagation(); onSkip!('previous') }} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', height: '32px', padding: '0 14px', cursor: 'pointer' }}>⏮</button>
+          <button onClick={e => { e.stopPropagation(); onSkip!('next')     }} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', height: '32px', padding: '0 14px', cursor: 'pointer' }}>⏭</button>
         </div>
       )}
     </div>

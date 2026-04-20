@@ -37,6 +37,7 @@ export default function SpotifyConnect() {
         onClick={disconnect}
         disabled={disconnecting}
         title="Disconnect Spotify"
+        className="btn-sm"
         style={{
           display:     'flex',
           alignItems:  'center',
@@ -63,6 +64,7 @@ export default function SpotifyConnect() {
     <a
       href="/auth/spotify"
       title="Connect Spotify to use streaming tracks"
+      className="btn-sm"
       style={{
         display:     'flex',
         alignItems:  'center',
