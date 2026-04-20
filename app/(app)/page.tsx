@@ -117,7 +117,7 @@ export default function AppPage() {
   // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
     const [{ data: scenesData }, { data: foldersData }] = await Promise.all([
-      supabase.from('scenes').select('*, tracks(*)').eq('campaign_id', campId).order('order_index'),
+      supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('campaign_id', campId).order('order_index'),
       supabase.from('scene_folders').select('*').eq('campaign_id', campId).order('order_index'),
     ])
     if (scenesData) {
