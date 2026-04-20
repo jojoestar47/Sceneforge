@@ -611,19 +611,14 @@ export default function CharacterRoster({
                       onClick={() => setSelectedTags(prev => { const n = new Set(prev); active ? n.delete(tag.id) : n.add(tag.id); return n })}
                       style={{
                         padding: '3px 10px', borderRadius: '20px', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '4px',
                         fontSize: '10px', fontWeight: 600, letterSpacing: '0.4px',
                         background: active ? col.bg  : 'rgba(255,255,255,0.04)',
                         border:     active ? `1px solid ${col.border}` : '1px solid rgba(255,255,255,0.1)',
-                        color:      active ? col.text : 'var(--text-3)',
+                        color:      active ? col.text : 'rgba(255,255,255,0.9)',
                         transition: 'all 0.15s',
                         boxShadow:  active ? `0 0 8px ${col.border}` : 'none',
                       }}
                     >
-                      <svg viewBox="0 0 104 104" xmlns="http://www.w3.org/2000/svg" width="9" height="9" style={{ flexShrink: 0, opacity: active ? 1 : 0.5 }}>
-                        <path d="M12 12 L12 52 L52 92 Q56 96 60 92 L92 60 Q96 56 92 52 L52 12 Z" fill="none" stroke="currentColor" strokeWidth="7" strokeLinejoin="round" strokeLinecap="round"/>
-                        <circle cx="32" cy="32" r="7" fill="currentColor"/>
-                      </svg>
                       {tag.name}
                     </button>
                   )
