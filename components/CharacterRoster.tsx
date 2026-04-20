@@ -614,7 +614,7 @@ export default function CharacterRoster({
                         fontSize: '10px', fontWeight: 600, letterSpacing: '0.4px',
                         background: active ? col.bg  : 'rgba(255,255,255,0.04)',
                         border:     active ? `1px solid ${col.border}` : '1px solid rgba(255,255,255,0.1)',
-                        color:      active ? col.text : 'var(--text-3)',
+                        color:      active ? col.text : 'rgba(255,255,255,0.9)',
                         transition: 'all 0.15s',
                         boxShadow:  active ? `0 0 8px ${col.border}` : 'none',
                       }}
