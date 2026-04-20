@@ -114,7 +114,7 @@ const CharacterCard = memo(function CharacterCard({
   return (
     <div
       className="rf-card"
-      style={{ height: '310px', perspective: '800px' }}
+      style={{ height: 'clamp(220px, 35vw, 310px)', perspective: '800px' }}
       onMouseMove={e => onMouseMove(e, isFlipped)}
       onMouseLeave={onCardMouseLeave}
     >
@@ -464,10 +464,10 @@ export default function CharacterRoster({
         ].join(','),
       }} />
 
-      <div style={{ position: 'relative', zIndex: 1, maxWidth: '1200px', margin: '0 auto', padding: '40px 40px 80px' }}>
+      <div className="cr-content" style={{ position: 'relative', zIndex: 1 }}>
 
         {/* ── Header ── */}
-        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+        <div className="cr-header">
           <div>
             <h2 style={{ fontFamily: "'Cinzel', serif", fontSize: '22px', fontWeight: 600, letterSpacing: '4px', color: 'var(--text)', marginBottom: '6px', lineHeight: 1.2 }}>
               CHARACTERS
@@ -479,7 +479,7 @@ export default function CharacterRoster({
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', flexShrink: 0, alignItems: 'center' }}>
+          <div className="cr-header-btns">
             <button
               onClick={() => setTagsOpen(v => !v)}
               style={{
@@ -654,7 +654,7 @@ export default function CharacterRoster({
 
         {/* ── Grid ── */}
         {visible.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '22px' }}>
+          <div className="cr-grid">
             {visible.map(c => {
               const isEditingThis = editingNameId === c.id
               return (

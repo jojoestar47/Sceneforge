@@ -85,3 +85,42 @@ html, body {
   .btn-sm { min-height: 36px; padding: 6px 12px; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
+
+/* ── Top bar responsive ── */
+.topbar-title {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  font-family: 'Cormorant Garamond', serif; font-size: 14px;
+  letter-spacing: 5px; font-weight: 500; color: var(--text);
+  cursor: pointer; white-space: nowrap; pointer-events: auto;
+  max-width: calc(100% - 280px);
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* Label spans inside top-bar buttons — hidden on narrow screens */
+.topbar-label { display: inline; }
+
+@media (max-width: 620px) {
+  .topbar-title {
+    position: static; transform: none;
+    flex: 1; text-align: center;
+    font-size: 12px; letter-spacing: 3px;
+    min-width: 0; max-width: none;
+  }
+  .topbar-label { display: none; }
+}
+
+/* ── Character Roster responsive ── */
+.cr-content { max-width: 1200px; margin: 0 auto; padding: 40px 40px 80px; }
+.cr-header  { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 28px; }
+.cr-header-btns { display: flex; gap: 8px; flex-shrink: 0; align-items: center; }
+.cr-grid    { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 22px; }
+
+@media (max-width: 640px) {
+  .cr-content { padding: 20px 14px 60px; }
+  .cr-header  { flex-direction: column; gap: 10px; }
+  .cr-header-btns { width: 100%; }
+  .cr-header-btns > button { flex: 1; justify-content: center; }
+  .cr-grid    { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+}
+@media (max-width: 900px) and (min-width: 641px) {
+  .cr-content { padding: 28px 24px 70px; }
+}
