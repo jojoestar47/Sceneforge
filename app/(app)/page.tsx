@@ -722,8 +722,9 @@ export default function AppPage() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
           {activeCampId && !isLive && (
-            <button className="btn btn-ghost btn-sm" onClick={startPresenting} title="Start Presenting" style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a' }}>
-              ▶<span className="topbar-label"> Present</span>
+            <button className="btn btn-ghost btn-sm" onClick={startPresenting} title="Start Presenting" style={{ borderColor: 'rgba(74,158,101,0.5)', color: '#6ec48a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <svg viewBox="0 0 10 12" xmlns="http://www.w3.org/2000/svg" width="8" height="10" style={{ flexShrink: 0 }}><polygon points="0,0 10,6 0,12" fill="currentColor"/></svg>
+              <span className="topbar-label">Present</span>
             </button>
           )}
           {activeCampId && isLive && (
