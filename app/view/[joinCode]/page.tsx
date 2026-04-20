@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Scene, Track, Character, CharacterState } from '@/lib/types'
+import type { Scene, Track, Character, CharacterState, Handout } from '@/lib/types'
 import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import HandoutLightbox from '@/components/HandoutLightbox'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -97,6 +98,10 @@ export default function ViewerPage() {
     return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
+
+  // ── Handouts ─────────────────────────────────────────────────
+  const [handoutsOpen,  setHandoutsOpen]  = useState(false)
+  const [activeHandout, setActiveHandout] = useState<Handout | null>(null)
 
   // ── Spotify player ────────────────────────────────────────────
   const spotify = useSpotifyPlayer(scene)
@@ -225,8 +230,13 @@ export default function ViewerPage() {
   // ── Load scene ────────────────────────────────────────────────
   const loadScene = useCallback(async (sceneId: string | null) => {
     if (!sceneId) { setScene(null); setStatus('live'); return }
-    const { data } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId).single()
-    if (data) { setScene(data as Scene); setStatus('live') }
+    const { data } = await supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('id', sceneId).single()
+    if (data) {
+      setScene(data as Scene)
+      setStatus('live')
+      setHandoutsOpen(false)
+      setActiveHandout(null)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load session ──────────────────────────────────────────────
@@ -445,6 +455,62 @@ export default function ViewerPage() {
           </div>
         </div>
       )}
+
+      {/* ── Handouts ── */}
+      {(() => {
+        const handouts = scene?.handouts || []
+        if (!handouts.length) return null
+        return (
+          <div style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px', alignItems: 'flex-end', flexDirection: 'column' }}>
+            {handoutsOpen && (
+              <div
+                onPointerDown={e => e.stopPropagation()}
+                style={{ width: '240px', background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)', marginBottom: '4px' }}
+              >
+                <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Handouts</span>
+                  <button onClick={() => setHandoutsOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+                </div>
+                <div style={{ maxHeight: '280px', overflowY: 'auto', padding: '6px 8px' }}>
+                  {handouts.map((h: Handout) => {
+                    const imgUrl = pubUrl(h.media as any)
+                    return (
+                      <button key={h.id} onClick={() => { setActiveHandout(h); setHandoutsOpen(false) }}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <div style={{ width: '38px', height: '38px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {imgUrl
+                            ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
+                          }
+                        </div>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                        <span style={{ fontSize: '10px', color: '#c9a84c', fontWeight: 700, flexShrink: 0 }}>Show</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setHandoutsOpen(o => !o)}
+              style={{ height: '44px', padding: '0 14px', background: MIXER_BG, border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, borderRadius: '8px', color: handoutsOpen ? '#c9a84c' : 'rgba(255,255,255,0.7)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', letterSpacing: '.5px' }}
+            >
+              📄 Handouts
+            </button>
+          </div>
+        )
+      })()}
+
+      {/* Handout lightbox — resolve storage_path to public URL for anon viewer */}
+      {activeHandout && (() => {
+        const resolvedMedia = activeHandout.media
+          ? { ...activeHandout.media, signed_url: pubUrl(activeHandout.media as any) || activeHandout.media.url }
+          : null
+        return <HandoutLightbox handout={{ ...activeHandout, media: resolvedMedia }} onClose={() => setActiveHandout(null)} />
+      })()}
 
       {/* Audio Mixer */}
       {allTracks.length > 0 && (

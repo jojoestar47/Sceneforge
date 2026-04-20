@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Scene, Track, Character, Handout } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import HandoutLightbox from '@/components/HandoutLightbox'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 
 interface ActiveCharacters {
@@ -547,30 +548,9 @@ export default function Stage({
       )}
 
       {/* ── Handout lightbox ── */}
-      {activeHandout && (() => {
-        const imgUrl = activeHandout.media?.signed_url || activeHandout.media?.url || null
-        return (
-          <div
-            style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-            onClick={() => setActiveHandout(null)}
-          >
-            <div onPointerDown={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '85vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.8)', fontFamily: "'Cinzel',serif", letterSpacing: '2px' }}>{activeHandout.name}</span>
-                <button onClick={() => setActiveHandout(null)} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '14px', cursor: 'pointer', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-              </div>
-              {imgUrl && (
-                <img
-                  src={imgUrl}
-                  alt={activeHandout.name}
-                  style={{ maxWidth: '100%', maxHeight: 'calc(85vh - 60px)', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 80px rgba(0,0,0,0.8)' }}
-                  onClick={e => e.stopPropagation()}
-                />
-              )}
-            </div>
-          </div>
-        )
-      })()}
+      {activeHandout && (
+        <HandoutLightbox handout={activeHandout} onClose={() => setActiveHandout(null)} />
+      )}
 
       {/* ── DM Character Slots ──────────────────────────────────
           Two small slot buttons at bottom-center for live character control.

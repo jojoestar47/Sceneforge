@@ -39,7 +39,7 @@ interface CharPoolEntry {
 }
 
 interface Draft {
-  name: string; location: string; dynamic_music: boolean
+  name: string; location: string
   bg: MediaRef | null; tracks: TrackDraft[]
   _bgFile?: File
   characterPool: CharPoolEntry[]
@@ -52,9 +52,8 @@ function blankDraft(scene: Scene | null): Draft {
       .map(t => ({ id: t.id, kind, name: t.name, url: t.url || '', storage_path: t.storage_path, file_name: t.file_name, spotify_uri: t.spotify_uri, spotify_type: t.spotify_type, loop: t.loop, volume: t.volume }))
   return {
     name: scene?.name || '', location: scene?.location || '',
-    dynamic_music: scene?.dynamic_music || false,
     bg: scene?.bg || null,
-    tracks: [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
+    tracks: [...existing('music'), ...existing('ambience')],
     characterPool: [],
     handouts: (scene?.handouts || []).map(h => ({ id: h.id, name: h.name, media: h.media })),
   }
@@ -178,7 +177,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       const scenePayload = {
         campaign_id: campaignId, name: draft.name || 'Untitled Scene',
         location: draft.location || null,
-        dynamic_music: draft.dynamic_music,
+        dynamic_music: false,
         bg: bg ? { type: bg.type, url: bg.url, storage_path: bg.storage_path, file_name: bg.file_name } : null,
         order_index: scene?.order_index ?? 0,
       }
@@ -418,24 +417,6 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                     <TrackAdder kind="music" onAdd={t => addTrack('music', t)} />
                   </PropRow>
                   {tracksOf('music').map((t, i) => <TrackChip key={i} track={t} globalIdx={draft.tracks.indexOf(t)} onRemove={removeTrack} />)}
-                  <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px 16px', marginTop: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <span style={{ flex: 1, fontSize: '13px', fontWeight: 600 }}>Enable Dynamic Music</span>
-                      <ToggleSwitch checked={draft.dynamic_music} onChange={v => setDraft(d => ({ ...d, dynamic_music: v }))} />
-                    </div>
-                    {draft.dynamic_music && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-                        {(['ml2', 'ml3'] as Kind[]).map(kind => (
-                          <div key={kind}>
-                            <PropRow label={kind === 'ml2' ? 'Music Layer 2' : 'Music Layer 3'} desc={kind === 'ml2' ? 'Medium intensity layer.' : 'Highest intensity layer.'}>
-                              <TrackAdder kind={kind} onAdd={t => addTrack(kind, t)} />
-                            </PropRow>
-                            {tracksOf(kind).map((t, i) => <TrackChip key={i} track={t} globalIdx={draft.tracks.indexOf(t)} onRemove={removeTrack} />)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                   <PropRow label="Sound" desc="Ambient background sound.">
                     <TrackAdder kind="ambience" onAdd={t => addTrack('ambience', t)} />
                   </PropRow>
@@ -756,11 +737,3 @@ function SpotifyMark() {
   )
 }
 
-function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div onClick={() => onChange(!checked)} style={{ position: 'relative', width: '44px', height: '24px', cursor: 'pointer', flexShrink: 0 }}>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: '12px', background: checked ? 'var(--accent)' : 'var(--border-lt)', transition: 'background .2s' }} />
-      <div style={{ position: 'absolute', top: '3px', left: checked ? '23px' : '3px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
-    </div>
-  )
-}

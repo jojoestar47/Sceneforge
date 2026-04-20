@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout } from '@/lib/types'
 import Stage              from '@/components/Stage'
+import HandoutLightbox    from '@/components/HandoutLightbox'
 import SceneList           from '@/components/SceneList'
 import SceneEditor         from '@/components/SceneEditor'
 import CampaignHome        from '@/components/CampaignHome'
@@ -1070,25 +1071,9 @@ export default function AppPage() {
       )}
 
       {/* ── HANDOUT LIGHTBOX ── */}
-      {activeHandout && (() => {
-        const imgUrl = activeHandout.media?.signed_url || activeHandout.media?.url || null
-        return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-            onClick={() => setActiveHandout(null)}
-          >
-            <div onPointerDown={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '85vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.8)', fontFamily: "'Cinzel',serif", letterSpacing: '2px' }}>{activeHandout.name}</span>
-                <button onClick={() => setActiveHandout(null)} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '14px', cursor: 'pointer', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-              </div>
-              {imgUrl && (
-                <img src={imgUrl} alt={activeHandout.name} style={{ maxWidth: '100%', maxHeight: 'calc(85vh - 60px)', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 80px rgba(0,0,0,0.8)' }}
-                  onClick={e => e.stopPropagation()} />
-              )}
-            </div>
-          </div>
-        )
-      })()}
+      {activeHandout && (
+        <HandoutLightbox handout={activeHandout} onClose={() => setActiveHandout(null)} />
+      )}
 
       <style>{`@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}@keyframes scenePickerIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </div>
