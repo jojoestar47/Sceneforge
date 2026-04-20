@@ -27,6 +27,15 @@ export interface SceneFolder {
   created_at: string
 }
 
+export interface Handout {
+  id: string
+  scene_id: string
+  name: string
+  media: MediaRef | null
+  order_index: number
+  created_at: string
+}
+
 export interface Scene {
   id: string
   campaign_id: string
@@ -41,6 +50,7 @@ export interface Scene {
   created_at: string
   updated_at: string
   tracks?: Track[]
+  handouts?: Handout[]
 }
 
 export interface Track {

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Campaign, Character, MediaRef, Scene, Track } from '@/lib/types'
+import type { Campaign, Character, Handout, MediaRef, Scene, Track } from '@/lib/types'
 
 const BUCKET   = 'scene-media'
 const EXPIRES  = 4 * 60 * 60 // 4 hours — URLs refreshed every 3h so they never expire mid-session
@@ -60,7 +60,7 @@ export async function resolveSceneUrls(
   scenes: Scene[]
 ): Promise<Scene[]> {
   // Collect every storage path that needs a signed URL, tagged by location
-  type PathRef = { path: string; sceneIdx: number; kind: 'bg' | 'overlay' | 'track'; trackIdx?: number }
+  type PathRef = { path: string; sceneIdx: number; kind: 'bg' | 'overlay' | 'track' | 'handout'; trackIdx?: number; handoutIdx?: number }
   const refs: PathRef[] = []
 
   scenes.forEach((sc, si) => {
@@ -68,6 +68,9 @@ export async function resolveSceneUrls(
     if (sc.overlay?.storage_path) refs.push({ path: sc.overlay.storage_path, sceneIdx: si, kind: 'overlay' })
     sc.tracks?.forEach((t, ti) => {
       if (t.storage_path) refs.push({ path: t.storage_path, sceneIdx: si, kind: 'track', trackIdx: ti })
+    })
+    sc.handouts?.forEach((h, hi) => {
+      if (h.media?.storage_path) refs.push({ path: h.media.storage_path, sceneIdx: si, kind: 'handout', handoutIdx: hi })
     })
   })
 
@@ -103,10 +106,11 @@ export async function resolveSceneUrls(
 
   // Apply resolved URLs back to the scene graph
   return scenes.map((sc, si) => {
-    const sceneRefs = refs.filter(r => r.sceneIdx === si)
+    const sceneRefs  = refs.filter(r => r.sceneIdx === si)
     const bgRef      = sceneRefs.find(r => r.kind === 'bg')
     const overlayRef = sceneRefs.find(r => r.kind === 'overlay')
     const trackRefs  = sceneRefs.filter(r => r.kind === 'track')
+    const handoutRefs = sceneRefs.filter(r => r.kind === 'handout')
 
     return {
       ...sc,
@@ -115,6 +119,11 @@ export async function resolveSceneUrls(
       tracks: sc.tracks?.map((t, ti) => {
         const ref = trackRefs.find(r => r.trackIdx === ti)
         return ref ? { ...t, signed_url: urlMap.get(ref.path) } : t
+      }),
+      handouts: sc.handouts?.map((h, hi) => {
+        const ref = handoutRefs.find(r => r.handoutIdx === hi)
+        if (!ref || !h.media) return h
+        return { ...h, media: { ...h.media, signed_url: urlMap.get(ref.path) } }
       }),
     }
   })

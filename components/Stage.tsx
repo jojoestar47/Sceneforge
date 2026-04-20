@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Scene, Track, Character } from '@/lib/types'
+import type { Scene, Track, Character, Handout } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import HandoutLightbox from '@/components/HandoutLightbox'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 
 interface ActiveCharacters {
@@ -46,6 +47,7 @@ interface Props {
   onCharactersChange?: (c: ActiveCharacters) => void
   onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
   onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
+  onHandoutShow?: (handoutId: string | null) => void
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -63,7 +65,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -95,7 +97,7 @@ export default function Stage({
 
   // ── Audio ────────────────────────────────────────────────────
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
-  const audioHandlers          = useRef<Record<string, { play: () => void; pause: () => void }>>({})
+  const audioHandlers          = useRef<Record<string, { play: () => void; pause: () => void; ended?: () => void }>>({})
   const [volumes, setVolumes]  = useState<Record<string, number>>({})
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
@@ -105,6 +107,19 @@ export default function Stage({
     return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
+  // Playlist: tracks the currently active base-music track index
+  const [musicIdx, setMusicIdx] = useState(0)
+  const musicIdxRef    = useRef(0)
+  const sceneMusicRef  = useRef<Track[]>([])
+
+  // ── Handouts ─────────────────────────────────────────────────
+  const [handoutsOpen,   setHandoutsOpen]   = useState(false)
+  const [activeHandout,  setActiveHandout]  = useState<Handout | null>(null)
+
+  function showHandout(h: Handout | null) {
+    setActiveHandout(h)
+    onHandoutShow?.(h?.id ?? null)
+  }
 
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -151,11 +166,13 @@ export default function Stage({
   // when preventDefault is called in some WebView versions).
   const pickerOpenTimeRef = useRef(0)
 
-  // Close panel whenever the scene changes.
+  // Close panels whenever the scene changes.
   useEffect(() => {
     setActiveSlot(null)
     setCharSearch('')
-  }, [scene?.id])
+    setHandoutsOpen(false)
+    showHandout(null)
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredChars = (campaignCharacters || []).filter(c =>
     !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
@@ -175,6 +192,9 @@ export default function Stage({
     if (activeSlot === slot) setActiveSlot(null)
   }
 
+  // Keep refs in sync for stable event-handler callbacks
+  useEffect(() => { musicIdxRef.current = musicIdx }, [musicIdx])
+
   // ── Audio: combined reset + autoplay ─────────────────────────
   useEffect(() => {
     // Save outgoing scene's volumes before cleanup
@@ -190,6 +210,7 @@ export default function Stage({
       if (handlers) {
         a.removeEventListener('play',  handlers.play)
         a.removeEventListener('pause', handlers.pause)
+        if (handlers.ended) a.removeEventListener('ended', handlers.ended)
       }
       a.pause(); a.src = ''
     })
@@ -198,15 +219,26 @@ export default function Stage({
     setVolumes({})
     setPlaying({})
 
+    // Reset music playlist index
+    setMusicIdx(0)
+    musicIdxRef.current = 0
+
     if (!scene?.tracks?.length) return
-    const musicTracks = scene.tracks.filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
-    )
+
+    const baseMusic = scene.tracks.filter(t => t.kind === 'music' && !t.spotify_uri)
+    const layers    = scene.tracks.filter(t => (t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri)
+    sceneMusicRef.current = scene.tracks.filter(t => t.kind === 'music')
+
     const timer = setTimeout(() => {
-      musicTracks.forEach(t => {
-        const src = t.signed_url || t.url
-        if (!src) return
-        getOrCreate(t).play().catch(() => {})
+      // Pre-create ALL base music tracks so onended can reference them,
+      // but only start playing from index 0.
+      baseMusic.forEach((t, i) => {
+        const a = getOrCreate(t)
+        if (i === 0 && (t.signed_url || t.url)) a.play().catch(() => {})
+      })
+      // All intensity layers play simultaneously
+      layers.forEach(t => {
+        if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
     }, 300)
     return () => clearTimeout(timer)
@@ -220,6 +252,7 @@ export default function Stage({
         if (handlers) {
           a.removeEventListener('play',  handlers.play)
           a.removeEventListener('pause', handlers.pause)
+          if (handlers.ended) a.removeEventListener('ended', handlers.ended)
         }
         a.pause(); a.src = ''
       })
@@ -245,7 +278,26 @@ export default function Stage({
       const pauseHandler = () => setPlaying(p => ({ ...p, [t.id]: false }))
       a.addEventListener('play',  playHandler)
       a.addEventListener('pause', pauseHandler)
-      audioHandlers.current[t.id] = { play: playHandler, pause: pauseHandler }
+
+      // Base music tracks auto-advance to next when they end (if not looping)
+      let endedHandler: (() => void) | undefined
+      if (t.kind === 'music') {
+        endedHandler = () => {
+          const tracks = sceneMusicRef.current
+          if (tracks.length <= 1) return
+          const nextIdx = (musicIdxRef.current + 1) % tracks.length
+          const next = tracks[nextIdx]
+          if (next && !next.spotify_uri) {
+            const nextAudio = audioRefs.current[next.id]
+            if (nextAudio) { nextAudio.currentTime = 0; nextAudio.play().catch(() => {}) }
+          }
+          setMusicIdx(nextIdx)
+          musicIdxRef.current = nextIdx
+        }
+        a.addEventListener('ended', endedHandler)
+      }
+
+      audioHandlers.current[t.id] = { play: playHandler, pause: pauseHandler, ended: endedHandler }
       audioRefs.current[t.id] = a
       setVolumes(v => ({ ...v, [t.id]: vol }))
     }
@@ -280,6 +332,32 @@ export default function Stage({
     spotify.mute(next)
   }
 
+  function switchMusicTrack(newIdx: number) {
+    const baseTracks = (scene?.tracks || []).filter(t => t.kind === 'music')
+    if (newIdx < 0 || newIdx >= baseTracks.length || newIdx === musicIdx) return
+    const current = baseTracks[musicIdx]
+    const next    = baseTracks[newIdx]
+    // Stop current
+    if (current) {
+      if (!current.spotify_uri) {
+        const a = audioRefs.current[current.id]
+        if (a) { a.pause(); a.currentTime = 0 }
+      } else if (spotify.states[current.id]?.playing) {
+        spotify.toggle(current)
+      }
+    }
+    // Start next
+    if (next) {
+      if (!next.spotify_uri) {
+        getOrCreate(next).play().catch(() => {})
+      } else if (!spotify.states[next.id]?.playing) {
+        spotify.toggle(next)
+      }
+    }
+    setMusicIdx(newIdx)
+    musicIdxRef.current = newIdx
+  }
+
   if (!scene) {
     return (
       <div style={{ flex: 1, background: '#080a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -293,11 +371,17 @@ export default function Stage({
     )
   }
 
-  const bgUrl        = mediaUrl(scene.bg)   // used for "no bg" placeholder check only
+  const bgUrl        = mediaUrl(scene.bg)
   const allTracks    = scene.tracks || []
-  const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+  const baseMusic    = allTracks.filter(t => t.kind === 'music')
+  const layers       = allTracks.filter(t => t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
+  const handouts     = scene.handouts || []
   const hasTracks    = allTracks.length > 0
+  // Keep sceneMusicRef in sync for the onended callback (can't use useEffect here as it's in render)
+  sceneMusicRef.current = baseMusic
+  const clampedMusicIdx     = Math.min(musicIdx, Math.max(0, baseMusic.length - 1))
+  const currentMusicTrack   = baseMusic[clampedMusicIdx] ?? null
   const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
   const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
 
@@ -331,17 +415,13 @@ export default function Stage({
           GPU-composited video layer from breaking above UI siblings. ── */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {layerA.scene && (() => {
-          const lBg = mediaUrl(layerA.scene.bg);  const lOv = mediaUrl(layerA.scene.overlay)
+          const lBg = mediaUrl(layerA.scene.bg)
           return (<>
             {lBg && (layerA.scene.bg?.type === 'video'
               ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             )}
             {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-            {lOv && (layerA.scene.overlay?.type === 'video'
-              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            )}
           </>)
         })()}
       </div>
@@ -349,17 +429,13 @@ export default function Stage({
       {/* ── Background layer B ── */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: layerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {layerB.scene && (() => {
-          const lBg = mediaUrl(layerB.scene.bg);  const lOv = mediaUrl(layerB.scene.overlay)
+          const lBg = mediaUrl(layerB.scene.bg)
           return (<>
             {lBg && (layerB.scene.bg?.type === 'video'
               ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             )}
             {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-            {lOv && (layerB.scene.overlay?.type === 'video'
-              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            )}
           </>)
         })()}
       </div>
@@ -424,12 +500,62 @@ export default function Stage({
         </button>
       </div>
 
-      {/* ── Bottom-right: Edit Scene ── */}
+      {/* ── Bottom-right: Handouts + Edit Scene ── */}
       {!isFullscreen && (
-        <button className="btn btn-ghost btn-sm" onClick={onEdit}
-          style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, minHeight: '44px', padding: '0 14px' }}>
-          ⚙ Edit Scene
-        </button>
+        <div style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px', alignItems: 'flex-end', flexDirection: 'column' }}>
+          {/* Handouts panel */}
+          {handoutsOpen && handouts.length > 0 && (
+            <div
+              onPointerDown={e => e.stopPropagation()}
+              style={{ width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)', marginBottom: '4px' }}
+            >
+              <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Handouts</span>
+                <button onClick={() => setHandoutsOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+              </div>
+              <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
+                {handouts.map(h => {
+                  const imgUrl = h.media?.signed_url || h.media?.url || null
+                  return (
+                    <button
+                      key={h.id}
+                      onClick={() => { showHandout(h); setHandoutsOpen(false) }}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {imgUrl
+                          ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
+                        }
+                      </div>
+                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {handouts.length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setHandoutsOpen(o => !o)}
+                style={{ minHeight: '44px', padding: '0 14px', borderColor: handoutsOpen ? 'rgba(201,168,76,0.5)' : undefined, color: handoutsOpen ? 'var(--accent)' : undefined }}>
+                📄 Handouts
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={onEdit}
+              style={{ minHeight: '44px', padding: '0 14px' }}>
+              ⚙ Edit Scene
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Handout lightbox ── */}
+      {activeHandout && (
+        <HandoutLightbox handout={activeHandout} onClose={() => showHandout(null)} />
       )}
 
       {/* ── DM Character Slots ──────────────────────────────────
@@ -688,19 +814,47 @@ export default function Stage({
 
           {expanded && (
             <div style={{ background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
-              {music.length > 0 && (
+              {/* ── Base music (playlist) ── */}
+              {baseMusic.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', flex: 1 }}>🎵 Music</span>
+                    {baseMusic.length > 1 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button onClick={e => { e.stopPropagation(); switchMusicTrack(clampedMusicIdx - 1) }} disabled={clampedMusicIdx === 0}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: clampedMusicIdx === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.5)', fontSize: '11px', height: '22px', width: '22px', cursor: clampedMusicIdx === 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⏮</button>
+                        <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', minWidth: '28px', textAlign: 'center' }}>{clampedMusicIdx + 1}/{baseMusic.length}</span>
+                        <button onClick={e => { e.stopPropagation(); switchMusicTrack(clampedMusicIdx + 1) }} disabled={clampedMusicIdx === baseMusic.length - 1}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: clampedMusicIdx === baseMusic.length - 1 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.5)', fontSize: '11px', height: '22px', width: '22px', cursor: clampedMusicIdx === baseMusic.length - 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⏭</button>
+                      </div>
+                    )}
+                  </div>
+                  {currentMusicTrack && (
+                    <MiniTrackRow key={currentMusicTrack.id} t={currentMusicTrack} isPlaying={trackPlaying(currentMusicTrack)} volume={trackVolume(currentMusicTrack)} onToggle={() => toggleTrack(currentMusicTrack)} onVol={v => setVol(currentMusicTrack, v)} nowPlaying={currentMusicTrack.spotify_uri && trackPlaying(currentMusicTrack) ? spotify.nowPlaying : null} progress={currentMusicTrack.spotify_uri && trackPlaying(currentMusicTrack) ? spotify.progress : undefined} onSkip={currentMusicTrack.spotify_uri ? d => spotify.skip(d) : undefined} />
+                  )}
                 </div>
               )}
-              {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
+
+              {/* ── Dynamic layers (ml2/ml3) ── */}
+              {layers.length > 0 && (
+                <>
+                  {(baseMusic.length > 0) && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
+                  <div style={{ padding: '10px 14px 6px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎚 Layers</div>
+                    {layers.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
+                  </div>
+                </>
+              )}
+
+              {/* ── Ambience (all simultaneous) ── */}
+              {(baseMusic.length > 0 || layers.length > 0) && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
                   {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
                 </div>
               )}
+
               <div style={{ padding: '8px 14px 10px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <button onClick={e => { e.stopPropagation(); stopAll() }} style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>⏹ Stop All</button>
                 <button onClick={e => { e.stopPropagation(); handleMute() }} style={{ width: '44px', height: '44px', background: muted ? 'var(--accent-bg)' : 'rgba(255,255,255,0.06)', border: `1px solid ${muted ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '6px', color: muted ? 'var(--accent)' : 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

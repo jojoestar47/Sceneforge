@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState } from '@/lib/types'
+import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout } from '@/lib/types'
 import Stage              from '@/components/Stage'
+import HandoutLightbox    from '@/components/HandoutLightbox'
 import SceneList           from '@/components/SceneList'
 import SceneEditor         from '@/components/SceneEditor'
 import CampaignHome        from '@/components/CampaignHome'
@@ -45,6 +46,7 @@ export default function AppPage() {
 
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activeHandout, setActiveHandout] = useState<Handout | null>(null)
 
   const [userId,        setUserId]        = useState<string>('')
   const [campaigns,     setCampaigns]     = useState<Campaign[]>([])
@@ -117,7 +119,7 @@ export default function AppPage() {
   // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
     const [{ data: scenesData }, { data: foldersData }] = await Promise.all([
-      supabase.from('scenes').select('*, tracks(*)').eq('campaign_id', campId).order('order_index'),
+      supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('campaign_id', campId).order('order_index'),
       supabase.from('scene_folders').select('*').eq('campaign_id', campId).order('order_index'),
     ])
     if (scenesData) {
@@ -187,6 +189,7 @@ export default function AppPage() {
     setActiveCharacters({ left: null, center: null, right: null })
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
+    setActiveHandout(null)
     if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
     loadSceneRoster(activeSceneId)
   }, [activeSceneId, loadSceneRoster])
@@ -279,6 +282,11 @@ export default function AppPage() {
     if (!sessionId) return
     await supabase.from('sessions').update({ is_live: false }).eq('id', sessionId)
     setIsLive(false); setSessionId(null); setJoinCode(null)
+  }
+
+  async function handleHandoutShow(handoutId: string | null) {
+    if (!sessionId || !isLive) return
+    await supabase.from('sessions').update({ active_handout_id: handoutId }).eq('id', sessionId)
   }
 
   // ── Scene + character selection ───────────────────────────────
@@ -801,6 +809,7 @@ export default function AppPage() {
               onCharactersChange={handleCharactersChange}
               onSlotDisplayChange={handleSlotDisplayChange}
               onSaveSlotDisplay={handleSaveSlotDisplay}
+              onHandoutShow={handleHandoutShow}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{
@@ -921,6 +930,31 @@ export default function AppPage() {
                       >▶</button>
                     </div>
                   </div>
+                  {/* ── Handouts quick-access ── */}
+                  {activeScene && (activeScene.handouts?.length ?? 0) > 0 && (
+                    <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0, minWidth: '276px' }}>
+                      <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '4px' }}>Handouts</div>
+                      {activeScene.handouts!.map(h => {
+                        const imgUrl = h.media?.signed_url || h.media?.url || null
+                        return (
+                          <button key={h.id} onClick={() => { setActiveHandout(h); handleHandoutShow(h.id) }}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                          >
+                            <div style={{ width: '28px', height: '28px', borderRadius: '4px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {imgUrl
+                                ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <span style={{ fontSize: '12px', opacity: 0.4 }}>🗺</span>
+                              }
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                            <span style={{ fontSize: '9px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                   <SceneList
                     key={activeCampId}
                     scenes={scenes}
@@ -1040,6 +1074,11 @@ export default function AppPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── HANDOUT LIGHTBOX ── */}
+      {activeHandout && (
+        <HandoutLightbox handout={activeHandout} onClose={() => { setActiveHandout(null); handleHandoutShow(null) }} />
       )}
 
       <style>{`@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}@keyframes scenePickerIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>

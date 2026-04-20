@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react'
 import Image from 'next/image'
-import type { Scene, Track, MediaRef, Character } from '@/lib/types'
+import type { Scene, Track, MediaRef, Character, Handout } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import { characterImageUrl } from '@/components/CharacterDisplay'
@@ -17,7 +17,14 @@ interface Props {
 }
 
 type Kind = 'music' | 'ml2' | 'ml3' | 'ambience'
-type TabKey = 'scene' | 'tactical' | 'notes'
+type TabKey = 'scene' | 'handouts'
+
+interface HandoutDraft {
+  id?: string
+  name: string
+  media: MediaRef | null
+  _file?: File
+}
 
 interface TrackDraft {
   id?: string; kind: Kind; name: string; url: string
@@ -32,11 +39,11 @@ interface CharPoolEntry {
 }
 
 interface Draft {
-  name: string; location: string; notes: string; dynamic_music: boolean
-  bg: MediaRef | null; overlay: MediaRef | null; tracks: TrackDraft[]
-  _bgFile?: File; _ovFile?: File
-  // Characters — flat pool, no pre-assigned positions
+  name: string; location: string
+  bg: MediaRef | null; tracks: TrackDraft[]
+  _bgFile?: File
   characterPool: CharPoolEntry[]
+  handouts: HandoutDraft[]
 }
 
 function blankDraft(scene: Scene | null): Draft {
@@ -45,10 +52,10 @@ function blankDraft(scene: Scene | null): Draft {
       .map(t => ({ id: t.id, kind, name: t.name, url: t.url || '', storage_path: t.storage_path, file_name: t.file_name, spotify_uri: t.spotify_uri, spotify_type: t.spotify_type, loop: t.loop, volume: t.volume }))
   return {
     name: scene?.name || '', location: scene?.location || '',
-    notes: scene?.notes || '', dynamic_music: scene?.dynamic_music || false,
-    bg: scene?.bg || null, overlay: scene?.overlay || null,
-    tracks: [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
+    bg: scene?.bg || null,
+    tracks: [...existing('music'), ...existing('ambience')],
     characterPool: [],
+    handouts: (scene?.handouts || []).map(h => ({ id: h.id, name: h.name, media: h.media })),
   }
 }
 
@@ -71,6 +78,12 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const [newCharFile, setNewCharFile] = useState<File | null>(null)
   const [newCharUrl,  setNewCharUrl]  = useState('')
   const [newCharSaving, setNewCharSaving] = useState(false)
+
+  // Handout add form state
+  const [newHandoutOpen, setNewHandoutOpen] = useState(false)
+  const [newHandoutName, setNewHandoutName] = useState('')
+  const [newHandoutFile, setNewHandoutFile] = useState<File | null>(null)
+  const [newHandoutUrl,  setNewHandoutUrl]  = useState('')
 
   // Track characters created inside the editor so the parent can merge them
   // without refetching the whole campaign roster on save.
@@ -160,18 +173,12 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
         const path = await uploadMedia(supabase, userId, draft._bgFile)
         bg = { type: draft._bgFile.type.startsWith('video') ? 'video' : 'image', storage_path: path, file_name: draft._bgFile.name }
       }
-      let overlay = draft.overlay
-      if (draft._ovFile) {
-        const path = await uploadMedia(supabase, userId, draft._ovFile)
-        overlay = { type: draft._ovFile.type.startsWith('video') ? 'video' : 'image', storage_path: path, file_name: draft._ovFile.name }
-      }
 
       const scenePayload = {
         campaign_id: campaignId, name: draft.name || 'Untitled Scene',
-        location: draft.location || null, notes: draft.notes || null,
-        dynamic_music: draft.dynamic_music,
+        location: draft.location || null,
+        dynamic_music: false,
         bg: bg ? { type: bg.type, url: bg.url, storage_path: bg.storage_path, file_name: bg.file_name } : null,
-        overlay: overlay ? { type: overlay.type, url: overlay.url, storage_path: overlay.storage_path, file_name: overlay.file_name } : null,
         order_index: scene?.order_index ?? 0,
       }
 
@@ -209,7 +216,33 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       }))
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
-      const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId!).single()
+      // Handouts — delete existing, re-insert
+      if (scene?.id) {
+        const { data: existingHandouts } = await supabase.from('handouts').select('media').eq('scene_id', sceneId!)
+        const reusedHandoutPaths = new Set(draft.handouts.filter(h => !h._file).map(h => h.media?.storage_path).filter(Boolean))
+        const orphanedHandoutPaths = (existingHandouts ?? [])
+          .map((h: { media?: { storage_path?: string } | null }) => h.media?.storage_path)
+          .filter((p): p is string => !!p && !reusedHandoutPaths.has(p))
+        await supabase.from('handouts').delete().eq('scene_id', sceneId!)
+        await deleteMediaBatch(supabase, orphanedHandoutPaths)
+      }
+      const handoutInserts = await Promise.all(draft.handouts.map(async (h, i) => {
+        // Strip signed_url before storing — it's ephemeral and must not be persisted in DB
+        let media: MediaRef | null = h.media
+          ? { type: h.media.type, url: h.media.url, storage_path: h.media.storage_path, file_name: h.media.file_name }
+          : null
+        if (h._file) {
+          const path = await uploadMedia(supabase, userId, h._file)
+          media = { type: 'image', storage_path: path, file_name: h._file.name }
+        }
+        return { scene_id: sceneId!, name: h.name, media: media || null, order_index: i }
+      }))
+      if (handoutInserts.length) {
+        const { error: handoutInsertError } = await supabase.from('handouts').insert(handoutInserts)
+        if (handoutInsertError) throw handoutInsertError
+      }
+
+      const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('id', sceneId!).single()
       onSave(savedScene as Scene, createdCharsRef.current)
       createdCharsRef.current = []
     } catch (e: unknown) {
@@ -230,7 +263,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
               {scene ? scene.name : 'New Scene'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', padding: '0 20px' }}>
-              {(['scene', 'tactical', 'notes'] as TabKey[]).map(t => (
+              {(['scene', 'handouts'] as TabKey[]).map(t => (
                 <button key={t} onClick={() => setTab(t)} style={{ padding: '10px 24px', fontSize: '11px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: tab === t ? 'var(--text)' : 'var(--text-2)', background: 'none', border: 'none', cursor: 'pointer', borderBottom: `2px solid ${tab === t ? 'var(--accent)' : 'transparent'}`, marginBottom: '-1px' }}>
                   {t}
                 </button>
@@ -262,48 +295,44 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                       onUrl={(type, url) => setDraft(d => ({ ...d, _bgFile: undefined, bg: { type, url } }))}
                       onClear={() => setDraft(d => ({ ...d, _bgFile: undefined, bg: null }))} />
                   </PropRow>
-                  <PropRow label="Scene Overlay" desc="Motion overlay or image.">
-                    <MediaField slot="overlay" value={draft.overlay} file={draft._ovFile} accept="image/*,video/*" icon="✨" hint="PNG with alpha works best"
-                      onFile={f => setDraft(d => ({ ...d, _ovFile: f, overlay: { type: f.type.startsWith('video') ? 'video' : 'image', file_name: f.name } }))}
-                      onUrl={(type, url) => setDraft(d => ({ ...d, _ovFile: undefined, overlay: { type, url } }))}
-                      onClear={() => setDraft(d => ({ ...d, _ovFile: undefined, overlay: null }))} />
-                  </PropRow>
                 </Section>
 
                 {/* CHARACTERS */}
                 <Section title="Characters">
                   {/* Pool entries */}
-                  {draft.characterPool.map((entry, idx) => {
-                    const imgUrl = characterImageUrl(entry.character)
-                    return (
-                      <div key={entry.character.id}>
-                        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: '14px', borderBottom: '1px solid var(--border)' }}>
-                          <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {imgUrl
-                              ? <Image src={imgUrl} alt={entry.character.name} width={48} height={48} style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
-                              : <span style={{ fontSize: '20px', opacity: .4 }}>🧑</span>
-                            }
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {entry.character.name}
+                  <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+                    {draft.characterPool.map((entry, idx) => {
+                      const imgUrl = characterImageUrl(entry.character)
+                      return (
+                        <div key={entry.character.id}>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: '14px', borderBottom: '1px solid var(--border)' }}>
+                            <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {imgUrl
+                                ? <Image src={imgUrl} alt={entry.character.name} width={48} height={48} style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+                                : <span style={{ fontSize: '20px', opacity: .4 }}>🧑</span>
+                              }
                             </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {entry.character.name}
+                              </div>
+                            </div>
+                            <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}
+                              onClick={() => setDraft(d => ({ ...d, characterPool: d.characterPool.filter((_, i) => i !== idx) }))}>
+                              Remove
+                            </button>
                           </div>
-                          <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}
-                            onClick={() => setDraft(d => ({ ...d, characterPool: d.characterPool.filter((_, i) => i !== idx) }))}>
-                            Remove
-                          </button>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
 
-                  {/* Empty state */}
-                  {draft.characterPool.length === 0 && (
-                    <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' }}>
-                      No characters in this scene — add some below.
-                    </div>
-                  )}
+                    {/* Empty state */}
+                    {draft.characterPool.length === 0 && (
+                      <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' }}>
+                        No characters in this scene — add some below.
+                      </div>
+                    )}
+                  </div>
 
                   {/* Add character / create new buttons */}
                   <div style={{ display: 'flex', gap: '8px', paddingTop: '12px' }}>
@@ -388,24 +417,6 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                     <TrackAdder kind="music" onAdd={t => addTrack('music', t)} />
                   </PropRow>
                   {tracksOf('music').map((t, i) => <TrackChip key={i} track={t} globalIdx={draft.tracks.indexOf(t)} onRemove={removeTrack} />)}
-                  <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px 16px', marginTop: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <span style={{ flex: 1, fontSize: '13px', fontWeight: 600 }}>Enable Dynamic Music</span>
-                      <ToggleSwitch checked={draft.dynamic_music} onChange={v => setDraft(d => ({ ...d, dynamic_music: v }))} />
-                    </div>
-                    {draft.dynamic_music && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-                        {(['ml2', 'ml3'] as Kind[]).map(kind => (
-                          <div key={kind}>
-                            <PropRow label={kind === 'ml2' ? 'Music Layer 2' : 'Music Layer 3'} desc={kind === 'ml2' ? 'Medium intensity layer.' : 'Highest intensity layer.'}>
-                              <TrackAdder kind={kind} onAdd={t => addTrack(kind, t)} />
-                            </PropRow>
-                            {tracksOf(kind).map((t, i) => <TrackChip key={i} track={t} globalIdx={draft.tracks.indexOf(t)} onRemove={removeTrack} />)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                   <PropRow label="Sound" desc="Ambient background sound.">
                     <TrackAdder kind="ambience" onAdd={t => addTrack('ambience', t)} />
                   </PropRow>
@@ -414,17 +425,72 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
               </>
             )}
 
-            {tab === 'tactical' && (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-3)' }}>
-                <div style={{ fontSize: '36px', marginBottom: '12px' }}>🗺</div>
-                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px' }}>Tactical View Coming Soon</div>
-              </div>
-            )}
-
-            {tab === 'notes' && (
+            {tab === 'handouts' && (
               <div style={{ paddingTop: '20px' }}>
-                <label className="flabel">Scene Notes</label>
-                <textarea className="ftextarea finput" rows={10} placeholder="GM notes, scene descriptions, NPC details…" value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} />
+                <Section title="Handouts">
+                  {/* Handout list */}
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {draft.handouts.map((h, idx) => {
+                      const imgUrl = h.media?.signed_url || h.media?.url || (h._file ? URL.createObjectURL(h._file) : null)
+                      return (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--editor-row)', borderRadius: '8px', padding: '10px 12px', marginTop: '8px' }}>
+                          <div style={{ width: '48px', height: '48px', borderRadius: '6px', background: 'var(--editor-card)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {imgUrl
+                              ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '18px', opacity: 0.4 }}>🗺</span>
+                            }
+                          </div>
+                          <span style={{ flex: 1, fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name || 'Untitled'}</span>
+                          <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}
+                            onClick={() => setDraft(d => ({ ...d, handouts: d.handouts.filter((_, i) => i !== idx) }))}>
+                            Remove
+                          </button>
+                        </div>
+                      )
+                    })}
+                    {draft.handouts.length === 0 && (
+                      <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' }}>
+                        No handouts yet — add maps, images, or documents below.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add handout */}
+                  <div style={{ paddingTop: '12px' }}>
+                    <button className={`add-pill${newHandoutOpen ? ' active' : ''}`} style={{ fontSize: '10px', padding: '6px 12px' }}
+                      onClick={() => { setNewHandoutOpen(o => !o); setNewHandoutName(''); setNewHandoutFile(null); setNewHandoutUrl('') }}>
+                      + ADD HANDOUT <span style={{ fontSize: '9px' }}>▼</span>
+                    </button>
+                    {newHandoutOpen && (
+                      <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px', marginTop: '8px' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)', marginBottom: '10px' }}>New Handout</div>
+                        <input className="finput" placeholder="Name (e.g. Treasure Map, Letter from the King)" value={newHandoutName} onChange={e => setNewHandoutName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }} />
+                        <UploadZone accept="image/*" label="Drop image here" icon="🗺" hint="PNG, JPG, WebP" onFile={f => setNewHandoutFile(f)} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
+                          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                        </div>
+                        <input className="finput" placeholder="https://… image URL" value={newHandoutUrl} onChange={e => setNewHandoutUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setNewHandoutOpen(false); setNewHandoutName(''); setNewHandoutFile(null); setNewHandoutUrl('') }}>Cancel</button>
+                          <button className="btn btn-red btn-sm"
+                            disabled={!newHandoutName.trim() || (!newHandoutFile && !newHandoutUrl)}
+                            onClick={() => {
+                              if (!newHandoutName.trim() || (!newHandoutFile && !newHandoutUrl)) return
+                              const media: MediaRef | null = newHandoutFile
+                                ? { type: 'image', file_name: newHandoutFile.name }
+                                : newHandoutUrl
+                                ? { type: 'image', url: newHandoutUrl }
+                                : null
+                              setDraft(d => ({ ...d, handouts: [...d.handouts, { name: newHandoutName.trim(), media, _file: newHandoutFile || undefined }] }))
+                              setNewHandoutOpen(false); setNewHandoutName(''); setNewHandoutFile(null); setNewHandoutUrl('')
+                            }}>
+                            Add Handout
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Section>
               </div>
             )}
 
@@ -567,11 +633,15 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
     setQuery(''); setResults([])
   }
 
+  // Ambience tracks are played simultaneously — Spotify's single-stream limit
+  // means a Spotify ambience track would steal the stream from music. File/URL only.
+  const availableTabs: AdderTab[] = kind === 'ambience' ? ['file'] : ['file', 'spotify']
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {/* Tab selector */}
       <div style={{ display: 'flex', gap: '6px' }}>
-        {(['file', 'spotify'] as AdderTab[]).map(t => (
+        {availableTabs.map(t => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '5px 12px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', border: `1px solid ${tab === t ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '5px', background: tab === t ? 'var(--accent-bg)' : 'none', color: tab === t ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer' }}>
             {t === 'spotify' ? '🎧 Spotify' : '📁 File / URL'}
           </button>
@@ -667,11 +737,3 @@ function SpotifyMark() {
   )
 }
 
-function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div onClick={() => onChange(!checked)} style={{ position: 'relative', width: '44px', height: '24px', cursor: 'pointer', flexShrink: 0 }}>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: '12px', background: checked ? 'var(--accent)' : 'var(--border-lt)', transition: 'background .2s' }} />
-      <div style={{ position: 'absolute', top: '3px', left: checked ? '23px' : '3px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
-    </div>
-  )
-}

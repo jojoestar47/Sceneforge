@@ -7,6 +7,7 @@ import type { Scene, Track, Character, CharacterState } from '@/lib/types'
 import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
+import HandoutLightbox from '@/components/HandoutLightbox'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -97,6 +98,14 @@ export default function ViewerPage() {
     return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
   })
   const prevSceneIdForVolRef = useRef<string | null>(null)
+
+  // ── Handout sync ─────────────────────────────────────────────
+  // activeHandoutId is set by the DM via session realtime; resolved against
+  // scene.handouts so it always reflects the latest scene data.
+  const [activeHandoutId, setActiveHandoutId] = useState<string | null>(null)
+  const sceneRef = useRef<Scene | null>(null)
+  useEffect(() => { sceneRef.current = scene }, [scene])
+  const activeHandout = (scene?.handouts ?? []).find(h => h.id === activeHandoutId) ?? null
 
   // ── Spotify player ────────────────────────────────────────────
   const spotify = useSpotifyPlayer(scene)
@@ -225,14 +234,14 @@ export default function ViewerPage() {
   // ── Load scene ────────────────────────────────────────────────
   const loadScene = useCallback(async (sceneId: string | null) => {
     if (!sceneId) { setScene(null); setStatus('live'); return }
-    const { data } = await supabase.from('scenes').select('*, tracks(*)').eq('id', sceneId).single()
+    const { data } = await supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('id', sceneId).single()
     if (data) { setScene(data as Scene); setStatus('live') }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load session ──────────────────────────────────────────────
   const loadSession = useCallback(async () => {
     const { data } = await supabase.from('sessions')
-      .select('id, active_scene_id, is_live, character_state')
+      .select('id, active_scene_id, is_live, character_state, active_handout_id')
       .eq('join_code', joinCode).maybeSingle()
     if (!data)         { setStatus('waiting'); return }
     if (!data.is_live) { setStatus('ended');   return }
@@ -240,6 +249,7 @@ export default function ViewerPage() {
       loadScene(data.active_scene_id),
       loadCharactersFromState(data.character_state as CharacterState | null),
     ])
+    setActiveHandoutId(data.active_handout_id ?? null)
   }, [joinCode, loadScene, loadCharactersFromState])
 
   useEffect(() => { loadSession() }, [loadSession])
@@ -257,10 +267,11 @@ export default function ViewerPage() {
         event: 'UPDATE', schema: 'public', table: 'sessions',
         filter: `join_code=eq.${joinCode}`,
       }, (payload) => {
-        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null }
+        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null }
         if (!row.is_live) { setStatus('ended'); return }
-        loadScene(row.active_scene_id)
+        if (row.active_scene_id !== sceneRef.current?.id) loadScene(row.active_scene_id)
         loadCharactersFromState(row.character_state)
+        setActiveHandoutId(row.active_handout_id ?? null)
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -445,6 +456,14 @@ export default function ViewerPage() {
           </div>
         </div>
       )}
+
+      {/* ── Handout lightbox — shown when DM pushes a handout ── */}
+      {activeHandout && (() => {
+        const resolvedMedia = activeHandout.media
+          ? { ...activeHandout.media, signed_url: pubUrl(activeHandout.media as any) || activeHandout.media.url }
+          : null
+        return <HandoutLightbox handout={{ ...activeHandout, media: resolvedMedia }} onClose={() => setActiveHandoutId(null)} />
+      })()}
 
       {/* Audio Mixer */}
       {allTracks.length > 0 && (
