@@ -107,6 +107,14 @@ export default function ViewerPage() {
   useEffect(() => { sceneRef.current = scene }, [scene])
   const activeHandout = (scene?.handouts ?? []).find(h => h.id === activeHandoutId) ?? null
 
+  // ── Music track sync ──────────────────────────────────────────
+  // activeMusicTrackId is set by the DM when they change tracks in the mixer.
+  // A ref mirrors it so the autoplay effect (which runs on scene change) can
+  // read the correct starting track without needing it as a dependency.
+  const [activeMusicTrackId, setActiveMusicTrackId] = useState<string | null>(null)
+  const activeMusicTrackIdRef = useRef<string | null>(null)
+  useEffect(() => { activeMusicTrackIdRef.current = activeMusicTrackId }, [activeMusicTrackId])
+
   // ── Spotify player ────────────────────────────────────────────
   const spotify = useSpotifyPlayer(scene)
 
@@ -204,31 +212,73 @@ export default function ViewerPage() {
     audioRefs.current = {}; audioHandlers.current = {}; setVolumes({}); setPlaying({})
 
     if (!scene?.tracks?.length) return
-    const musicTracks = scene.tracks.filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
-    )
-    if (!musicTracks.length) return
+    // Music (kind==='music') is a playlist — only one plays at a time.
+    // Layers (ml2/ml3) and ambience always play simultaneously.
+    const musicTracks  = scene.tracks.filter(t => t.kind === 'music' && !t.spotify_uri)
+    const alwaysOn     = scene.tracks.filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
+    // Start with the DM's active track if known, otherwise the first track
+    const startId      = activeMusicTrackIdRef.current
+    const musicToStart = (startId ? musicTracks.find(t => t.id === startId) : null) ?? musicTracks[0]
+    const tracksToPlay = [...(musicToStart ? [musicToStart] : []), ...alwaysOn]
+    if (!tracksToPlay.length) return
 
     if (hasInteracted.current) {
-      musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
+      tracksToPlay.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
       return
     }
-    getOrCreate(musicTracks[0]).play()
+    getOrCreate(tracksToPlay[0]).play()
       .then(() => {
         hasInteracted.current = true; setNeedsTap(false)
-        musicTracks.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
+        tracksToPlay.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
       })
       .catch(() => setNeedsTap(true))
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Switch music track when DM changes it ─────────────────────
+  useEffect(() => {
+    if (!activeMusicTrackId || !scene) return
+    const allMusic = (scene.tracks || []).filter(t => t.kind === 'music')
+    const target   = allMusic.find(t => t.id === activeMusicTrackId)
+    if (!target) return
+
+    // Stop every currently-playing file music track
+    allMusic.forEach(t => {
+      if (!t.spotify_uri) {
+        const a = audioRefs.current[t.id]
+        if (a && !a.paused) { a.pause(); a.currentTime = 0 }
+      }
+    })
+
+    // Start the DM's chosen track
+    if (target.spotify_uri) {
+      // stopAll() sets activeTrackRef.current = null inside the hook, so
+      // toggle() always calls playTrack() regardless of spotify.states —
+      // avoiding the stale-closure bug where states hasn't re-rendered yet
+      // after stopAll()'s setStates() fires, causing toggle() to be skipped.
+      spotify.stopAll()
+      spotify.toggle(target)
+    } else if (hasInteracted.current) {
+      // File — only play after browser audio is unlocked
+      const a = getOrCreate(target)
+      if (a.paused) a.play().catch(() => {})
+    }
+  }, [activeMusicTrackId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleFirstTap() {
     hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
-    const musicTracks = (scene?.tracks || []).filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
-    )
-    musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
-    spotify.autoPlay()
+    const allMusic    = (scene?.tracks || []).filter(t => t.kind === 'music')
+    const alwaysOn    = (scene?.tracks || []).filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
+    const target      = activeMusicTrackId ? allMusic.find(t => t.id === activeMusicTrackId) : null
+    // Start whichever music track DM has selected (or first by default)
+    if (target?.spotify_uri) {
+      if (!spotify.states[target.id]?.playing) spotify.toggle(target)
+    } else {
+      const fileMusicToStart = (target ?? allMusic.filter(t => !t.spotify_uri)[0])
+      if (fileMusicToStart) { const a = getOrCreate(fileMusicToStart); if (a.paused) a.play().catch(() => {}) }
+      if (!target) spotify.autoPlay() // no specific track set — let Spotify auto-pick
+    }
+    alwaysOn.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
   }
 
   // ── Load scene ────────────────────────────────────────────────
@@ -241,7 +291,7 @@ export default function ViewerPage() {
   // ── Load session ──────────────────────────────────────────────
   const loadSession = useCallback(async () => {
     const { data } = await supabase.from('sessions')
-      .select('id, active_scene_id, is_live, character_state, active_handout_id')
+      .select('id, active_scene_id, is_live, character_state, active_handout_id, active_music_track_id')
       .eq('join_code', joinCode).maybeSingle()
     if (!data)         { setStatus('waiting'); return }
     if (!data.is_live) { setStatus('ended');   return }
@@ -250,6 +300,7 @@ export default function ViewerPage() {
       loadCharactersFromState(data.character_state as CharacterState | null),
     ])
     setActiveHandoutId(data.active_handout_id ?? null)
+    setActiveMusicTrackId(data.active_music_track_id ?? null)
   }, [joinCode, loadScene, loadCharactersFromState])
 
   useEffect(() => { loadSession() }, [loadSession])
@@ -267,11 +318,12 @@ export default function ViewerPage() {
         event: 'UPDATE', schema: 'public', table: 'sessions',
         filter: `join_code=eq.${joinCode}`,
       }, (payload) => {
-        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null }
+        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null; active_music_track_id: string | null }
         if (!row.is_live) { setStatus('ended'); return }
         if (row.active_scene_id !== sceneRef.current?.id) loadScene(row.active_scene_id)
         loadCharactersFromState(row.character_state)
         setActiveHandoutId(row.active_handout_id ?? null)
+        setActiveMusicTrackId(row.active_music_track_id ?? null)
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -300,8 +352,17 @@ export default function ViewerPage() {
   }
 
   const allTracks    = scene?.tracks || []
-  const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+  const baseMusic    = allTracks.filter(t => t.kind === 'music')
+  const layers       = allTracks.filter(t => t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
+  // Current music track: DM's selection → first playing → first track
+  const currentMusicTrack = (
+    (activeMusicTrackId ? baseMusic.find(t => t.id === activeMusicTrackId) : null) ??
+    baseMusic.find(t => trackPlaying(t)) ??
+    baseMusic[0] ??
+    null
+  )
+  const currentMusicIdx = currentMusicTrack ? baseMusic.indexOf(currentMusicTrack) : 0
   const hasSpotifyTracks = allTracks.some(t => !!t.spotify_uri)
   const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
   const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
@@ -490,13 +551,31 @@ export default function ViewerPage() {
           </div>
           {mixerOpen && (
             <div style={{ background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
-              {music.length > 0 && (
+              {/* ── Base music — playlist style: only current track shown ── */}
+              {baseMusic.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', flex: 1 }}>🎵 Music</span>
+                    {baseMusic.length > 1 && (
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', minWidth: '28px', textAlign: 'right' }}>{currentMusicIdx + 1}/{baseMusic.length}</span>
+                    )}
+                  </div>
+                  {currentMusicTrack && (
+                    <TrackRow key={currentMusicTrack.id} t={currentMusicTrack} isPlaying={trackPlaying(currentMusicTrack)} volume={trackVolume(currentMusicTrack)} onToggle={() => toggleTrack(currentMusicTrack)} onVol={v => setVol(currentMusicTrack, v)} nowPlaying={currentMusicTrack.spotify_uri && trackPlaying(currentMusicTrack) ? spotify.nowPlaying : null} progress={currentMusicTrack.spotify_uri && trackPlaying(currentMusicTrack) ? spotify.progress : undefined} onSkip={currentMusicTrack.spotify_uri ? d => spotify.skip(d) : undefined} />
+                  )}
                 </div>
               )}
-              {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
+              {/* ── Dynamic layers ── */}
+              {layers.length > 0 && (
+                <>
+                  {baseMusic.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
+                  <div style={{ padding: '10px 14px 6px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎚 Layers</div>
+                    {layers.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
+                  </div>
+                </>
+              )}
+              {(baseMusic.length > 0 || layers.length > 0) && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>

@@ -48,6 +48,8 @@ interface Props {
   onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
   onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
   onHandoutShow?: (handoutId: string | null) => void
+  onMusicTrackChange?: (trackId: string | null) => void
+  isLive?: boolean
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -65,7 +67,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -109,8 +111,11 @@ export default function Stage({
   const prevSceneIdForVolRef = useRef<string | null>(null)
   // Playlist: tracks the currently active base-music track index
   const [musicIdx, setMusicIdx] = useState(0)
-  const musicIdxRef    = useRef(0)
-  const sceneMusicRef  = useRef<Track[]>([])
+  const musicIdxRef            = useRef(0)
+  const sceneMusicRef          = useRef<Track[]>([])
+  // Stable ref so the endedHandler closure always calls the latest prop
+  const onMusicTrackChangeRef  = useRef(onMusicTrackChange)
+  useEffect(() => { onMusicTrackChangeRef.current = onMusicTrackChange }, [onMusicTrackChange])
 
   // ── Handouts ─────────────────────────────────────────────────
   const [handoutsOpen,   setHandoutsOpen]   = useState(false)
@@ -227,6 +232,7 @@ export default function Stage({
 
     const baseMusic = scene.tracks.filter(t => t.kind === 'music' && !t.spotify_uri)
     const layers    = scene.tracks.filter(t => (t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri)
+    const amb       = scene.tracks.filter(t => t.kind === 'ambience' && !t.spotify_uri)
     sceneMusicRef.current = scene.tracks.filter(t => t.kind === 'music')
 
     const timer = setTimeout(() => {
@@ -240,9 +246,45 @@ export default function Stage({
       layers.forEach(t => {
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
+      // Ambience tracks play simultaneously — but not on DM when live
+      // (viewer is the audio master; ambience plays on the viewer side)
+      if (!isLive) {
+        amb.forEach(t => {
+          if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
+        })
+      }
     }, 300)
     return () => clearTimeout(timer)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stop ambience on DM whenever presentation goes live;
+  // resume it when the presentation stops.
+  useEffect(() => {
+    if (!isLive) {
+      // Going not-live: resume any ambience that was running before.
+      // Only touch elements that already exist in audioRefs — new-scene
+      // autoplay is handled by the 300ms timer so we don't double-start on mount.
+      const ambTracks = (scene?.tracks || []).filter(t => t.kind === 'ambience' && !t.spotify_uri)
+      ambTracks.forEach(t => {
+        const a = audioRefs.current[t.id]
+        if (a && a.paused) a.play().catch(() => {})
+      })
+      return
+    }
+    const ambTracks = (scene?.tracks || []).filter(t => t.kind === 'ambience')
+    ambTracks.forEach(t => {
+      const a = audioRefs.current[t.id]
+      if (a) { a.pause(); a.currentTime = 0 }
+    })
+    // Force-sync mixer UI immediately — the 'pause' DOM event fires
+    // asynchronously, so without this the mixer stays "playing" until
+    // the next render cycle after the event ticks.
+    setPlaying(p => {
+      const next = { ...p }
+      ambTracks.forEach(t => { next[t.id] = false })
+      return next
+    })
+  }, [isLive]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop all audio when Stage unmounts (e.g. navigating back to campaign home)
   useEffect(() => {
@@ -293,6 +335,7 @@ export default function Stage({
           }
           setMusicIdx(nextIdx)
           musicIdxRef.current = nextIdx
+          onMusicTrackChangeRef.current?.(next?.id ?? null)
         }
         a.addEventListener('ended', endedHandler)
       }
@@ -342,7 +385,8 @@ export default function Stage({
       if (!current.spotify_uri) {
         const a = audioRefs.current[current.id]
         if (a) { a.pause(); a.currentTime = 0 }
-      } else if (spotify.states[current.id]?.playing) {
+      } else if (!isLive && spotify.states[current.id]?.playing) {
+        // When live the viewer is the audio master — don't touch Spotify on DM side
         spotify.toggle(current)
       }
     }
@@ -350,12 +394,14 @@ export default function Stage({
     if (next) {
       if (!next.spotify_uri) {
         getOrCreate(next).play().catch(() => {})
-      } else if (!spotify.states[next.id]?.playing) {
+      } else if (!isLive && !spotify.states[next.id]?.playing) {
+        // When live, viewer receives the track ID via active_music_track_id and plays it
         spotify.toggle(next)
       }
     }
     setMusicIdx(newIdx)
     musicIdxRef.current = newIdx
+    onMusicTrackChange?.(next?.id ?? null)
   }
 
   if (!scene) {
@@ -492,66 +538,77 @@ export default function Stage({
         </div>
       )}
 
-      {/* ── Fullscreen button — opposite corner from mixer ── */}
-      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
-        <button onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-          style={{ height: '44px', padding: '0 14px', background: 'rgba(13,14,22,0.82)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '8px', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {isFullscreen ? '✕' : '⛶'}
-        </button>
-      </div>
-
-      {/* ── Bottom-right: Handouts + Edit Scene ── */}
-      {!isFullscreen && (
-        <div style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px', alignItems: 'flex-end', flexDirection: 'column' }}>
-          {/* Handouts panel */}
-          {handoutsOpen && handouts.length > 0 && (
-            <div
-              onPointerDown={e => e.stopPropagation()}
-              style={{ width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)', marginBottom: '4px' }}
+      {/* ── Top corner: Edit + Handouts + Fullscreen (opposite corner from mixer) ── */}
+      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
+        {/* Button row */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {handouts.length > 0 && (
+            <button
+              onClick={() => setHandoutsOpen(o => !o)}
+              title="Handouts"
+              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: handoutsOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: handoutsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Handouts</span>
-                <button onClick={() => setHandoutsOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
-              </div>
-              <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
-                {handouts.map(h => {
-                  const imgUrl = h.media?.signed_url || h.media?.url || null
-                  return (
-                    <button
-                      key={h.id}
-                      onClick={() => { showHandout(h); setHandoutsOpen(false) }}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {imgUrl
-                          ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
-                        }
-                      </div>
-                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
-                      <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {handouts.length > 0 && (
-              <button className="btn btn-ghost btn-sm" onClick={() => setHandoutsOpen(o => !o)}
-                style={{ minHeight: '44px', padding: '0 14px', borderColor: handoutsOpen ? 'rgba(201,168,76,0.5)' : undefined, color: handoutsOpen ? 'var(--accent)' : undefined }}>
-                📄 Handouts
-              </button>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={onEdit}
-              style={{ minHeight: '44px', padding: '0 14px' }}>
-              ⚙ Edit Scene
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M4.5 5h6M4.5 7.5h6M4.5 10h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+              </svg>
             </button>
-          </div>
+          )}
+          <button
+            onClick={onEdit}
+            title="Edit Scene"
+            style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9.5 1.5L12.5 4.5L4.5 12.5H1.5V9.5L9.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <path d="M8 3L11 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {isFullscreen ? '✕' : '⛶'}
+          </button>
         </div>
-      )}
+
+        {/* Handouts dropdown panel */}
+        {handoutsOpen && handouts.length > 0 && (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+          >
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Handouts</span>
+              <button onClick={() => setHandoutsOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+            </div>
+            <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
+              {handouts.map(h => {
+                const imgUrl = h.media?.signed_url || h.media?.url || null
+                return (
+                  <button
+                    key={h.id}
+                    onClick={() => { showHandout(h); setHandoutsOpen(false) }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {imgUrl
+                        ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
+                      }
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Handout lightbox ── */}
       {activeHandout && (
@@ -796,6 +853,7 @@ export default function Stage({
               ))}
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1, minWidth: 0 }}>Audio</span>
+            {isLive && <span style={{ fontSize: '9px', fontWeight: 800, letterSpacing: '1px', color: '#ff5555', background: 'rgba(255,85,85,0.12)', border: '1px solid rgba(255,85,85,0.3)', borderRadius: '4px', padding: '2px 6px', flexShrink: 0 }}>LIVE</span>}
             {playingCount > 0 && <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
             <button
               onClick={e => {
@@ -849,8 +907,11 @@ export default function Stage({
               {/* ── Ambience (all simultaneous) ── */}
               {(baseMusic.length > 0 || layers.length > 0) && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
-                <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
+                <div style={{ padding: '10px 14px 6px', ...(isLive ? { opacity: 0.45, pointerEvents: 'none' } : {}) }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    🌊 Ambience
+                    {isLive && <span style={{ fontSize: '8px', color: 'rgba(255,85,85,0.5)', fontWeight: 600, letterSpacing: '0.5px' }}>· viewer only</span>}
+                  </div>
                   {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
                 </div>
               )}
