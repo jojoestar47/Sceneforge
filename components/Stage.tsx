@@ -492,66 +492,77 @@ export default function Stage({
         </div>
       )}
 
-      {/* ── Fullscreen button — opposite corner from mixer ── */}
-      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', gap: '8px' }}>
-        <button onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-          style={{ height: '44px', padding: '0 14px', background: 'rgba(13,14,22,0.82)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '8px', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {isFullscreen ? '✕' : '⛶'}
-        </button>
-      </div>
-
-      {/* ── Bottom-right: Handouts + Edit Scene ── */}
-      {!isFullscreen && (
-        <div style={{ position: 'absolute', bottom: '14px', right: '14px', zIndex: 20, display: 'flex', gap: '8px', alignItems: 'flex-end', flexDirection: 'column' }}>
-          {/* Handouts panel */}
-          {handoutsOpen && handouts.length > 0 && (
-            <div
-              onPointerDown={e => e.stopPropagation()}
-              style={{ width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)', marginBottom: '4px' }}
+      {/* ── Top corner: Edit + Handouts + Fullscreen (opposite corner from mixer) ── */}
+      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
+        {/* Button row */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {handouts.length > 0 && (
+            <button
+              onClick={() => setHandoutsOpen(o => !o)}
+              title="Handouts"
+              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: handoutsOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: handoutsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Handouts</span>
-                <button onClick={() => setHandoutsOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
-              </div>
-              <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
-                {handouts.map(h => {
-                  const imgUrl = h.media?.signed_url || h.media?.url || null
-                  return (
-                    <button
-                      key={h.id}
-                      onClick={() => { showHandout(h); setHandoutsOpen(false) }}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {imgUrl
-                          ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
-                        }
-                      </div>
-                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
-                      <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {handouts.length > 0 && (
-              <button className="btn btn-ghost btn-sm" onClick={() => setHandoutsOpen(o => !o)}
-                style={{ minHeight: '44px', padding: '0 14px', borderColor: handoutsOpen ? 'rgba(201,168,76,0.5)' : undefined, color: handoutsOpen ? 'var(--accent)' : undefined }}>
-                📄 Handouts
-              </button>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={onEdit}
-              style={{ minHeight: '44px', padding: '0 14px' }}>
-              ⚙ Edit Scene
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M4.5 5h6M4.5 7.5h6M4.5 10h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+              </svg>
             </button>
-          </div>
+          )}
+          <button
+            onClick={onEdit}
+            title="Edit Scene"
+            style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9.5 1.5L12.5 4.5L4.5 12.5H1.5V9.5L9.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <path d="M8 3L11 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </button>
+          <button
+            onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {isFullscreen ? '✕' : '⛶'}
+          </button>
         </div>
-      )}
+
+        {/* Handouts dropdown panel */}
+        {handoutsOpen && handouts.length > 0 && (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+          >
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Handouts</span>
+              <button onClick={() => setHandoutsOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+            </div>
+            <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
+              {handouts.map(h => {
+                const imgUrl = h.media?.signed_url || h.media?.url || null
+                return (
+                  <button
+                    key={h.id}
+                    onClick={() => { showHandout(h); setHandoutsOpen(false) }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {imgUrl
+                        ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
+                      }
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Handout lightbox ── */}
       {activeHandout && (

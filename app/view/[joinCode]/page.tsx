@@ -205,7 +205,7 @@ export default function ViewerPage() {
 
     if (!scene?.tracks?.length) return
     const musicTracks = scene.tracks.filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri
     )
     if (!musicTracks.length) return
 
@@ -225,7 +225,7 @@ export default function ViewerPage() {
     hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
     const musicTracks = (scene?.tracks || []).filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri
+      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri
     )
     musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
     spotify.autoPlay()
