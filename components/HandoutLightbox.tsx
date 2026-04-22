@@ -19,8 +19,9 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
   const lastXY    = useRef({ x: 0, y: 0 })
   const lastPinch = useRef<number | null>(null)
 
-  const imgUrl   = handout.media?.signed_url || handout.media?.url || null
-  const isZoomed = zoom > 1.02
+  const imgUrl     = handout.media?.signed_url || handout.media?.url || null
+  const isZoomed   = zoom > 1.02          // controls drag-to-pan behaviour
+  const isModified = Math.abs(zoom - 1) > 0.02 // controls Reset button visibility
 
   function dismiss() {
     setClosing(true)
@@ -54,7 +55,7 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
   function handleWheel(e: React.WheelEvent) {
     e.preventDefault(); e.stopPropagation()
     const factor = e.deltaY < 0 ? 1.15 : 0.87
-    setZoom(z => Math.min(6, Math.max(1, z * factor)))
+    setZoom(z => Math.min(6, Math.max(0.25, z * factor)))
   }
 
   // ── Touch pinch / pan ────────────────────────────────────────
@@ -75,7 +76,7 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
     if (e.touches.length === 2) {
       const d = pinchDist(e)
       if (d !== null && lastPinch.current !== null) {
-        setZoom(z => Math.min(6, Math.max(1, z * (d / lastPinch.current!))))
+        setZoom(z => Math.min(6, Math.max(0.25, z * (d / lastPinch.current!))))
       }
       lastPinch.current = d
     } else if (e.touches.length === 1) {
@@ -156,7 +157,7 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
               {handout.name}
             </span>
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0, pointerEvents: 'all' }}>
-              {isZoomed && (
+              {isModified && (
                 <button
                   onClick={e => { e.stopPropagation(); resetView() }}
                   style={{
