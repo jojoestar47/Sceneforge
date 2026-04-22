@@ -352,8 +352,17 @@ export default function ViewerPage() {
   }
 
   const allTracks    = scene?.tracks || []
-  const music        = allTracks.filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3')
+  const baseMusic    = allTracks.filter(t => t.kind === 'music')
+  const layers       = allTracks.filter(t => t.kind === 'ml2' || t.kind === 'ml3')
   const amb          = allTracks.filter(t => t.kind === 'ambience')
+  // Current music track: DM's selection → first playing → first track
+  const currentMusicTrack = (
+    (activeMusicTrackId ? baseMusic.find(t => t.id === activeMusicTrackId) : null) ??
+    baseMusic.find(t => trackPlaying(t)) ??
+    baseMusic[0] ??
+    null
+  )
+  const currentMusicIdx = currentMusicTrack ? baseMusic.indexOf(currentMusicTrack) : 0
   const hasSpotifyTracks = allTracks.some(t => !!t.spotify_uri)
   const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
   const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount
@@ -542,13 +551,31 @@ export default function ViewerPage() {
           </div>
           {mixerOpen && (
             <div style={{ background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
-              {music.length > 0 && (
+              {/* ── Base music — playlist style: only current track shown ── */}
+              {baseMusic.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎵 Music</div>
-                  {music.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', flex: 1 }}>🎵 Music</span>
+                    {baseMusic.length > 1 && (
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', minWidth: '28px', textAlign: 'right' }}>{currentMusicIdx + 1}/{baseMusic.length}</span>
+                    )}
+                  </div>
+                  {currentMusicTrack && (
+                    <TrackRow key={currentMusicTrack.id} t={currentMusicTrack} isPlaying={trackPlaying(currentMusicTrack)} volume={trackVolume(currentMusicTrack)} onToggle={() => toggleTrack(currentMusicTrack)} onVol={v => setVol(currentMusicTrack, v)} nowPlaying={currentMusicTrack.spotify_uri && trackPlaying(currentMusicTrack) ? spotify.nowPlaying : null} progress={currentMusicTrack.spotify_uri && trackPlaying(currentMusicTrack) ? spotify.progress : undefined} onSkip={currentMusicTrack.spotify_uri ? d => spotify.skip(d) : undefined} />
+                  )}
                 </div>
               )}
-              {music.length > 0 && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
+              {/* ── Dynamic layers ── */}
+              {layers.length > 0 && (
+                <>
+                  {baseMusic.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
+                  <div style={{ padding: '10px 14px 6px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🎚 Layers</div>
+                    {layers.map(t => <TrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
+                  </div>
+                </>
+              )}
+              {(baseMusic.length > 0 || layers.length > 0) && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
                 <div style={{ padding: '10px 14px 6px' }}>
                   <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
