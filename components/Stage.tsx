@@ -48,6 +48,7 @@ interface Props {
   onSlotDisplayChange?: (slot: 'left'|'center'|'right', scale: number, display: SlotDisplay) => void
   onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
   onHandoutShow?: (handoutId: string | null) => void
+  onMusicTrackChange?: (trackId: string | null) => void
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -65,7 +66,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -109,8 +110,11 @@ export default function Stage({
   const prevSceneIdForVolRef = useRef<string | null>(null)
   // Playlist: tracks the currently active base-music track index
   const [musicIdx, setMusicIdx] = useState(0)
-  const musicIdxRef    = useRef(0)
-  const sceneMusicRef  = useRef<Track[]>([])
+  const musicIdxRef            = useRef(0)
+  const sceneMusicRef          = useRef<Track[]>([])
+  // Stable ref so the endedHandler closure always calls the latest prop
+  const onMusicTrackChangeRef  = useRef(onMusicTrackChange)
+  useEffect(() => { onMusicTrackChangeRef.current = onMusicTrackChange }, [onMusicTrackChange])
 
   // ── Handouts ─────────────────────────────────────────────────
   const [handoutsOpen,   setHandoutsOpen]   = useState(false)
@@ -293,6 +297,7 @@ export default function Stage({
           }
           setMusicIdx(nextIdx)
           musicIdxRef.current = nextIdx
+          onMusicTrackChangeRef.current?.(next?.id ?? null)
         }
         a.addEventListener('ended', endedHandler)
       }
@@ -356,6 +361,7 @@ export default function Stage({
     }
     setMusicIdx(newIdx)
     musicIdxRef.current = newIdx
+    onMusicTrackChange?.(next?.id ?? null)
   }
 
   if (!scene) {

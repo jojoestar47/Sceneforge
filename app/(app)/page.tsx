@@ -289,6 +289,11 @@ export default function AppPage() {
     await supabase.from('sessions').update({ active_handout_id: handoutId }).eq('id', sessionId)
   }
 
+  async function handleMusicTrackChange(trackId: string | null) {
+    if (!sessionId || !isLive) return
+    await supabase.from('sessions').update({ active_music_track_id: trackId }).eq('id', sessionId)
+  }
+
   // ── Scene + character selection ───────────────────────────────
   async function handleSelectScene(id: string) {
     setActiveSceneId(id)
@@ -303,7 +308,7 @@ export default function AppPage() {
         leftPanY: 100, centerPanY: 100, rightPanY: 100,
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
       }
-      await supabase.from('sessions').update({ active_scene_id: id, character_state: cs }).eq('id', sessionId)
+      await supabase.from('sessions').update({ active_scene_id: id, character_state: cs, active_music_track_id: null }).eq('id', sessionId)
     }
   }
 
@@ -810,6 +815,7 @@ export default function AppPage() {
               onSlotDisplayChange={handleSlotDisplayChange}
               onSaveSlotDisplay={handleSaveSlotDisplay}
               onHandoutShow={handleHandoutShow}
+              onMusicTrackChange={handleMusicTrackChange}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{
@@ -930,31 +936,6 @@ export default function AppPage() {
                       >▶</button>
                     </div>
                   </div>
-                  {/* ── Handouts quick-access ── */}
-                  {activeScene && (activeScene.handouts?.length ?? 0) > 0 && (
-                    <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0, minWidth: '276px' }}>
-                      <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: '4px' }}>Handouts</div>
-                      {activeScene.handouts!.map(h => {
-                        const imgUrl = h.media?.signed_url || h.media?.url || null
-                        return (
-                          <button key={h.id} onClick={() => { setActiveHandout(h); handleHandoutShow(h.id) }}
-                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                          >
-                            <div style={{ width: '28px', height: '28px', borderRadius: '4px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {imgUrl
-                                ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                : <span style={{ fontSize: '12px', opacity: 0.4 }}>🗺</span>
-                              }
-                            </div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
-                            <span style={{ fontSize: '9px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
                   <SceneList
                     key={activeCampId}
                     scenes={scenes}

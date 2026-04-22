@@ -107,6 +107,14 @@ export default function ViewerPage() {
   useEffect(() => { sceneRef.current = scene }, [scene])
   const activeHandout = (scene?.handouts ?? []).find(h => h.id === activeHandoutId) ?? null
 
+  // ── Music track sync ──────────────────────────────────────────
+  // activeMusicTrackId is set by the DM when they change tracks in the mixer.
+  // A ref mirrors it so the autoplay effect (which runs on scene change) can
+  // read the correct starting track without needing it as a dependency.
+  const [activeMusicTrackId, setActiveMusicTrackId] = useState<string | null>(null)
+  const activeMusicTrackIdRef = useRef<string | null>(null)
+  useEffect(() => { activeMusicTrackIdRef.current = activeMusicTrackId }, [activeMusicTrackId])
+
   // ── Spotify player ────────────────────────────────────────────
   const spotify = useSpotifyPlayer(scene)
 
@@ -204,30 +212,52 @@ export default function ViewerPage() {
     audioRefs.current = {}; audioHandlers.current = {}; setVolumes({}); setPlaying({})
 
     if (!scene?.tracks?.length) return
-    const musicTracks = scene.tracks.filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri
-    )
-    if (!musicTracks.length) return
+    // Music (kind==='music') is a playlist — only one plays at a time.
+    // Layers (ml2/ml3) and ambience always play simultaneously.
+    const musicTracks  = scene.tracks.filter(t => t.kind === 'music' && !t.spotify_uri)
+    const alwaysOn     = scene.tracks.filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
+    // Start with the DM's active track if known, otherwise the first track
+    const startId      = activeMusicTrackIdRef.current
+    const musicToStart = (startId ? musicTracks.find(t => t.id === startId) : null) ?? musicTracks[0]
+    const tracksToPlay = [...(musicToStart ? [musicToStart] : []), ...alwaysOn]
+    if (!tracksToPlay.length) return
 
     if (hasInteracted.current) {
-      musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
+      tracksToPlay.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
       return
     }
-    getOrCreate(musicTracks[0]).play()
+    getOrCreate(tracksToPlay[0]).play()
       .then(() => {
         hasInteracted.current = true; setNeedsTap(false)
-        musicTracks.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
+        tracksToPlay.slice(1).forEach(t => getOrCreate(t).play().catch(() => {}))
       })
       .catch(() => setNeedsTap(true))
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Switch music track when DM changes it ─────────────────────
+  useEffect(() => {
+    if (!activeMusicTrackId || !scene) return
+    const musicTracks = (scene.tracks || []).filter(t => t.kind === 'music' && !t.spotify_uri)
+    // Pause every music track, then start the one DM selected
+    musicTracks.forEach(t => {
+      const a = audioRefs.current[t.id]
+      if (a && !a.paused) { a.pause(); a.currentTime = 0 }
+    })
+    const target = musicTracks.find(t => t.id === activeMusicTrackId)
+    if (target && hasInteracted.current) {
+      const a = getOrCreate(target)
+      if (a.paused) a.play().catch(() => {})
+    }
+  }, [activeMusicTrackId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleFirstTap() {
     hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
-    const musicTracks = (scene?.tracks || []).filter(
-      t => (t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri
-    )
-    musicTracks.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
+    const musicTracks  = (scene?.tracks || []).filter(t => t.kind === 'music' && !t.spotify_uri)
+    const alwaysOn     = (scene?.tracks || []).filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
+    const musicToStart = (activeMusicTrackId ? musicTracks.find(t => t.id === activeMusicTrackId) : null) ?? musicTracks[0]
+    const toPlay       = [...(musicToStart ? [musicToStart] : []), ...alwaysOn]
+    toPlay.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
     spotify.autoPlay()
   }
 
@@ -241,7 +271,7 @@ export default function ViewerPage() {
   // ── Load session ──────────────────────────────────────────────
   const loadSession = useCallback(async () => {
     const { data } = await supabase.from('sessions')
-      .select('id, active_scene_id, is_live, character_state, active_handout_id')
+      .select('id, active_scene_id, is_live, character_state, active_handout_id, active_music_track_id')
       .eq('join_code', joinCode).maybeSingle()
     if (!data)         { setStatus('waiting'); return }
     if (!data.is_live) { setStatus('ended');   return }
@@ -250,6 +280,7 @@ export default function ViewerPage() {
       loadCharactersFromState(data.character_state as CharacterState | null),
     ])
     setActiveHandoutId(data.active_handout_id ?? null)
+    setActiveMusicTrackId(data.active_music_track_id ?? null)
   }, [joinCode, loadScene, loadCharactersFromState])
 
   useEffect(() => { loadSession() }, [loadSession])
@@ -267,11 +298,12 @@ export default function ViewerPage() {
         event: 'UPDATE', schema: 'public', table: 'sessions',
         filter: `join_code=eq.${joinCode}`,
       }, (payload) => {
-        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null }
+        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null; active_music_track_id: string | null }
         if (!row.is_live) { setStatus('ended'); return }
         if (row.active_scene_id !== sceneRef.current?.id) loadScene(row.active_scene_id)
         loadCharactersFromState(row.character_state)
         setActiveHandoutId(row.active_handout_id ?? null)
+        setActiveMusicTrackId(row.active_music_track_id ?? null)
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
