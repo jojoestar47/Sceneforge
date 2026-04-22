@@ -257,13 +257,32 @@ export default function Stage({
     return () => clearTimeout(timer)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Stop ambience on DM whenever presentation goes live
+  // Stop ambience on DM whenever presentation goes live;
+  // resume it when the presentation stops.
   useEffect(() => {
-    if (!isLive) return
+    if (!isLive) {
+      // Going not-live: resume any ambience that was running before.
+      // Only touch elements that already exist in audioRefs — new-scene
+      // autoplay is handled by the 300ms timer so we don't double-start on mount.
+      const ambTracks = (scene?.tracks || []).filter(t => t.kind === 'ambience' && !t.spotify_uri)
+      ambTracks.forEach(t => {
+        const a = audioRefs.current[t.id]
+        if (a && a.paused) a.play().catch(() => {})
+      })
+      return
+    }
     const ambTracks = (scene?.tracks || []).filter(t => t.kind === 'ambience')
     ambTracks.forEach(t => {
       const a = audioRefs.current[t.id]
       if (a) { a.pause(); a.currentTime = 0 }
+    })
+    // Force-sync mixer UI immediately — the 'pause' DOM event fires
+    // asynchronously, so without this the mixer stays "playing" until
+    // the next render cycle after the event ticks.
+    setPlaying(p => {
+      const next = { ...p }
+      ambTracks.forEach(t => { next[t.id] = false })
+      return next
     })
   }, [isLive]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -834,6 +853,7 @@ export default function Stage({
               ))}
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', flex: 1, minWidth: 0 }}>Audio</span>
+            {isLive && <span style={{ fontSize: '9px', fontWeight: 800, letterSpacing: '1px', color: '#ff5555', background: 'rgba(255,85,85,0.12)', border: '1px solid rgba(255,85,85,0.3)', borderRadius: '4px', padding: '2px 6px', flexShrink: 0 }}>LIVE</span>}
             {playingCount > 0 && <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>{playingCount}</span>}
             <button
               onClick={e => {
@@ -887,8 +907,11 @@ export default function Stage({
               {/* ── Ambience (all simultaneous) ── */}
               {(baseMusic.length > 0 || layers.length > 0) && amb.length > 0 && <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 14px' }} />}
               {amb.length > 0 && (
-                <div style={{ padding: '10px 14px 6px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>🌊 Ambience</div>
+                <div style={{ padding: '10px 14px 6px', ...(isLive ? { opacity: 0.45, pointerEvents: 'none' } : {}) }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    🌊 Ambience
+                    {isLive && <span style={{ fontSize: '8px', color: 'rgba(255,85,85,0.5)', fontWeight: 600, letterSpacing: '0.5px' }}>· viewer only</span>}
+                  </div>
                   {amb.map(t => <MiniTrackRow key={t.id} t={t} isPlaying={trackPlaying(t)} volume={trackVolume(t)} onToggle={() => toggleTrack(t)} onVol={v => setVol(t, v)} nowPlaying={t.spotify_uri && trackPlaying(t) ? spotify.nowPlaying : null} progress={t.spotify_uri && trackPlaying(t) ? spotify.progress : undefined} onSkip={t.spotify_uri ? d => spotify.skip(d) : undefined} />)}
                 </div>
               )}

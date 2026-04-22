@@ -241,19 +241,22 @@ export default function ViewerPage() {
     const target   = allMusic.find(t => t.id === activeMusicTrackId)
     if (!target) return
 
-    // Stop every currently-playing music track (file + Spotify)
+    // Stop every currently-playing file music track
     allMusic.forEach(t => {
       if (!t.spotify_uri) {
         const a = audioRefs.current[t.id]
         if (a && !a.paused) { a.pause(); a.currentTime = 0 }
       }
     })
-    spotify.stopAll()
 
     // Start the DM's chosen track
     if (target.spotify_uri) {
-      // Spotify — viewer is the active device, just toggle it in
-      if (!spotify.states[target.id]?.playing) spotify.toggle(target)
+      // stopAll() sets activeTrackRef.current = null inside the hook, so
+      // toggle() always calls playTrack() regardless of spotify.states —
+      // avoiding the stale-closure bug where states hasn't re-rendered yet
+      // after stopAll()'s setStates() fires, causing toggle() to be skipped.
+      spotify.stopAll()
+      spotify.toggle(target)
     } else if (hasInteracted.current) {
       // File — only play after browser audio is unlocked
       const a = getOrCreate(target)
