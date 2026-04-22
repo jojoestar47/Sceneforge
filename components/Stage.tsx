@@ -232,6 +232,7 @@ export default function Stage({
 
     const baseMusic = scene.tracks.filter(t => t.kind === 'music' && !t.spotify_uri)
     const layers    = scene.tracks.filter(t => (t.kind === 'ml2' || t.kind === 'ml3') && !t.spotify_uri)
+    const amb       = scene.tracks.filter(t => t.kind === 'ambience' && !t.spotify_uri)
     sceneMusicRef.current = scene.tracks.filter(t => t.kind === 'music')
 
     const timer = setTimeout(() => {
@@ -246,7 +247,6 @@ export default function Stage({
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
       // Ambience tracks always play simultaneously
-      const amb = scene.tracks.filter(t => t.kind === 'ambience' && !t.spotify_uri)
       amb.forEach(t => {
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
