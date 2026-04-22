@@ -49,6 +49,7 @@ interface Props {
   onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
   onHandoutShow?: (handoutId: string | null) => void
   onMusicTrackChange?: (trackId: string | null) => void
+  isLive?: boolean
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -66,7 +67,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -244,6 +245,11 @@ export default function Stage({
       layers.forEach(t => {
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
+      // Ambience tracks always play simultaneously
+      const amb = scene.tracks.filter(t => t.kind === 'ambience' && !t.spotify_uri)
+      amb.forEach(t => {
+        if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
+      })
     }, 300)
     return () => clearTimeout(timer)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -347,7 +353,8 @@ export default function Stage({
       if (!current.spotify_uri) {
         const a = audioRefs.current[current.id]
         if (a) { a.pause(); a.currentTime = 0 }
-      } else if (spotify.states[current.id]?.playing) {
+      } else if (!isLive && spotify.states[current.id]?.playing) {
+        // When live the viewer is the audio master — don't touch Spotify on DM side
         spotify.toggle(current)
       }
     }
@@ -355,7 +362,8 @@ export default function Stage({
     if (next) {
       if (!next.spotify_uri) {
         getOrCreate(next).play().catch(() => {})
-      } else if (!spotify.states[next.id]?.playing) {
+      } else if (!isLive && !spotify.states[next.id]?.playing) {
+        // When live, viewer receives the track ID via active_music_track_id and plays it
         spotify.toggle(next)
       }
     }

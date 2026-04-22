@@ -816,6 +816,7 @@ export default function AppPage() {
               onSaveSlotDisplay={handleSaveSlotDisplay}
               onHandoutShow={handleHandoutShow}
               onMusicTrackChange={handleMusicTrackChange}
+              isLive={isLive}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{

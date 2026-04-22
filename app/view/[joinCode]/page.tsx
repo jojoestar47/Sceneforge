@@ -237,14 +237,25 @@ export default function ViewerPage() {
   // ── Switch music track when DM changes it ─────────────────────
   useEffect(() => {
     if (!activeMusicTrackId || !scene) return
-    const musicTracks = (scene.tracks || []).filter(t => t.kind === 'music' && !t.spotify_uri)
-    // Pause every music track, then start the one DM selected
-    musicTracks.forEach(t => {
-      const a = audioRefs.current[t.id]
-      if (a && !a.paused) { a.pause(); a.currentTime = 0 }
+    const allMusic = (scene.tracks || []).filter(t => t.kind === 'music')
+    const target   = allMusic.find(t => t.id === activeMusicTrackId)
+    if (!target) return
+
+    // Stop every currently-playing music track (file + Spotify)
+    allMusic.forEach(t => {
+      if (!t.spotify_uri) {
+        const a = audioRefs.current[t.id]
+        if (a && !a.paused) { a.pause(); a.currentTime = 0 }
+      }
     })
-    const target = musicTracks.find(t => t.id === activeMusicTrackId)
-    if (target && hasInteracted.current) {
+    spotify.stopAll()
+
+    // Start the DM's chosen track
+    if (target.spotify_uri) {
+      // Spotify — viewer is the active device, just toggle it in
+      if (!spotify.states[target.id]?.playing) spotify.toggle(target)
+    } else if (hasInteracted.current) {
+      // File — only play after browser audio is unlocked
       const a = getOrCreate(target)
       if (a.paused) a.play().catch(() => {})
     }
@@ -253,12 +264,18 @@ export default function ViewerPage() {
   function handleFirstTap() {
     hasInteracted.current = true; setNeedsTap(false)
     unlockAudioContext()
-    const musicTracks  = (scene?.tracks || []).filter(t => t.kind === 'music' && !t.spotify_uri)
-    const alwaysOn     = (scene?.tracks || []).filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
-    const musicToStart = (activeMusicTrackId ? musicTracks.find(t => t.id === activeMusicTrackId) : null) ?? musicTracks[0]
-    const toPlay       = [...(musicToStart ? [musicToStart] : []), ...alwaysOn]
-    toPlay.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
-    spotify.autoPlay()
+    const allMusic    = (scene?.tracks || []).filter(t => t.kind === 'music')
+    const alwaysOn    = (scene?.tracks || []).filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
+    const target      = activeMusicTrackId ? allMusic.find(t => t.id === activeMusicTrackId) : null
+    // Start whichever music track DM has selected (or first by default)
+    if (target?.spotify_uri) {
+      if (!spotify.states[target.id]?.playing) spotify.toggle(target)
+    } else {
+      const fileMusicToStart = (target ?? allMusic.filter(t => !t.spotify_uri)[0])
+      if (fileMusicToStart) { const a = getOrCreate(fileMusicToStart); if (a.paused) a.play().catch(() => {}) }
+      if (!target) spotify.autoPlay() // no specific track set — let Spotify auto-pick
+    }
+    alwaysOn.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
   }
 
   // ── Load scene ────────────────────────────────────────────────
