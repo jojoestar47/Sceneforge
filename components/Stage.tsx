@@ -246,13 +246,26 @@ export default function Stage({
       layers.forEach(t => {
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
-      // Ambience tracks always play simultaneously
-      amb.forEach(t => {
-        if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
-      })
+      // Ambience tracks play simultaneously — but not on DM when live
+      // (viewer is the audio master; ambience plays on the viewer side)
+      if (!isLive) {
+        amb.forEach(t => {
+          if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
+        })
+      }
     }, 300)
     return () => clearTimeout(timer)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stop ambience on DM whenever presentation goes live
+  useEffect(() => {
+    if (!isLive) return
+    const ambTracks = (scene?.tracks || []).filter(t => t.kind === 'ambience')
+    ambTracks.forEach(t => {
+      const a = audioRefs.current[t.id]
+      if (a) { a.pause(); a.currentTime = 0 }
+    })
+  }, [isLive]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop all audio when Stage unmounts (e.g. navigating back to campaign home)
   useEffect(() => {
