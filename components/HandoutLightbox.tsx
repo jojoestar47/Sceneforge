@@ -9,34 +9,33 @@ interface Props {
 }
 
 export default function HandoutLightbox({ handout, onClose }: Props) {
-  const [closing, setClosing]     = useState(false)
-  const [zoom, setZoom]           = useState(1)
-  const [pan, setPan]             = useState({ x: 0, y: 0 })
+  const [closing, setClosing]       = useState(false)
+  const [zoom, setZoom]             = useState(1)
+  const [pan, setPan]               = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
 
-  const dragging   = useRef(false)
-  const hasMoved   = useRef(false)
-  const lastXY     = useRef({ x: 0, y: 0 })
-  const lastPinch  = useRef<number | null>(null)
+  const dragging  = useRef(false)
+  const hasMoved  = useRef(false)
+  const lastXY    = useRef({ x: 0, y: 0 })
+  const lastPinch = useRef<number | null>(null)
 
-  const imgUrl = handout.media?.signed_url || handout.media?.url || null
+  const imgUrl   = handout.media?.signed_url || handout.media?.url || null
   const isZoomed = zoom > 1.02
 
   function dismiss() {
     setClosing(true)
-    setTimeout(onClose, 180)
+    setTimeout(onClose, 260) // matches slide-out duration
   }
 
   function resetView() { setZoom(1); setPan({ x: 0, y: 0 }) }
 
-  // Reset pan when zoomed all the way out
   useEffect(() => { if (!isZoomed) setPan({ x: 0, y: 0 }) }, [isZoomed])
 
   // ── Drag ─────────────────────────────────────────────────────
   function startDrag(x: number, y: number) {
-    dragging.current = true
-    hasMoved.current = false
-    lastXY.current = { x, y }
+    dragging.current  = true
+    hasMoved.current  = false
+    lastXY.current    = { x, y }
     setIsDragging(true)
   }
 
@@ -53,13 +52,12 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
 
   // ── Wheel zoom ───────────────────────────────────────────────
   function handleWheel(e: React.WheelEvent) {
-    e.preventDefault()
-    e.stopPropagation()
+    e.preventDefault(); e.stopPropagation()
     const factor = e.deltaY < 0 ? 1.15 : 0.87
     setZoom(z => Math.min(6, Math.max(1, z * factor)))
   }
 
-  // ── Touch pinch/pan ──────────────────────────────────────────
+  // ── Touch pinch / pan ────────────────────────────────────────
   function pinchDist(e: React.TouchEvent) {
     if (e.touches.length < 2) return null
     const dx = e.touches[0].clientX - e.touches[1].clientX
@@ -87,107 +85,125 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — fades in, click outside to close */}
       <div
         style={{
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'rgba(0,0,0,0.92)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: '14px', padding: '28px',
-          boxSizing: 'border-box',
-          animation: `${closing ? 'lbFadeOut' : 'lbFadeIn'} 0.18s ease forwards`,
+          animation: closing
+            ? 'lbBdOut 0.26s ease forwards'
+            : 'lbBdIn  0.2s  ease forwards',
         }}
+        onClick={() => { if (!hasMoved.current) dismiss(); hasMoved.current = false }}
         onMouseMove={e => moveDrag(e.clientX, e.clientY)}
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
-        onClick={() => {
-          const moved = hasMoved.current
-          hasMoved.current = false
-          if (!moved) dismiss()
-        }}
       >
-        {/* Header row */}
+        {/* Content sheet — slides up from bottom */}
         <div
-          onClick={e => e.stopPropagation()}
           style={{
-            display: 'flex', alignItems: 'center', gap: '12px',
-            width: '100%', maxWidth: '85vw', flexShrink: 0,
-            animation: `${closing ? 'lbContentOut' : 'lbContentIn'} 0.18s ease forwards`,
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden',
+            animation: closing
+              ? 'lbSlideOut 0.26s cubic-bezier(0.4, 0, 1, 1)    forwards'
+              : 'lbSlideIn  0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards',
           }}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => { e.preventDefault(); startDrag(e.clientX, e.clientY) }}
+          onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={() => { endDrag(); lastPinch.current = null }}
         >
-          <span style={{ flex: 1, fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.85)', fontFamily: "'Cinzel',serif", letterSpacing: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {handout.name}
-          </span>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-            {isZoomed && (
-              <button
-                onClick={resetView}
-                style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '.5px', padding: '4px 10px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.55)', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                {Math.round(zoom * 100)}% · Reset
-              </button>
-            )}
-            <button
-              onClick={e => { e.stopPropagation(); dismiss() }}
-              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '14px', cursor: 'pointer', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-            >✕</button>
-          </div>
-        </div>
-
-        {/* Image */}
-        {imgUrl && (
-          <div
-            onClick={e => e.stopPropagation()}
-            onMouseDown={e => { e.preventDefault(); startDrag(e.clientX, e.clientY) }}
-            onWheel={handleWheel}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={() => { endDrag(); lastPinch.current = null }}
-            style={{
-              overflow: 'hidden',
-              borderRadius: '8px',
-              boxShadow: '0 20px 80px rgba(0,0,0,0.8)',
-              maxWidth: '85vw',
-              maxHeight: 'calc(85vh - 80px)',
-              lineHeight: 0,
-              flexShrink: 0,
-              cursor: isZoomed ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in',
-              animation: `${closing ? 'lbContentOut' : 'lbContentIn'} 0.18s ease forwards`,
-            }}
-          >
+          {/* Image — fills the viewport, contained with correct aspect ratio */}
+          {imgUrl && (
             <img
               src={imgUrl}
               alt={handout.name}
               draggable={false}
               style={{
-                display: 'block',
-                maxWidth: '85vw',
-                maxHeight: 'calc(85vh - 80px)',
+                maxWidth: '100%',
+                maxHeight: '100%',
                 objectFit: 'contain',
+                display: 'block',
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: 'center center',
                 transition: isDragging ? 'none' : 'transform 0.12s ease',
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
+                cursor: isZoomed ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in',
               }}
             />
-          </div>
-        )}
+          )}
 
-        {/* Hint */}
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{ fontSize: '10px', color: 'rgba(255,255,255,0.18)', letterSpacing: '.5px', flexShrink: 0 }}
-        >
-          Scroll to zoom · Drag to pan · Click outside to close
+          {/* Floating header with top-fade gradient */}
+          <div
+            style={{
+              position: 'absolute', top: 0, left: 0, right: 0,
+              padding: '20px 20px 52px',
+              background: 'linear-gradient(to bottom, rgba(0,0,0,0.82) 0%, transparent 100%)',
+              display: 'flex', alignItems: 'center', gap: '12px',
+              pointerEvents: 'none',
+            }}
+          >
+            <span style={{
+              flex: 1, fontSize: '13px', fontWeight: 600,
+              color: 'rgba(255,255,255,0.92)',
+              fontFamily: "'Cinzel',serif", letterSpacing: '2px',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {handout.name}
+            </span>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, pointerEvents: 'all' }}>
+              {isZoomed && (
+                <button
+                  onClick={e => { e.stopPropagation(); resetView() }}
+                  style={{
+                    fontSize: '10px', fontWeight: 700, letterSpacing: '.5px',
+                    padding: '4px 10px', borderRadius: '5px',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.65)',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {Math.round(zoom * 100)}% · Reset
+                </button>
+              )}
+              <button
+                onClick={e => { e.stopPropagation(); dismiss() }}
+                style={{
+                  background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: '6px', color: 'rgba(255,255,255,0.75)',
+                  fontSize: '14px', cursor: 'pointer',
+                  width: '34px', height: '34px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}
+              >✕</button>
+            </div>
+          </div>
+
+          {/* Floating footer hint with bottom-fade gradient */}
+          <div
+            style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0,
+              padding: '52px 20px 18px',
+              background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%)',
+              fontSize: '10px', color: 'rgba(255,255,255,0.22)',
+              textAlign: 'center', letterSpacing: '.5px',
+              pointerEvents: 'none',
+            }}
+          >
+            Scroll to zoom · Drag to pan · Click outside to close
+          </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes lbFadeIn     { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes lbFadeOut    { from { opacity: 1 } to { opacity: 0 } }
-        @keyframes lbContentIn  { from { opacity: 0; transform: scale(0.93) } to { opacity: 1; transform: scale(1) } }
-        @keyframes lbContentOut { from { opacity: 1; transform: scale(1)    } to { opacity: 0; transform: scale(0.93) } }
+        @keyframes lbBdIn    { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes lbBdOut   { from { opacity: 1 } to { opacity: 0 } }
+        @keyframes lbSlideIn  { from { transform: translateY(100%) } to { transform: translateY(0) } }
+        @keyframes lbSlideOut { from { transform: translateY(0)    } to { transform: translateY(100%) } }
       `}</style>
     </>
   )
