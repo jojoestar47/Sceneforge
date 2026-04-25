@@ -202,10 +202,21 @@ export default function AppPage() {
     if (data) {
       setSessionId(data.id); setJoinCode(data.join_code); setIsLive(true)
       if (data.active_scene_id) setActiveSceneId(data.active_scene_id)
+      // Clear stale character state in DB — characters are placed manually each session.
+      // Without this, the viewer shows leftover characters from before a page refresh.
+      const cs: CharacterState = {
+        left: null, center: null, right: null,
+        leftScale: 1, centerScale: 1, rightScale: 1,
+        leftZoom: 1, centerZoom: 1, rightZoom: 1,
+        leftPanX: 50, centerPanX: 50, rightPanX: 50,
+        leftPanY: 100, centerPanY: 100, rightPanY: 100,
+        leftFlipped: false, centerFlipped: false, rightFlipped: false,
+      }
+      await supabase.from('sessions').update({ character_state: cs }).eq('id', data.id)
     } else {
       setSessionId(null); setJoinCode(null); setIsLive(false)
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeCampId) loadSession(activeCampId)

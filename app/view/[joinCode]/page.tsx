@@ -47,6 +47,7 @@ export default function ViewerPage() {
   const [scene,  setScene]  = useState<Scene | null>(null)
 
   // ── Characters ────────────────────────────────────────────────
+  const charLoadSeqRef = useRef(0)
   const [characters,       setCharacters]       = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
   const [viewerScales,     setViewerScales]     = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
   const [viewerDisplay,    setViewerDisplay]    = useState<{
@@ -60,6 +61,7 @@ export default function ViewerPage() {
   })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
+    const seq = ++charLoadSeqRef.current
     if (!state) {
       setCharacters({ left: null, center: null, right: null })
       setViewerScales({ left: 1, center: 1, right: 1 })
@@ -71,6 +73,7 @@ export default function ViewerPage() {
       return data as Character | null
     }
     const [l, c, r] = await Promise.all([fetchChar(state.left), fetchChar(state.center), fetchChar(state.right)])
+    if (seq !== charLoadSeqRef.current) return
     setCharacters({ left: l, center: c, right: r })
     setViewerScales({
       left:   state.leftScale   ?? 1,
