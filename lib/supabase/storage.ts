@@ -16,16 +16,18 @@ export function publicStorageUrl(storagePath: string): string {
 
 /**
  * Supabase image-transform URL for thumbnail use-cases.
- * Converts an existing public URL to the render/image endpoint with resize params.
- * Falls back to the original URL if parsing fails (e.g. external http URLs).
+ * Converts a public storage URL to the render/image endpoint for width-based scaling.
+ * Does NOT set resize=cover — the image scales proportionally to the given width and
+ * CSS objectFit handles the visual crop. Falls back to the original URL on any error.
+ * Only applies to supabase.co storage URLs; external URLs are returned unchanged.
  */
 export function thumbUrl(url: string, width: number, quality = 80): string {
   try {
     const u = new URL(url)
+    if (!u.hostname.endsWith('.supabase.co')) return url
     u.pathname = u.pathname.replace('/storage/v1/object/', '/storage/v1/render/image/')
     u.searchParams.set('width', String(width))
     u.searchParams.set('quality', String(quality))
-    u.searchParams.set('resize', 'cover')
     return u.toString()
   } catch {
     return url

@@ -107,8 +107,9 @@ const CharacterCard = memo(function CharacterCard({
   onFlip, onSetConfirm, onDelete,
   onStartEditName, onChangeEditName, onCancelEditName, onSaveName, onToggleTag,
 }: CharacterCardProps) {
-  const imgUrl   = characterImageUrl(c, 300)
-  const cardTags = c.tags ?? []
+  const imgUrl     = characterImageUrl(c, 300)
+  const imgUrlFull = characterImageUrl(c)
+  const cardTags   = c.tags ?? []
 
   return (
     <div
@@ -135,7 +136,7 @@ const CharacterCard = memo(function CharacterCard({
             }}
           >
             {imgUrl ? (
-              <img src={imgUrl} alt={c.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <img src={imgUrl} alt={c.name} loading="lazy" onError={e => { if (imgUrlFull && e.currentTarget.src !== imgUrlFull) e.currentTarget.src = imgUrlFull }} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-raised) 100%)' }}>
                 <AppIcon size={48} opacity={0.18} />
@@ -223,7 +224,7 @@ const CharacterCard = memo(function CharacterCard({
 
             {/* Portrait */}
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {imgUrl ? <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <AppIcon size={22} opacity={0.3} />}
+              {imgUrl ? <img src={imgUrl} alt="" loading="lazy" onError={e => { if (imgUrlFull && e.currentTarget.src !== imgUrlFull) e.currentTarget.src = imgUrlFull }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <AppIcon size={22} opacity={0.3} />}
             </div>
 
             {/* Name + rename */}

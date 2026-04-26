@@ -309,7 +309,7 @@ export default function SceneList({
           {bgUrl
             ? sc.bg?.type === 'video'
               ? <video src={bgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline preload="metadata" />
-              : <img src={bgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.07)' : 'scale(1)' }} />
+              : <img src={bgUrl} alt="" loading="lazy" onError={e => { const raw = mediaUrl(sc.bg); if (raw && e.currentTarget.src !== raw) e.currentTarget.src = raw }} style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.07)' : 'scale(1)' }} />
             : <AppIcon size={22} opacity={0.2} />
           }
           <div style={{
