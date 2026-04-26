@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, publicStorageUrl, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
+import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import HandoutLightbox    from '@/components/HandoutLightbox'
@@ -82,9 +82,14 @@ export default function AppPage() {
   // tear down and re-subscribe the channel on every roster change).
   const campaignCharactersRef = useRef<Character[]>([])
 
+  // Mirror scenes in a ref so the URL-refresh interval always sees the latest list
+  // without needing scenes in its dependency array (which would reset the timer).
+  const scenesRef = useRef<Scene[]>([])
+
   // Undo-delete: scene is removed from UI immediately; DB delete fires after 5s unless undone
   interface PendingSceneDelete { scene: Scene; insertAfterId: string | null; timer: ReturnType<typeof setTimeout> }
   const [pendingSceneDeletes, setPendingSceneDeletes] = useState<Record<string, PendingSceneDelete>>({})
+  useEffect(() => { scenesRef.current = scenes }, [scenes])
 
   // ── Session / Live Presenting ──────────────────────────────────
   const [sessionId,      setSessionId]      = useState<string | null>(null)
@@ -102,8 +107,11 @@ export default function AppPage() {
   // ── Load campaigns ────────────────────────────────────────────
   useEffect(() => {
     supabase.from('campaigns').select('*').order('created_at')
-      .then(({ data }) => {
-        if (data) setCampaigns(resolveCampaignCovers(data))
+      .then(async ({ data }) => {
+        if (data) {
+          const resolved = await resolveCampaignCovers(supabase, data)
+          setCampaigns(resolved)
+        }
       })
       .then(() => setLoading(false), () => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -115,7 +123,8 @@ export default function AppPage() {
       supabase.from('scene_folders').select('*').eq('campaign_id', campId).order('order_index'),
     ])
     if (scenesData) {
-      setScenes(resolveSceneUrls(scenesData as Scene[]))
+      const resolved = await resolveSceneUrls(supabase, scenesData as Scene[])
+      setScenes(resolved)
     } else setScenes([])
     setFolders((foldersData as SceneFolder[]) || [])
   }, [])
@@ -124,6 +133,17 @@ export default function AppPage() {
     if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId); setCampView('stage') }
     else { setScenes([]); setFolders([]) }
   }, [activeCampId, loadScenes])
+
+  // ── Refresh signed URLs every 3 hours (URLs expire in 4h, 1h safety margin) ──
+  useEffect(() => {
+    if (!activeCampId) return
+    const interval = setInterval(async () => {
+      if (!scenesRef.current.length) return
+      const refreshed = await resolveSceneUrls(supabase, scenesRef.current)
+      setScenes(refreshed)
+    }, 3 * 60 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the ref in sync with state so closures always see fresh data
   useEffect(() => { campaignCharactersRef.current = campaignCharacters }, [campaignCharacters])
@@ -134,8 +154,11 @@ export default function AppPage() {
     Promise.all([
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name'),
       supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name'),
-    ]).then(([{ data: chars }, { data: tags }]) => {
-      if (chars) setCampaignCharacters(resolveCharacterUrls(chars as Character[]))
+    ]).then(async ([{ data: chars }, { data: tags }]) => {
+      if (chars) {
+        const resolved = await resolveCharacterUrls(supabase, chars as Character[])
+        setCampaignCharacters(resolved)
+      }
       if (tags)  setCampaignTags(tags as CampaignTag[])
     })
   }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -382,8 +405,9 @@ export default function AppPage() {
     if (camp.cover_path) await deleteMedia(supabase, camp.cover_path).catch(() => {})
     const path = await uploadMedia(supabase, userId, file)
     await supabase.from('campaigns').update({ cover_path: path, cover_file_name: file.name }).eq('id', campId)
+    const { data: signedData } = await supabase.storage.from('scene-media').createSignedUrl(path, 8 * 60 * 60)
     setCampaigns(prev => prev.map(c => c.id === campId
-      ? { ...c, cover_path: path, cover_file_name: file.name, cover_signed_url: publicStorageUrl(path) }
+      ? { ...c, cover_path: path, cover_file_name: file.name, cover_signed_url: signedData?.signedUrl }
       : c
     ))
   }
@@ -487,7 +511,7 @@ export default function AppPage() {
       file_name:    file?.name || null,
     }).select('*').single()
     if (data) {
-      const [resolved] = resolveCharacterUrls([data as Character])
+      const [resolved] = await resolveCharacterUrls(supabase, [data as Character])
       setCampaignCharacters(prev => [...prev, resolved].sort((a, b) => a.name.localeCompare(b.name)))
     }
   }
@@ -678,16 +702,16 @@ export default function AppPage() {
     if (targetFolder) moveSceneToFolder(saved.id, targetFolder)
     handleSelectScene(saved.id)
     setEditorOpen(false)
-    const [r] = resolveSceneUrls([saved])
-    setScenes(prev => prev.map(s => s.id === r.id ? r : s))
-    // Merge any new characters the editor created.
+    resolveSceneUrls(supabase, [saved]).then(([r]) => setScenes(prev => prev.map(s => s.id === r.id ? r : s)))
+    // Merge any new characters the editor created — resolve their signed URLs then merge.
     if (newCharacters.length) {
-      const resolved = resolveCharacterUrls(newCharacters)
-      setCampaignCharacters(prev => {
-        const existing = new Set(prev.map(c => c.id))
-        const additions = resolved.filter(c => !existing.has(c.id))
-        if (!additions.length) return prev
-        return [...prev, ...additions].sort((a, b) => a.name.localeCompare(b.name))
+      resolveCharacterUrls(supabase, newCharacters).then(resolved => {
+        setCampaignCharacters(prev => {
+          const existing = new Set(prev.map(c => c.id))
+          const additions = resolved.filter(c => !existing.has(c.id))
+          if (!additions.length) return prev
+          return [...prev, ...additions].sort((a, b) => a.name.localeCompare(b.name))
+        })
       })
     }
     // If editing the active scene, roster/framing may have changed — refresh.

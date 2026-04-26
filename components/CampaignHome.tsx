@@ -3,7 +3,6 @@
 import { memo, useCallback, useRef, useState } from 'react'
 import Image from 'next/image'
 import type { Campaign } from '@/lib/types'
-import { thumbUrl } from '@/lib/supabase/storage'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
@@ -100,7 +99,7 @@ const CampaignCard = memo(function CampaignCard({
       }}>
         {hasCover ? (
           <Image
-            src={thumbUrl(c.cover_signed_url!, 600)}
+            src={c.cover_signed_url!}
             alt={c.name}
             fill
             sizes="(max-width: 600px) 50vw, (max-width: 1024px) 33vw, 280px"
