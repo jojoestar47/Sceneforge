@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Scene, SceneFolder } from '@/lib/types'
+import { thumbUrl } from '@/lib/supabase/storage'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
@@ -24,9 +25,11 @@ interface Props {
   onMoveToFolder?:         (sceneId: string, folderId: string | null) => void
 }
 
-function mediaUrl(m: Scene['bg']): string | null {
+function mediaUrl(m: Scene['bg'], thumbWidth?: number): string | null {
   if (!m) return null
-  return m.signed_url || m.url || null
+  const url = m.signed_url || m.url || null
+  if (url && thumbWidth) return thumbUrl(url, thumbWidth)
+  return url
 }
 
 export default function SceneList({
@@ -159,7 +162,7 @@ export default function SceneList({
   // Scene card shared across folder and unfiled sections
   function renderScene(sc: Scene, idx: number, inFolder: boolean, sceneGroup: Scene[]) {
     const active     = sc.id === activeSceneId
-    const bgUrl      = mediaUrl(sc.bg)
+    const bgUrl      = mediaUrl(sc.bg, 400)
     const musicN     = (sc.tracks || []).filter(t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3').length
     const ambN       = (sc.tracks || []).filter(t => t.kind === 'ambience').length
     const isDragging = sc.id === dragId
