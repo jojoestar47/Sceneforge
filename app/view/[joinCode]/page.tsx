@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Scene, Track, Character, CharacterState } from '@/lib/types'
+import type { Scene, Track, Character, CharacterState, Handout } from '@/lib/types'
 import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
@@ -314,7 +314,7 @@ export default function ViewerPage() {
     return () => clearInterval(t)
   }, [status, loadSession])
 
-  // ── Realtime ──────────────────────────────────────────────────
+  // ── Realtime: session updates ─────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel('viewer-' + joinCode)
       .on('postgres_changes', {
@@ -323,7 +323,16 @@ export default function ViewerPage() {
       }, (payload) => {
         const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null; active_music_track_id: string | null }
         if (!row.is_live) { setStatus('ended'); return }
-        if (row.active_scene_id !== sceneRef.current?.id) loadScene(row.active_scene_id)
+        const sceneChanging = row.active_scene_id !== sceneRef.current?.id
+        if (sceneChanging) {
+          loadScene(row.active_scene_id)
+        } else {
+          // Same scene — if DM just pushed an ID we don't have locally (added mid-session),
+          // re-fetch the full scene so the new track/handout is available before we try to use it.
+          const handoutMissing = row.active_handout_id && !(sceneRef.current?.handouts ?? []).some(h => h.id === row.active_handout_id)
+          const trackMissing   = row.active_music_track_id && !(sceneRef.current?.tracks ?? []).some(t => t.id === row.active_music_track_id)
+          if (handoutMissing || trackMissing) loadScene(row.active_scene_id)
+        }
         loadCharactersFromState(row.character_state)
         setActiveHandoutId(row.active_handout_id ?? null)
         setActiveMusicTrackId(row.active_music_track_id ?? null)
@@ -331,6 +340,52 @@ export default function ViewerPage() {
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [joinCode, loadScene, loadCharactersFromState])
+
+  // ── Realtime: track inserts/updates/deletes for active scene ──
+  useEffect(() => {
+    if (!scene?.id) return
+    const ch = supabase.channel('viewer-tracks-' + scene.id)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tracks', filter: `scene_id=eq.${scene.id}` },
+        (payload) => {
+          const t = payload.new as Track
+          setScene(prev => prev ? { ...prev, tracks: [...(prev.tracks ?? []).filter(x => x.id !== t.id), t] } : prev)
+        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tracks', filter: `scene_id=eq.${scene.id}` },
+        (payload) => {
+          const t = payload.new as Track
+          setScene(prev => prev ? { ...prev, tracks: (prev.tracks ?? []).map(x => x.id === t.id ? t : x) } : prev)
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tracks', filter: `scene_id=eq.${scene.id}` },
+        (payload) => {
+          const id = (payload.old as { id: string }).id
+          setScene(prev => prev ? { ...prev, tracks: (prev.tracks ?? []).filter(x => x.id !== id) } : prev)
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Realtime: handout inserts/updates/deletes for active scene ──
+  useEffect(() => {
+    if (!scene?.id) return
+    const ch = supabase.channel('viewer-handouts-' + scene.id)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'handouts', filter: `scene_id=eq.${scene.id}` },
+        (payload) => {
+          const h = payload.new as Handout
+          setScene(prev => prev ? { ...prev, handouts: [...(prev.handouts ?? []).filter(x => x.id !== h.id), h] } : prev)
+        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'handouts', filter: `scene_id=eq.${scene.id}` },
+        (payload) => {
+          const h = payload.new as Handout
+          setScene(prev => prev ? { ...prev, handouts: (prev.handouts ?? []).map(x => x.id === h.id ? h : x) } : prev)
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'handouts', filter: `scene_id=eq.${scene.id}` },
+        (payload) => {
+          const id = (payload.old as { id: string }).id
+          setScene(prev => prev ? { ...prev, handouts: (prev.handouts ?? []).filter(x => x.id !== id) } : prev)
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scene crossfade (two stable layers) ─────────────────────
   interface VBgLayer { scene: Scene | null; opacity: number }
