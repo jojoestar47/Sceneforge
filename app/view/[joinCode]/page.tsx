@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Scene, Track, Character, CharacterState, Handout } from '@/lib/types'
+import type { Scene, Track, Character, CharacterState, Handout, SceneOverlay, OverlayLiveState } from '@/lib/types'
 import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
 import HandoutLightbox from '@/components/HandoutLightbox'
+import OverlayStack from '@/components/OverlayStack'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -117,6 +118,9 @@ export default function ViewerPage() {
   const [activeMusicTrackId, setActiveMusicTrackId] = useState<string | null>(null)
   const activeMusicTrackIdRef = useRef<string | null>(null)
   useEffect(() => { activeMusicTrackIdRef.current = activeMusicTrackId }, [activeMusicTrackId])
+
+  // ── Overlay sync ──────────────────────────────────────────────
+  const [activeOverlays, setActiveOverlays] = useState<Record<string, OverlayLiveState>>({})
 
   // ── Spotify player ────────────────────────────────────────────
   const spotify = useSpotifyPlayer(scene)
@@ -285,21 +289,33 @@ export default function ViewerPage() {
   }
 
   // ── Load scene ────────────────────────────────────────────────
-  const loadScene = useCallback(async (sceneId: string | null) => {
+  const loadScene = useCallback(async (sceneId: string | null, sessionOverlays?: Record<string, OverlayLiveState> | null) => {
     if (!sceneId) { setScene(null); setStatus('live'); return }
-    const { data } = await supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('id', sceneId).single()
-    if (data) { setScene(data as Scene); setStatus('live') }
+    const { data } = await supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('id', sceneId).single()
+    if (data) {
+      const scene = { ...(data as any), overlays: (data as any).scene_overlays ?? [] } as Scene
+      setScene(scene)
+      setStatus('live')
+      // Build live overlay state: use DM's session state if provided, else scene defaults
+      const overlayInit: Record<string, OverlayLiveState> = {}
+      for (const o of scene.overlays ?? []) {
+        const fromSession = sessionOverlays?.[o.id]
+        overlayInit[o.id] = fromSession ?? { on: o.enabled_default, opacity: o.opacity }
+      }
+      setActiveOverlays(overlayInit)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load session ──────────────────────────────────────────────
   const loadSession = useCallback(async () => {
     const { data } = await supabase.from('sessions')
-      .select('id, active_scene_id, is_live, character_state, active_handout_id, active_music_track_id')
+      .select('id, active_scene_id, is_live, character_state, active_handout_id, active_music_track_id, active_overlays')
       .eq('join_code', joinCode).maybeSingle()
     if (!data)         { setStatus('waiting'); return }
     if (!data.is_live) { setStatus('ended');   return }
+    const sessionOverlays = (data.active_overlays ?? {}) as Record<string, OverlayLiveState>
     await Promise.all([
-      loadScene(data.active_scene_id),
+      loadScene(data.active_scene_id, sessionOverlays),
       loadCharactersFromState(data.character_state as CharacterState | null),
     ])
     setActiveHandoutId(data.active_handout_id ?? null)
@@ -321,13 +337,15 @@ export default function ViewerPage() {
         event: 'UPDATE', schema: 'public', table: 'sessions',
         filter: `join_code=eq.${joinCode}`,
       }, (payload) => {
-        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null; active_music_track_id: string | null }
+        const row = payload.new as { active_scene_id: string | null; is_live: boolean; character_state: CharacterState | null; active_handout_id: string | null; active_music_track_id: string | null; active_overlays: Record<string, OverlayLiveState> | null }
         if (!row.is_live) { setStatus('ended'); return }
         const sceneChanging = row.active_scene_id !== sceneRef.current?.id
         if (sceneChanging) {
-          loadScene(row.active_scene_id)
+          loadScene(row.active_scene_id, row.active_overlays ?? undefined)
         } else {
-          // Same scene — if DM just pushed an ID we don't have locally (added mid-session),
+          // Same scene — apply overlay live state directly without a reload
+          if (row.active_overlays) setActiveOverlays(row.active_overlays)
+          // If DM just pushed an ID we don't have locally (added mid-session),
           // re-fetch the full scene so the new track/handout is available before we try to use it.
           const handoutMissing = row.active_handout_id && !(sceneRef.current?.handouts ?? []).some(h => h.id === row.active_handout_id)
           const trackMissing   = row.active_music_track_id && !(sceneRef.current?.tracks ?? []).some(t => t.id === row.active_music_track_id)
@@ -466,17 +484,13 @@ export default function ViewerPage() {
           composited video layer from breaking above UI siblings in z-index. */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerA.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {vLayerA.scene && (() => {
-          const lBg = pubUrl(vLayerA.scene.bg);  const lOv = pubUrl(vLayerA.scene.overlay)
+          const lBg = pubUrl(vLayerA.scene.bg)
           return (<>
             {lBg && (vLayerA.scene.bg?.type === 'video'
               ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             )}
             {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-            {lOv && (vLayerA.scene.overlay?.type === 'video'
-              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            )}
           </>)
         })()}
       </div>
@@ -484,20 +498,21 @@ export default function ViewerPage() {
       {/* Background layer B */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0, opacity: vLayerB.opacity, transition: 'opacity 1s ease', pointerEvents: 'none', isolation: 'isolate' }}>
         {vLayerB.scene && (() => {
-          const lBg = pubUrl(vLayerB.scene.bg);  const lOv = pubUrl(vLayerB.scene.overlay)
+          const lBg = pubUrl(vLayerB.scene.bg)
           return (<>
             {lBg && (vLayerB.scene.bg?.type === 'video'
               ? <video key={lBg} src={lBg} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <img   key={lBg} src={lBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             )}
             {lBg && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.55) 100%)' }} />}
-            {lOv && (vLayerB.scene.overlay?.type === 'video'
-              ? <video key={lOv} src={lOv} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <img   key={lOv} src={lOv} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            )}
           </>)
         })()}
       </div>
+
+      {/* ── Overlay stack (z-index 1 — above bg, below characters) ── */}
+      {(scene?.overlays?.length ?? 0) > 0 && (
+        <OverlayStack overlays={scene!.overlays!} liveStates={activeOverlays} />
+      )}
 
       {/* ── Characters ── */}
       {characters.left && (

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, publicStorageUrl, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout } from '@/lib/types'
+import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout, SceneOverlay, OverlayLiveState } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import HandoutLightbox    from '@/components/HandoutLightbox'
 import SceneList           from '@/components/SceneList'
@@ -92,6 +92,9 @@ export default function AppPage() {
   const [isLive,         setIsLive]         = useState(false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
 
+  // ── Overlay live state ─────────────────────────────────────────
+  const [activeOverlays, setActiveOverlays] = useState<Record<string, OverlayLiveState>>({})
+
   // ── Auth ──────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -111,11 +114,12 @@ export default function AppPage() {
   // ── Load scenes + folders ─────────────────────────────────────
   const loadScenes = useCallback(async (campId: string) => {
     const [{ data: scenesData }, { data: foldersData }] = await Promise.all([
-      supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('campaign_id', campId).order('order_index'),
+      supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('campaign_id', campId).order('order_index'),
       supabase.from('scene_folders').select('*').eq('campaign_id', campId).order('order_index'),
     ])
     if (scenesData) {
-      setScenes(resolveSceneUrls(scenesData as Scene[]))
+      const mapped = scenesData.map((s: any) => ({ ...s, overlays: s.scene_overlays ?? [] }))
+      setScenes(resolveSceneUrls(mapped as Scene[]))
     } else setScenes([])
     setFolders((foldersData as SceneFolder[]) || [])
   }, [])
@@ -167,9 +171,20 @@ export default function AppPage() {
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
     setActiveHandout(null)
-    if (!activeSceneId) { setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({}); return }
+    if (!activeSceneId) {
+      setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({})
+      setActiveOverlays({})
+      return
+    }
+    // Initialize overlay live state from the scene's authored defaults
+    const scene = scenes.find(s => s.id === activeSceneId)
+    const overlayInit: Record<string, OverlayLiveState> = {}
+    for (const o of scene?.overlays ?? []) {
+      overlayInit[o.id] = { on: o.enabled_default, opacity: o.opacity }
+    }
+    setActiveOverlays(overlayInit)
     loadSceneRoster(activeSceneId)
-  }, [activeSceneId, loadSceneRoster])
+  }, [activeSceneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load existing live session ────────────────────────────────
   const loadSession = useCallback(async (campId: string) => {
@@ -280,6 +295,13 @@ export default function AppPage() {
   async function handleMusicTrackChange(trackId: string | null) {
     if (!sessionId || !isLive) return
     await supabase.from('sessions').update({ active_music_track_id: trackId }).eq('id', sessionId)
+  }
+
+  async function handleOverlayStateChange(id: string, state: OverlayLiveState) {
+    const next = { ...activeOverlays, [id]: state }
+    setActiveOverlays(next)
+    if (!sessionId || !isLive) return
+    await supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId)
   }
 
   // ── Scene + character selection ───────────────────────────────
@@ -804,6 +826,8 @@ export default function AppPage() {
               onHandoutShow={handleHandoutShow}
               onMusicTrackChange={handleMusicTrackChange}
               isLive={isLive}
+              activeOverlays={activeOverlays}
+              onOverlayStateChange={handleOverlayStateChange}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{

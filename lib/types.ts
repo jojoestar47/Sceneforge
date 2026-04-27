@@ -36,6 +36,31 @@ export interface Handout {
   created_at: string
 }
 
+export interface SceneOverlay {
+  id: string
+  scene_id: string
+  name: string
+  source: 'library' | 'upload'
+  library_key?: string | null
+  storage_path?: string | null
+  url?: string | null
+  file_name?: string | null
+  blend_mode: 'screen' | 'lighten' | 'multiply' | 'overlay'
+  opacity: number
+  playback_rate: number
+  scale: number
+  pan_x: number
+  pan_y: number
+  enabled_default: boolean
+  order_index: number
+  created_at: string
+}
+
+export interface OverlayLiveState {
+  on: boolean
+  opacity: number
+}
+
 export interface Scene {
   id: string
   campaign_id: string
@@ -51,6 +76,7 @@ export interface Scene {
   updated_at: string
   tracks?: Track[]
   handouts?: Handout[]
+  overlays?: SceneOverlay[]
 }
 
 export interface Track {
