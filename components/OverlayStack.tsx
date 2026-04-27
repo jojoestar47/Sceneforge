@@ -20,8 +20,11 @@ export default function OverlayStack({ overlays, liveStates }: Props) {
   if (!overlays.length) return null
 
   return (
-    // No overflow:hidden here — that would create a stacking context and trap
-    // mix-blend-mode to blend against this div's background instead of the scene below.
+    // No z-index, no overflow:hidden, no isolation — anything that creates a
+    // stacking context here would trap mix-blend-mode to blend against this
+    // wrapper's (empty) backdrop instead of the bg layers painted below.
+    // Stage adds `isolation: isolate` on its root so the blend stays scoped
+    // to the scene and reads bg layers as the real backdrop.
     <div
       style={{
         position: 'absolute',
