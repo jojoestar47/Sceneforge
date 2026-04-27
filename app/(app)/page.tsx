@@ -305,8 +305,8 @@ export default function AppPage() {
     // Debounce the DB write — slider drags can fire 60×/sec and each write
     // triggers a realtime event on the viewer. Local state updates immediately.
     if (overlayDbTimerRef.current) clearTimeout(overlayDbTimerRef.current)
-    overlayDbTimerRef.current = setTimeout(() => {
-      supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId)
+    overlayDbTimerRef.current = setTimeout(async () => {
+      await supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId)
     }, 150)
   }
 
@@ -386,15 +386,15 @@ export default function AppPage() {
     // Persist framing for this character in this scene.
     // Stage placement is always manual — only the framing (scale/zoom/pan/flip) is saved.
     await supabase.from('scene_characters')
-      .update({
+      .upsert({
+        scene_id:    activeSceneId,
+        character_id: char.id,
         scale,
         zoom:    display.zoom    ?? 1,
         pan_x:   display.panX   ?? 50,
         pan_y:   display.panY   ?? 100,
         flipped: display.flipped ?? false,
-      })
-      .eq('scene_id', activeSceneId)
-      .eq('character_id', char.id)
+      }, { onConflict: 'scene_id,character_id' })
     setCharacterDisplayDefaults(prev => ({
       ...prev,
       [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false },
