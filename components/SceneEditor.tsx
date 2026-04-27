@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react'
 import Image from 'next/image'
-import type { Scene, Track, MediaRef, Character, Handout } from '@/lib/types'
+import type { Scene, Track, MediaRef, Character, Handout, SceneOverlay } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import { characterImageUrl } from '@/components/CharacterDisplay'
@@ -17,12 +17,30 @@ interface Props {
 }
 
 type Kind = 'music' | 'ml2' | 'ml3' | 'ambience'
-type TabKey = 'scene' | 'handouts'
+type TabKey = 'scene' | 'handouts' | 'overlays'
 
 interface HandoutDraft {
   id?: string
   name: string
   media: MediaRef | null
+  _file?: File
+}
+
+interface OverlayDraft {
+  id?: string
+  name: string
+  source: 'library' | 'upload'
+  library_key?: string
+  storage_path?: string
+  url?: string
+  file_name?: string
+  blend_mode: 'screen' | 'lighten' | 'multiply' | 'overlay'
+  opacity: number
+  playback_rate: number
+  scale: number
+  pan_x: number
+  pan_y: number
+  enabled_default: boolean
   _file?: File
 }
 
@@ -44,6 +62,7 @@ interface Draft {
   _bgFile?: File
   characterPool: CharPoolEntry[]
   handouts: HandoutDraft[]
+  overlays: OverlayDraft[]
 }
 
 function blankDraft(scene: Scene | null): Draft {
@@ -56,6 +75,12 @@ function blankDraft(scene: Scene | null): Draft {
     tracks: [...existing('music'), ...existing('ambience')],
     characterPool: [],
     handouts: (scene?.handouts || []).map(h => ({ id: h.id, name: h.name, media: h.media })),
+    overlays: (scene?.overlays || []).map(o => ({
+      id: o.id, name: o.name, source: o.source, library_key: o.library_key ?? undefined,
+      storage_path: o.storage_path ?? undefined, url: o.url ?? undefined, file_name: o.file_name ?? undefined,
+      blend_mode: o.blend_mode, opacity: o.opacity, playback_rate: o.playback_rate,
+      scale: o.scale, pan_x: o.pan_x, pan_y: o.pan_y, enabled_default: o.enabled_default,
+    })),
   }
 }
 
@@ -85,6 +110,14 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
   const [newHandoutFile, setNewHandoutFile] = useState<File | null>(null)
   const [newHandoutUrl,  setNewHandoutUrl]  = useState('')
 
+  // Overlay add form state
+  const [overlayPickerOpen, setOverlayPickerOpen] = useState(false)
+  const [newOverlayName, setNewOverlayName]       = useState('')
+  const [newOverlayFile, setNewOverlayFile]       = useState<File | null>(null)
+  const [newOverlayUrl,  setNewOverlayUrl]        = useState('')
+  // Which overlay row is expanded for editing
+  const [expandedOverlayIdx, setExpandedOverlayIdx] = useState<number | null>(null)
+
   // Track characters created inside the editor so the parent can merge them
   // without refetching the whole campaign roster on save.
   const createdCharsRef = useRef<Character[]>([])
@@ -95,6 +128,8 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
     setError('')
     setCharPickerOpen(false)
     setNewCharOpen(false)
+    setOverlayPickerOpen(false)
+    setExpandedOverlayIdx(null)
     createdCharsRef.current = []
   }, [scene?.id])
 
@@ -242,8 +277,35 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
         if (handoutInsertError) throw handoutInsertError
       }
 
-      const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*), handouts(*)').eq('id', sceneId!).single()
-      onSave(savedScene as Scene, createdCharsRef.current)
+      // Overlays — delete existing, re-insert
+      if (scene?.id) {
+        const { data: existingOverlays } = await supabase.from('scene_overlays').select('storage_path').eq('scene_id', sceneId!)
+        const reusedOverlayPaths = new Set(draft.overlays.filter(o => !o._file).map(o => o.storage_path).filter(Boolean))
+        const orphanedOverlayPaths = (existingOverlays ?? [])
+          .map((o: { storage_path?: string | null }) => o.storage_path)
+          .filter((p): p is string => !!p && !reusedOverlayPaths.has(p))
+        await supabase.from('scene_overlays').delete().eq('scene_id', sceneId!)
+        await deleteMediaBatch(supabase, orphanedOverlayPaths)
+      }
+      const overlayInserts = await Promise.all(draft.overlays.map(async (o, i) => {
+        let storagePath = o.storage_path, fileName = o.file_name, url = o.url || null
+        if (o._file) { storagePath = await uploadMedia(supabase, userId, o._file); fileName = o._file.name; url = null }
+        if (!storagePath && !url) return null
+        return {
+          scene_id: sceneId!, name: o.name, source: o.source,
+          library_key: o.library_key || null,
+          storage_path: storagePath || null, url: url || null, file_name: fileName || null,
+          blend_mode: o.blend_mode, opacity: o.opacity, playback_rate: o.playback_rate,
+          scale: o.scale, pan_x: o.pan_x, pan_y: o.pan_y,
+          enabled_default: o.enabled_default, order_index: i,
+        }
+      }))
+      const validOverlayInserts = overlayInserts.filter((o): o is NonNullable<typeof o> => o !== null)
+      if (validOverlayInserts.length) await supabase.from('scene_overlays').insert(validOverlayInserts)
+
+      const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('id', sceneId!).single()
+      const savedSceneTyped = savedScene as Scene & { scene_overlays?: SceneOverlay[] }
+      onSave({ ...savedSceneTyped, overlays: savedSceneTyped.scene_overlays ?? [] }, createdCharsRef.current)
       createdCharsRef.current = []
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save scene')
@@ -263,7 +325,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
               {scene ? scene.name : 'New Scene'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', padding: '0 20px' }}>
-              {(['scene', 'handouts'] as TabKey[]).map(t => (
+              {(['scene', 'handouts', 'overlays'] as TabKey[]).map(t => (
                 <button key={t} onClick={() => setTab(t)} style={{ padding: '10px 24px', fontSize: '11px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: tab === t ? 'var(--text)' : 'var(--text-2)', background: 'none', border: 'none', cursor: 'pointer', borderBottom: `2px solid ${tab === t ? 'var(--accent)' : 'transparent'}`, marginBottom: '-1px' }}>
                   {t}
                 </button>
@@ -485,6 +547,164 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                               setNewHandoutOpen(false); setNewHandoutName(''); setNewHandoutFile(null); setNewHandoutUrl('')
                             }}>
                             Add Handout
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Section>
+              </div>
+            )}
+
+            {tab === 'overlays' && (
+              <div style={{ paddingTop: '20px' }}>
+                <Section title="Overlays">
+                  {/* Overlay list */}
+                  <div>
+                    {draft.overlays.map((o, idx) => {
+                      const isExpanded = expandedOverlayIdx === idx
+                      return (
+                        <div key={idx} style={{ background: 'var(--editor-row)', borderRadius: '8px', marginTop: '8px', overflow: 'hidden' }}>
+                          {/* Row header */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'var(--editor-card)', border: '1px solid var(--border-lt)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', overflow: 'hidden' }}>
+                              {o.source === 'library' ? '🌫' : '📁'}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-3)', marginTop: '1px' }}>{o.blend_mode} · {Math.round(o.opacity * 100)}% opacity</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => setExpandedOverlayIdx(isExpanded ? null : idx)}
+                              >
+                                {isExpanded ? 'Done' : 'Edit'}
+                              </button>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => {
+                                  setDraft(d => ({ ...d, overlays: d.overlays.filter((_, i) => i !== idx) }))
+                                  if (expandedOverlayIdx === idx) setExpandedOverlayIdx(null)
+                                }}
+                              >Remove</button>
+                            </div>
+                          </div>
+
+                          {/* Expanded controls */}
+                          {isExpanded && (
+                            <div style={{ padding: '0 12px 14px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+                              {/* Name */}
+                              <div style={{ marginBottom: '10px' }}>
+                                <label className="flabel">Name</label>
+                                <input className="finput" value={o.name} onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, name: e.target.value } : x) }))} style={{ fontSize: '12px', padding: '7px 10px' }} />
+                              </div>
+                              {/* Blend mode */}
+                              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                                <div style={{ flex: 1 }}>
+                                  <label className="flabel">Blend Mode</label>
+                                  <select className="fselect" value={o.blend_mode} onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, blend_mode: e.target.value as OverlayDraft['blend_mode'] } : x) }))} style={{ fontSize: '12px', padding: '7px 8px', width: '100%' }}>
+                                    <option value="screen">Screen (fog, fire, light)</option>
+                                    <option value="lighten">Lighten (snow, embers)</option>
+                                    <option value="multiply">Multiply (storm, shadow)</option>
+                                    <option value="overlay">Overlay (mood, tint)</option>
+                                  </select>
+                                </div>
+                              </div>
+                              {/* Opacity + Playback rate */}
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                <div>
+                                  <label className="flabel">Opacity — {Math.round(o.opacity * 100)}%</label>
+                                  <input type="range" min={0} max={1} step={0.01} value={o.opacity}
+                                    onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, opacity: Number(e.target.value) } : x) }))}
+                                    style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '36px' }} />
+                                </div>
+                                <div>
+                                  <label className="flabel">Speed — {o.playback_rate.toFixed(1)}x</label>
+                                  <input type="range" min={0.25} max={2} step={0.05} value={o.playback_rate}
+                                    onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, playback_rate: Number(e.target.value) } : x) }))}
+                                    style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '36px' }} />
+                                </div>
+                              </div>
+                              {/* Scale + Pan */}
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                <div>
+                                  <label className="flabel">Scale — {o.scale.toFixed(1)}x</label>
+                                  <input type="range" min={1} max={3} step={0.1} value={o.scale}
+                                    onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, scale: Number(e.target.value) } : x) }))}
+                                    style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '36px' }} />
+                                </div>
+                                <div>
+                                  <label className="flabel">Pan X — {Math.round(o.pan_x)}%</label>
+                                  <input type="range" min={0} max={100} step={1} value={o.pan_x}
+                                    onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, pan_x: Number(e.target.value) } : x) }))}
+                                    style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '36px' }} />
+                                </div>
+                                <div>
+                                  <label className="flabel">Pan Y — {Math.round(o.pan_y)}%</label>
+                                  <input type="range" min={0} max={100} step={1} value={o.pan_y}
+                                    onChange={e => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, pan_y: Number(e.target.value) } : x) }))}
+                                    style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '36px' }} />
+                                </div>
+                              </div>
+                              {/* On by default */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)' }}>On by default</span>
+                                <button
+                                  onClick={() => setDraft(d => ({ ...d, overlays: d.overlays.map((x, i) => i === idx ? { ...x, enabled_default: !x.enabled_default } : x) }))}
+                                  style={{
+                                    fontSize: '10px', padding: '5px 12px', borderRadius: '5px', cursor: 'pointer', border: `1px solid ${o.enabled_default ? 'var(--accent)' : 'var(--border)'}`,
+                                    background: o.enabled_default ? 'var(--accent-bg)' : 'none',
+                                    color: o.enabled_default ? 'var(--accent)' : 'var(--text-2)',
+                                  }}
+                                >{o.enabled_default ? 'Yes' : 'No'}</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {draft.overlays.length === 0 && (
+                      <div style={{ padding: '20px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' }}>
+                        No overlays yet — add fog, rain, smoke, or other atmospheric effects below.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add overlay */}
+                  <div style={{ paddingTop: '12px' }}>
+                    <button className={`add-pill${overlayPickerOpen ? ' active' : ''}`} style={{ fontSize: '10px', padding: '6px 12px' }}
+                      onClick={() => { setOverlayPickerOpen(o => !o); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('') }}>
+                      + ADD OVERLAY <span style={{ fontSize: '9px' }}>▼</span>
+                    </button>
+
+                    {overlayPickerOpen && (
+                      <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px', marginTop: '8px' }}>
+                        <input className="finput" placeholder="Name" value={newOverlayName} onChange={e => setNewOverlayName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }} />
+                        <UploadZone accept="video/*" label="Drop overlay video here" icon="🎬" hint="MP4 or WebM on black background — bright areas show through" onFile={f => { setNewOverlayFile(f); setNewOverlayName(n => n || f.name.replace(/\.[^.]+$/, '')) }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
+                          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                        </div>
+                        <input className="finput" placeholder="https://… video URL" value={newOverlayUrl} onChange={e => setNewOverlayUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setOverlayPickerOpen(false); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('') }}>Cancel</button>
+                          <button className="btn btn-red btn-sm"
+                            disabled={!newOverlayName.trim() || (!newOverlayFile && !newOverlayUrl)}
+                            onClick={() => {
+                              if (!newOverlayName.trim() || (!newOverlayFile && !newOverlayUrl)) return
+                              setDraft(d => ({
+                                ...d,
+                                overlays: [...d.overlays, {
+                                  name: newOverlayName.trim(), source: 'upload',
+                                  url: newOverlayUrl || undefined, _file: newOverlayFile || undefined,
+                                  file_name: newOverlayFile?.name,
+                                  blend_mode: 'screen', opacity: 0.7, playback_rate: 1.0,
+                                  scale: 1, pan_x: 50, pan_y: 50, enabled_default: true,
+                                }],
+                              }))
+                              setOverlayPickerOpen(false); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('')
+                            }}>
+                            Add Overlay
                           </button>
                         </div>
                       </div>

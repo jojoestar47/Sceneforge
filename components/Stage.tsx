@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Scene, Track, Character, Handout } from '@/lib/types'
+import type { Scene, Track, Character, Handout, SceneOverlay, OverlayLiveState } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
 import HandoutLightbox from '@/components/HandoutLightbox'
+import OverlayStack from '@/components/OverlayStack'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 
 interface ActiveCharacters {
@@ -50,6 +51,9 @@ interface Props {
   onHandoutShow?: (handoutId: string | null) => void
   onMusicTrackChange?: (trackId: string | null) => void
   isLive?: boolean
+  // Overlay props (DM only — undefined on viewer)
+  activeOverlays?: Record<string, OverlayLiveState>
+  onOverlayStateChange?: (id: string, state: OverlayLiveState) => void
 }
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
@@ -68,6 +72,7 @@ export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
   onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
+  activeOverlays, onOverlayStateChange,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -120,6 +125,9 @@ export default function Stage({
   // ── Handouts ─────────────────────────────────────────────────
   const [handoutsOpen,   setHandoutsOpen]   = useState(false)
   const [activeHandout,  setActiveHandout]  = useState<Handout | null>(null)
+
+  // ── Overlays panel ───────────────────────────────────────────
+  const [overlaysOpen, setOverlaysOpen] = useState(false)
 
   function showHandout(h: Handout | null) {
     setActiveHandout(h)
@@ -176,6 +184,7 @@ export default function Stage({
     setActiveSlot(null)
     setCharSearch('')
     setHandoutsOpen(false)
+    setOverlaysOpen(false)
     showHandout(null)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -418,6 +427,12 @@ export default function Stage({
   }
 
   const bgUrl        = mediaUrl(scene.bg)
+  const sceneOverlays = scene.overlays || []
+  const liveOverlays  = activeOverlays ?? {}
+  const activeOverlayCount = sceneOverlays.filter(o => {
+    const s = liveOverlays[o.id]
+    return s ? s.on : o.enabled_default
+  }).length
   const allTracks    = scene.tracks || []
   const baseMusic    = allTracks.filter(t => t.kind === 'music')
   const layers       = allTracks.filter(t => t.kind === 'ml2' || t.kind === 'ml3')
@@ -455,6 +470,12 @@ export default function Stage({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        // Required so OverlayStack's mix-blend-mode reads the bg layers as
+        // its backdrop. Without this, the blend escapes upward through the
+        // app's stacking contexts and ends up blending against the page bg
+        // (or nothing, depending on ancestor z-index), producing a black
+        // wash instead of the scene + screen-blended fog.
+        isolation: 'isolate',
       }}
     >
       {/* ── Background layer A — isolation:isolate prevents Android Chrome's
@@ -485,6 +506,11 @@ export default function Stage({
           </>)
         })()}
       </div>
+
+      {/* ── Overlay stack (z-index 1 — above bg, below characters) ── */}
+      {sceneOverlays.length > 0 && (
+        <OverlayStack overlays={sceneOverlays} liveStates={liveOverlays} />
+      )}
 
       {/* ── Characters ── */}
       {characters?.left && (
@@ -544,7 +570,7 @@ export default function Stage({
         <div style={{ display: 'flex', gap: '8px' }}>
           {handouts.length > 0 && (
             <button
-              onClick={() => setHandoutsOpen(o => !o)}
+              onClick={() => { setHandoutsOpen(o => !o); setOverlaysOpen(false) }}
               title="Handouts"
               style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: handoutsOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: handoutsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
@@ -552,6 +578,22 @@ export default function Stage({
                 <rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
                 <path d="M4.5 5h6M4.5 7.5h6M4.5 10h3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
               </svg>
+            </button>
+          )}
+          {sceneOverlays.length > 0 && onOverlayStateChange && (
+            <button
+              onClick={() => { setOverlaysOpen(o => !o); setHandoutsOpen(false) }}
+              title="Overlays"
+              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${overlaysOpen ? 'rgba(201,168,76,0.5)' : activeOverlayCount > 0 ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.14)'}`, background: overlaysOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: overlaysOpen || activeOverlayCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="7.5" cy="8" rx="5.5" ry="3.5" stroke="currentColor" strokeWidth="1.2" opacity="0.5"/>
+                <ellipse cx="7.5" cy="6" rx="5.5" ry="3.5" stroke="currentColor" strokeWidth="1.2" opacity="0.75"/>
+                <ellipse cx="7.5" cy="4" rx="5.5" ry="3.5" stroke="currentColor" strokeWidth="1.2"/>
+              </svg>
+              {activeOverlayCount > 0 && (
+                <span style={{ position: 'absolute', top: '-4px', right: '-4px', width: '14px', height: '14px', borderRadius: '50%', background: 'var(--accent)', color: '#13151d', fontSize: '8px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{activeOverlayCount}</span>
+              )}
             </button>
           )}
           <button
@@ -603,6 +645,50 @@ export default function Stage({
                     <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
                     <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Show</span>
                   </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Overlays dropdown panel */}
+        {overlaysOpen && sceneOverlays.length > 0 && onOverlayStateChange && (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ width: '260px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+          >
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Overlays</span>
+              <button onClick={() => setOverlaysOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+            </div>
+            <div style={{ padding: '6px 8px 10px' }}>
+              {sceneOverlays.map(o => {
+                const state   = liveOverlays[o.id]
+                const isOn    = state ? state.on : o.enabled_default
+                const opacity = state ? state.opacity : o.opacity
+                return (
+                  <div key={o.id} style={{ padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isOn ? '6px' : 0 }}>
+                      <button
+                        onClick={() => onOverlayStateChange(o.id, { on: !isOn, opacity })}
+                        style={{ width: '28px', height: '28px', borderRadius: '6px', flexShrink: 0, border: `1px solid ${isOn ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.15)'}`, background: isOn ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.05)', color: isOn ? 'var(--accent)' : 'rgba(255,255,255,0.4)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        {isOn ? '●' : '○'}
+                      </button>
+                      <span style={{ flex: 1, fontSize: '11px', color: isOn ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</span>
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', flexShrink: 0 }}>{o.blend_mode}</span>
+                    </div>
+                    {isOn && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '36px' }}>
+                        <input
+                          type="range" min={0} max={1} step={0.01} value={opacity}
+                          onChange={e => onOverlayStateChange(o.id, { on: isOn, opacity: Number(e.target.value) })}
+                          style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
+                        />
+                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', width: '28px', textAlign: 'right', flexShrink: 0 }}>{Math.round(opacity * 100)}%</span>
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>
