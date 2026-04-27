@@ -20,13 +20,14 @@ export default function OverlayStack({ overlays, liveStates }: Props) {
   if (!overlays.length) return null
 
   return (
+    // No overflow:hidden here — that would create a stacking context and trap
+    // mix-blend-mode to blend against this div's background instead of the scene below.
     <div
       style={{
         position: 'absolute',
         inset: 0,
         zIndex: 1,
         pointerEvents: 'none',
-        overflow: 'hidden',
       }}
     >
       {overlays.map(o => {
@@ -70,26 +71,37 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
     if (vidRef.current) vidRef.current.playbackRate = playbackRate
   }, [playbackRate])
 
+  // mix-blend-mode and opacity go on a <div> wrapper, not the <video> itself.
+  // Browsers apply blend modes after GPU compositing of the video, so putting
+  // it directly on <video> is unreliable — the div wrapper is always reliable.
   return (
-    <video
-      ref={vidRef}
-      src={src}
-      autoPlay
-      loop
-      muted
-      playsInline
+    <div
       style={{
         position: 'absolute',
         inset: 0,
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover',
+        overflow: 'hidden',
         mixBlendMode: blendMode as React.CSSProperties['mixBlendMode'],
         opacity,
         transition: 'opacity 0.6s ease',
-        transform: scale > 1.01 ? `scale(${scale})` : undefined,
-        transformOrigin: `${panX}% ${panY}%`,
       }}
-    />
+    >
+      <video
+        ref={vidRef}
+        src={src}
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          transform: scale > 1.01 ? `scale(${scale})` : undefined,
+          transformOrigin: `${panX}% ${panY}%`,
+        }}
+      />
+    </div>
   )
 }
