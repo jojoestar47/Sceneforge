@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import { characterImageUrl } from '@/components/CharacterDisplay'
 import UploadZone from './UploadZone'
-import { OVERLAY_LIBRARY, OVERLAY_CATEGORIES } from '@/lib/overlay-library'
 
 interface Props {
   scene: Scene | null
@@ -113,11 +112,9 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
 
   // Overlay add form state
   const [overlayPickerOpen, setOverlayPickerOpen] = useState(false)
-  const [overlayPickerTab, setOverlayPickerTab]   = useState<'library' | 'upload'>('library')
   const [newOverlayName, setNewOverlayName]       = useState('')
   const [newOverlayFile, setNewOverlayFile]       = useState<File | null>(null)
   const [newOverlayUrl,  setNewOverlayUrl]        = useState('')
-  const [overlayLibCat,  setOverlayLibCat]        = useState(OVERLAY_CATEGORIES[0] ?? '')
   // Which overlay row is expanded for editing
   const [expandedOverlayIdx, setExpandedOverlayIdx] = useState<number | null>(null)
 
@@ -683,89 +680,33 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
 
                     {overlayPickerOpen && (
                       <div style={{ background: 'var(--editor-card)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '14px', marginTop: '8px' }}>
-                        {/* Tab toggle */}
-                        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-                          {(['library', 'upload'] as const).map(t => (
-                            <button key={t} onClick={() => setOverlayPickerTab(t)} style={{ padding: '5px 12px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', border: `1px solid ${overlayPickerTab === t ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '5px', background: overlayPickerTab === t ? 'var(--accent-bg)' : 'none', color: overlayPickerTab === t ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer' }}>
-                              {t === 'library' ? '✨ Library' : '📁 Upload'}
-                            </button>
-                          ))}
+                        <input className="finput" placeholder="Name" value={newOverlayName} onChange={e => setNewOverlayName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }} />
+                        <UploadZone accept="video/*" label="Drop overlay video here" icon="🎬" hint="MP4 or WebM on black background — bright areas show through" onFile={f => { setNewOverlayFile(f); setNewOverlayName(n => n || f.name.replace(/\.[^.]+$/, '')) }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
+                          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
                         </div>
-
-                        {overlayPickerTab === 'library' && (
-                          <>
-                            {/* Category filter */}
-                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                              {OVERLAY_CATEGORIES.map(cat => (
-                                <button key={cat} onClick={() => setOverlayLibCat(cat)} style={{ padding: '3px 10px', fontSize: '10px', fontWeight: 700, letterSpacing: '.8px', textTransform: 'uppercase', border: `1px solid ${overlayLibCat === cat ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '12px', background: overlayLibCat === cat ? 'var(--accent-bg)' : 'none', color: overlayLibCat === cat ? 'var(--accent)' : 'var(--text-3)', cursor: 'pointer' }}>
-                                  {cat}
-                                </button>
-                              ))}
-                            </div>
-                            {/* Library grid */}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: '8px' }}>
-                              {OVERLAY_LIBRARY.filter(l => l.category === overlayLibCat).map(lib => (
-                                <button
-                                  key={lib.key}
-                                  onClick={() => {
-                                    if (!lib.storage_path) return
-                                    setDraft(d => ({
-                                      ...d,
-                                      overlays: [...d.overlays, {
-                                        name: lib.name, source: 'library', library_key: lib.key,
-                                        storage_path: lib.storage_path!, blend_mode: lib.blend_mode,
-                                        opacity: lib.opacity, playback_rate: lib.playback_rate,
-                                        scale: 1, pan_x: 50, pan_y: 50, enabled_default: true,
-                                      }],
-                                    }))
-                                    setOverlayPickerOpen(false)
-                                  }}
-                                  disabled={!lib.storage_path}
-                                  style={{ background: 'var(--editor-row)', border: '1px solid var(--border-lt)', borderRadius: '8px', padding: '12px 10px', cursor: lib.storage_path ? 'pointer' : 'default', textAlign: 'left', opacity: lib.storage_path ? 1 : 0.4, display: 'flex', flexDirection: 'column', gap: '4px' }}
-                                  onMouseEnter={e => { if (lib.storage_path) e.currentTarget.style.borderColor = 'var(--accent)' }}
-                                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-lt)' }}
-                                >
-                                  <span style={{ fontSize: '20px' }}>🌫</span>
-                                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)' }}>{lib.name}</span>
-                                  <span style={{ fontSize: '9px', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{lib.blend_mode}</span>
-                                  {!lib.storage_path && <span style={{ fontSize: '9px', color: 'var(--accent)', textTransform: 'uppercase' }}>Coming soon</span>}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-
-                        {overlayPickerTab === 'upload' && (
-                          <>
-                            <input className="finput" placeholder="Name" value={newOverlayName} onChange={e => setNewOverlayName(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }} />
-                            <UploadZone accept="video/*" label="Drop overlay video here" icon="🎬" hint="MP4 or WebM on black background — bright areas show through" onFile={f => { setNewOverlayFile(f); setNewOverlayName(n => n || f.name.replace(/\.[^.]+$/, '')) }} />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'var(--text-3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
-                              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                            </div>
-                            <input className="finput" placeholder="https://… video URL" value={newOverlayUrl} onChange={e => setNewOverlayUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                              <button className="btn btn-ghost btn-sm" onClick={() => { setOverlayPickerOpen(false); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('') }}>Cancel</button>
-                              <button className="btn btn-red btn-sm"
-                                disabled={!newOverlayName.trim() || (!newOverlayFile && !newOverlayUrl)}
-                                onClick={() => {
-                                  if (!newOverlayName.trim() || (!newOverlayFile && !newOverlayUrl)) return
-                                  setDraft(d => ({
-                                    ...d,
-                                    overlays: [...d.overlays, {
-                                      name: newOverlayName.trim(), source: 'upload',
-                                      url: newOverlayUrl || undefined, _file: newOverlayFile || undefined,
-                                      file_name: newOverlayFile?.name,
-                                      blend_mode: 'screen', opacity: 0.7, playback_rate: 1.0,
-                                      scale: 1, pan_x: 50, pan_y: 50, enabled_default: true,
-                                    }],
-                                  }))
-                                  setOverlayPickerOpen(false); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('')
-                                }}>
-                                Add Overlay
-                              </button>
-                            </div>
-                          </>
-                        )}
+                        <input className="finput" placeholder="https://… video URL" value={newOverlayUrl} onChange={e => setNewOverlayUrl(e.target.value)} style={{ fontSize: '12px', padding: '7px 10px' }} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setOverlayPickerOpen(false); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('') }}>Cancel</button>
+                          <button className="btn btn-red btn-sm"
+                            disabled={!newOverlayName.trim() || (!newOverlayFile && !newOverlayUrl)}
+                            onClick={() => {
+                              if (!newOverlayName.trim() || (!newOverlayFile && !newOverlayUrl)) return
+                              setDraft(d => ({
+                                ...d,
+                                overlays: [...d.overlays, {
+                                  name: newOverlayName.trim(), source: 'upload',
+                                  url: newOverlayUrl || undefined, _file: newOverlayFile || undefined,
+                                  file_name: newOverlayFile?.name,
+                                  blend_mode: 'screen', opacity: 0.7, playback_rate: 1.0,
+                                  scale: 1, pan_x: 50, pan_y: 50, enabled_default: true,
+                                }],
+                              }))
+                              setOverlayPickerOpen(false); setNewOverlayName(''); setNewOverlayFile(null); setNewOverlayUrl('')
+                            }}>
+                            Add Overlay
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
