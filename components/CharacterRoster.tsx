@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useMemo, useState } from 'react'
 import type { Character, CampaignTag } from '@/lib/types'
-import { publicStorageUrl, thumbUrl } from '@/lib/supabase/storage'
+import { publicStorageUrl } from '@/lib/supabase/storage'
 import AppIcon from '@/components/AppIcon'
 import UploadZone from '@/components/UploadZone'
 
@@ -41,10 +41,8 @@ function EditIcon({ size = 13 }: { size?: number }) {
   )
 }
 
-function characterImageUrl(c: Character, thumb?: number): string | null {
-  const base = c.storage_path ? publicStorageUrl(c.storage_path) : (c.url || null)
-  if (!base) return null
-  return thumb ? thumbUrl(base, thumb) : base
+function characterImageUrl(c: Character): string | null {
+  return c.storage_path ? publicStorageUrl(c.storage_path) : (c.url || null)
 }
 
 function formatDate(str: string) {
@@ -107,8 +105,8 @@ const CharacterCard = memo(function CharacterCard({
   onFlip, onSetConfirm, onDelete,
   onStartEditName, onChangeEditName, onCancelEditName, onSaveName, onToggleTag,
 }: CharacterCardProps) {
-  const imgUrl   = characterImageUrl(c, 300)
-  const cardTags = c.tags ?? []
+  const imgUrl = characterImageUrl(c)
+  const cardTags   = c.tags ?? []
 
   return (
     <div
