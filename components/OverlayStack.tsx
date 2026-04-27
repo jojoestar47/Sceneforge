@@ -73,6 +73,18 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
     if (vidRef.current) vidRef.current.playbackRate = playbackRate
   }, [playbackRate])
 
+  // Pause the video while it's faded out — no point decoding every frame
+  // when the overlay is invisible. Resume playback as soon as it becomes visible.
+  useEffect(() => {
+    const v = vidRef.current
+    if (!v) return
+    if (opacity === 0) {
+      v.pause()
+    } else {
+      v.play().catch(() => {})
+    }
+  }, [opacity])
+
   // mix-blend-mode and opacity go on a <div> wrapper, not the <video> itself.
   // Browsers apply blend modes after GPU compositing of the video, so putting
   // it directly on <video> is unreliable — the div wrapper is always reliable.
@@ -90,7 +102,6 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
       <video
         ref={vidRef}
         src={src}
-        autoPlay
         loop
         muted
         playsInline
