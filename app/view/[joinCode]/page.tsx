@@ -478,7 +478,7 @@ export default function ViewerPage() {
 
   // ── Live viewer ───────────────────────────────────────────────
   return (
-    <div ref={wrapperRef} style={{ ...fsStyle, overflow: 'hidden' }}>
+    <div ref={wrapperRef} style={{ ...fsStyle, overflow: 'hidden', isolation: 'isolate' }}>
 
       {/* Background layer A — isolation:isolate prevents Android Chrome's GPU-
           composited video layer from breaking above UI siblings in z-index. */}

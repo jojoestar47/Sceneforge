@@ -470,6 +470,12 @@ export default function Stage({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        // Required so OverlayStack's mix-blend-mode reads the bg layers as
+        // its backdrop. Without this, the blend escapes upward through the
+        // app's stacking contexts and ends up blending against the page bg
+        // (or nothing, depending on ancestor z-index), producing a black
+        // wash instead of the scene + screen-blended fog.
+        isolation: 'isolate',
       }}
     >
       {/* ── Background layer A — isolation:isolate prevents Android Chrome's
