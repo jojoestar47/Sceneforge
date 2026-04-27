@@ -94,6 +94,7 @@ export default function AppPage() {
 
   // ── Overlay live state ─────────────────────────────────────────
   const [activeOverlays, setActiveOverlays] = useState<Record<string, OverlayLiveState>>({})
+  const overlayDbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Auth ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -297,11 +298,16 @@ export default function AppPage() {
     await supabase.from('sessions').update({ active_music_track_id: trackId }).eq('id', sessionId)
   }
 
-  async function handleOverlayStateChange(id: string, state: OverlayLiveState) {
+  function handleOverlayStateChange(id: string, state: OverlayLiveState) {
     const next = { ...activeOverlays, [id]: state }
     setActiveOverlays(next)
     if (!sessionId || !isLive) return
-    await supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId)
+    // Debounce the DB write — slider drags can fire 60×/sec and each write
+    // triggers a realtime event on the viewer. Local state updates immediately.
+    if (overlayDbTimerRef.current) clearTimeout(overlayDbTimerRef.current)
+    overlayDbTimerRef.current = setTimeout(() => {
+      supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId)
+    }, 150)
   }
 
   // ── Scene + character selection ───────────────────────────────

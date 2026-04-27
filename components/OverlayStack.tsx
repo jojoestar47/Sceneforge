@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, memo } from 'react'
 import type { SceneOverlay, OverlayLiveState } from '@/lib/types'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -16,7 +16,7 @@ interface Props {
   liveStates: Record<string, OverlayLiveState>
 }
 
-export default function OverlayStack({ overlays, liveStates }: Props) {
+function OverlayStack({ overlays, liveStates }: Props) {
   if (!overlays.length) return null
 
   return (
@@ -56,6 +56,8 @@ export default function OverlayStack({ overlays, liveStates }: Props) {
   )
 }
 
+export default memo(OverlayStack)
+
 interface OverlayVideoProps {
   src: string
   blendMode: string
@@ -80,7 +82,7 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
     if (!v) return
     if (opacity === 0) {
       v.pause()
-    } else {
+    } else if (v.paused) {
       v.play().catch(() => {})
     }
   }, [opacity])
