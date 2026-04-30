@@ -14,6 +14,7 @@ import AppIcon             from '@/components/AppIcon'
 import SpotifyConnect      from '@/components/SpotifyConnect'
 import ShareLiveModal      from '@/components/ShareLiveModal'
 import NewCampaignModal    from '@/components/NewCampaignModal'
+import ConfirmModal        from '@/components/ConfirmModal'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 
 function makeJoinCode(): string {
@@ -85,6 +86,28 @@ export default function AppPage() {
   // Undo-delete: scene is removed from UI immediately; DB delete fires after 5s unless undone
   interface PendingSceneDelete { scene: Scene; insertAfterId: string | null; timer: ReturnType<typeof setTimeout> }
   const [pendingSceneDeletes, setPendingSceneDeletes] = useState<Record<string, PendingSceneDelete>>({})
+  const pendingSceneDeletesRef = useRef<Record<string, PendingSceneDelete>>({})
+  function setPendingDeletes(updater: (prev: Record<string, PendingSceneDelete>) => Record<string, PendingSceneDelete>) {
+    setPendingSceneDeletes(prev => {
+      const next = updater(prev)
+      pendingSceneDeletesRef.current = next
+      return next
+    })
+  }
+
+  // ── Confirm modal ─────────────────────────────────────────────
+  interface ConfirmState { title: string; body: string; confirmLabel: string; onConfirm: () => void }
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
+  function openConfirm(opts: ConfirmState) { setConfirmState(opts) }
+
+  // ── Error toasts ──────────────────────────────────────────────
+  interface Toast { id: string; message: string }
+  const [toasts, setToasts] = useState<Toast[]>([])
+  function showError(message: string) {
+    const id = Math.random().toString(36).slice(2)
+    setToasts(prev => [...prev, { id, message }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
+  }
 
   // ── Session / Live Presenting ──────────────────────────────────
   const [sessionId,      setSessionId]      = useState<string | null>(null)
@@ -125,9 +148,16 @@ export default function AppPage() {
   }, [])
 
   useEffect(() => {
+    // Flush pending scene deletes from the previous campaign immediately via ref
+    // so timers don't fire against a campaign the user is no longer on.
+    const pending = pendingSceneDeletesRef.current
+    if (Object.keys(pending).length > 0) {
+      Object.values(pending).forEach(p => { clearTimeout(p.timer); executeSceneDelete(p.scene) })
+      setPendingDeletes(() => ({}))
+    }
     if (activeCampId) { setActiveSceneId(''); loadScenes(activeCampId); setCampView('stage') }
     else { setScenes([]); setFolders([]) }
-  }, [activeCampId, loadScenes])
+  }, [activeCampId, loadScenes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the ref in sync with state so closures always see fresh data
   useEffect(() => { campaignCharactersRef.current = campaignCharacters }, [campaignCharacters])
@@ -400,114 +430,111 @@ export default function AppPage() {
   async function updateCampaignCover(campId: string, file: File) {
     const camp = campaigns.find(c => c.id === campId)
     if (!camp || !userId) return
-    // Delete old cover if present
-    if (camp.cover_path) await deleteMedia(supabase, camp.cover_path).catch(() => {})
-    const path = await uploadMedia(supabase, userId, file)
-    await supabase.from('campaigns').update({ cover_path: path, cover_file_name: file.name }).eq('id', campId)
-    setCampaigns(prev => prev.map(c => c.id === campId
-      ? { ...c, cover_path: path, cover_file_name: file.name, cover_signed_url: publicStorageUrl(path) }
-      : c
-    ))
+    try {
+      if (camp.cover_path) await deleteMedia(supabase, camp.cover_path).catch(() => {})
+      const path = await uploadMedia(supabase, userId, file)
+      await supabase.from('campaigns').update({ cover_path: path, cover_file_name: file.name }).eq('id', campId)
+      setCampaigns(prev => prev.map(c => c.id === campId
+        ? { ...c, cover_path: path, cover_file_name: file.name, cover_signed_url: publicStorageUrl(path) }
+        : c
+      ))
+    } catch {
+      showError('Failed to upload cover image.')
+    }
   }
 
   async function createCampaign() {
     if (!newCampName.trim()) return
-    const { data } = await supabase.from('campaigns').insert({ name: newCampName.trim(), user_id: userId }).select('*').single()
+    const { data, error } = await supabase.from('campaigns').insert({ name: newCampName.trim(), user_id: userId }).select('*').single()
+    if (error) { showError('Failed to create campaign.'); return }
     if (data) { setCampaigns(prev => [...prev, data]); setActiveCampId(data.id); setNewCampName(''); setCampModalOpen(false) }
   }
 
-  async function deleteCampaign() {
-    if (!activeCampId) return
-    if (!confirm(`Delete campaign "${activeCampaign?.name}" and all its scenes?`)) return
-
-    // Collect all storage paths before deleting rows
-    const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', activeCampId)
-    const sceneIds = (campScenes ?? []).map(s => s.id)
-
-    const [{ data: allTracks }, { data: allChars }] = await Promise.all([
-      sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
-      supabase.from('characters').select('storage_path').eq('campaign_id', activeCampId),
-    ])
-
-    const storagePaths = [
-      activeCampaign?.cover_path,
-      ...(campScenes ?? []).flatMap(s => [s.bg?.storage_path, s.overlay?.storage_path]),
-      ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
-      ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
-    ].filter((p): p is string => !!p)
-
-    await deleteMediaBatch(supabase, storagePaths).catch(() => {})
-
-    // Delete child rows then the campaign (order respects FK constraints)
-    if (sceneIds.length) {
-      await supabase.from('scene_characters').delete().in('scene_id', sceneIds)
-      await supabase.from('tracks').delete().in('scene_id', sceneIds)
-    }
-    await Promise.all([
-      supabase.from('scenes').delete().eq('campaign_id', activeCampId),
-      supabase.from('characters').delete().eq('campaign_id', activeCampId),
-      supabase.from('sessions').delete().eq('campaign_id', activeCampId),
-    ])
-    await supabase.from('campaigns').delete().eq('id', activeCampId)
-
-    setCampaigns(prev => prev.filter(c => c.id !== activeCampId))
-    setActiveCampId(''); setScenes([]); setIsLive(false); setSessionId(null); setJoinCode(null)
-  }
-
-  async function deleteCampaignById(campId: string) {
+  async function executeDeleteCampaign(campId: string) {
     const camp = campaigns.find(c => c.id === campId)
     if (!camp) return
 
-    const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', campId)
-    const sceneIds = (campScenes ?? []).map(s => s.id)
+    try {
+      const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', campId)
+      const sceneIds = (campScenes ?? []).map(s => s.id)
 
-    const [{ data: allTracks }, { data: allChars }] = await Promise.all([
-      sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
-      supabase.from('characters').select('storage_path').eq('campaign_id', campId),
-    ])
+      const [{ data: allTracks }, { data: allChars }] = await Promise.all([
+        sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
+        supabase.from('characters').select('storage_path').eq('campaign_id', campId),
+      ])
 
-    const storagePaths = [
-      camp.cover_path,
-      ...(campScenes ?? []).flatMap(s => [s.bg?.storage_path, s.overlay?.storage_path]),
-      ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
-      ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
-    ].filter((p): p is string => !!p)
+      // Delete DB rows first — orphan storage is cheaper than dangling rows
+      if (sceneIds.length) {
+        await supabase.from('scene_characters').delete().in('scene_id', sceneIds)
+        await supabase.from('tracks').delete().in('scene_id', sceneIds)
+      }
+      await Promise.all([
+        supabase.from('scenes').delete().eq('campaign_id', campId),
+        supabase.from('characters').delete().eq('campaign_id', campId),
+        supabase.from('sessions').delete().eq('campaign_id', campId),
+      ])
+      await supabase.from('campaigns').delete().eq('id', campId)
 
-    await deleteMediaBatch(supabase, storagePaths).catch(() => {})
+      const storagePaths = [
+        camp.cover_path,
+        ...(campScenes ?? []).flatMap(s => [s.bg?.storage_path, s.overlay?.storage_path]),
+        ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
+        ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
+      ].filter((p): p is string => !!p)
+      await deleteMediaBatch(supabase, storagePaths).catch(() => {})
 
-    if (sceneIds.length) {
-      await supabase.from('scene_characters').delete().in('scene_id', sceneIds)
-      await supabase.from('tracks').delete().in('scene_id', sceneIds)
+      setCampaigns(prev => prev.filter(c => c.id !== campId))
+      if (activeCampId === campId) {
+        setActiveCampId(''); setScenes([]); setIsLive(false); setSessionId(null); setJoinCode(null)
+      }
+    } catch {
+      showError('Failed to delete campaign. Please try again.')
     }
-    await Promise.all([
-      supabase.from('scenes').delete().eq('campaign_id', campId),
-      supabase.from('characters').delete().eq('campaign_id', campId),
-      supabase.from('sessions').delete().eq('campaign_id', campId),
-    ])
-    await supabase.from('campaigns').delete().eq('id', campId)
+  }
 
-    setCampaigns(prev => prev.filter(c => c.id !== campId))
-    if (activeCampId === campId) {
-      setActiveCampId(''); setScenes([]); setIsLive(false); setSessionId(null); setJoinCode(null)
-    }
+  function deleteCampaign() {
+    if (!activeCampId || !activeCampaign) return
+    openConfirm({
+      title: 'Delete Campaign',
+      body: `Delete "${activeCampaign.name}" and all its scenes? This cannot be undone.`,
+      confirmLabel: 'Delete Campaign',
+      onConfirm: () => executeDeleteCampaign(activeCampId),
+    })
+  }
+
+  function deleteCampaignById(campId: string) {
+    const camp = campaigns.find(c => c.id === campId)
+    if (!camp) return
+    openConfirm({
+      title: 'Delete Campaign',
+      body: `Delete "${camp.name}" and all its scenes? This cannot be undone.`,
+      confirmLabel: 'Delete Campaign',
+      onConfirm: () => executeDeleteCampaign(campId),
+    })
   }
 
   async function createCharacter(name: string, file: File | null, url: string) {
     if (!activeCampId || !userId) return
     let storagePath: string | undefined
     let imageUrl: string | undefined
-    if (file) {
-      storagePath = await uploadMedia(supabase, userId, file)
-    } else {
-      imageUrl = url || undefined
+    try {
+      if (file) {
+        storagePath = await uploadMedia(supabase, userId, file)
+      } else {
+        imageUrl = url || undefined
+      }
+    } catch {
+      showError('Failed to upload image. Please try again.')
+      return
     }
-    const { data } = await supabase.from('characters').insert({
+    const { data, error } = await supabase.from('characters').insert({
       campaign_id:  activeCampId,
       name,
       url:          imageUrl || null,
       storage_path: storagePath || null,
       file_name:    file?.name || null,
     }).select('*').single()
+    if (error) { showError('Failed to create character.'); return }
     if (data) {
       const [resolved] = resolveCharacterUrls([data as Character])
       setCampaignCharacters(prev => [...prev, resolved].sort((a, b) => a.name.localeCompare(b.name)))
@@ -581,9 +608,10 @@ export default function AppPage() {
     copy.splice(toIdx, 0, item)
     const updated  = copy.map((s, i) => ({ ...s, order_index: i }))
     setScenes(updated)
-    await Promise.all(updated.map(s =>
-      supabase.from('scenes').update({ order_index: s.order_index }).eq('id', s.id)
-    ))
+    await supabase.from('scenes').upsert(
+      updated.map(s => ({ id: s.id, order_index: s.order_index })),
+      { onConflict: 'id' }
+    )
   }
 
   // ── Folder CRUD ───────────────────────────────────────────────
@@ -596,9 +624,10 @@ export default function AppPage() {
     copy.splice(toIdx, 0, item)
     const updated = copy.map((f, i) => ({ ...f, order_index: i }))
     setFolders(updated)
-    await Promise.all(updated.map(f =>
-      supabase.from('scene_folders').update({ order_index: f.order_index }).eq('id', f.id)
-    ))
+    await supabase.from('scene_folders').upsert(
+      updated.map(f => ({ id: f.id, order_index: f.order_index })),
+      { onConflict: 'id' }
+    )
   }
 
   async function createFolder(name: string) {
@@ -620,12 +649,20 @@ export default function AppPage() {
     await supabase.from('scene_folders').update({ color }).eq('id', id)
   }
 
-  async function deleteFolder(id: string) {
+  function deleteFolder(id: string) {
     const folder = folders.find(f => f.id === id)
-    if (!folder || !confirm(`Delete folder "${folder.name}"?\n\nScenes inside will become unfiled.`)) return
-    await supabase.from('scene_folders').delete().eq('id', id)
-    setFolders(prev => prev.filter(f => f.id !== id))
-    setScenes(prev => prev.map(s => s.folder_id === id ? { ...s, folder_id: null } : s))
+    if (!folder) return
+    openConfirm({
+      title: 'Delete Folder',
+      body: `Delete "${folder.name}"? Scenes inside will become unfiled.`,
+      confirmLabel: 'Delete Folder',
+      onConfirm: async () => {
+        const { error } = await supabase.from('scene_folders').delete().eq('id', id)
+        if (error) { showError('Failed to delete folder.'); return }
+        setFolders(prev => prev.filter(f => f.id !== id))
+        setScenes(prev => prev.map(s => s.folder_id === id ? { ...s, folder_id: null } : s))
+      },
+    })
   }
 
   async function moveSceneToFolder(sceneId: string, folderId: string | null) {
@@ -634,17 +671,21 @@ export default function AppPage() {
   }
 
   async function executeSceneDelete(sc: Scene) {
-    const { data: sceneTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', sc.id)
-    const storagePaths = [
-      sc.bg?.storage_path,
-      sc.overlay?.storage_path,
-      ...(sceneTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
-    ].filter((p): p is string => !!p)
-
-    await deleteMediaBatch(supabase, storagePaths).catch(() => {})
-    await supabase.from('scene_characters').delete().eq('scene_id', sc.id)
-    await supabase.from('tracks').delete().eq('scene_id', sc.id)
-    await supabase.from('scenes').delete().eq('id', sc.id)
+    try {
+      const { data: sceneTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', sc.id)
+      // Delete DB rows first, then storage
+      await supabase.from('scene_characters').delete().eq('scene_id', sc.id)
+      await supabase.from('tracks').delete().eq('scene_id', sc.id)
+      await supabase.from('scenes').delete().eq('id', sc.id)
+      const storagePaths = [
+        sc.bg?.storage_path,
+        sc.overlay?.storage_path,
+        ...(sceneTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
+      ].filter((p): p is string => !!p)
+      await deleteMediaBatch(supabase, storagePaths).catch(() => {})
+    } catch {
+      showError(`Failed to delete scene "${sc.name}".`)
+    }
   }
 
   function deleteScene(id: string) {
@@ -661,14 +702,14 @@ export default function AppPage() {
     // Schedule actual DB delete after 5 seconds
     const timer = setTimeout(() => {
       executeSceneDelete(sc)
-      setPendingSceneDeletes(prev => {
+      setPendingDeletes(prev => {
         const next = { ...prev }
         delete next[id]
         return next
       })
     }, 5000)
 
-    setPendingSceneDeletes(prev => ({ ...prev, [id]: { scene: sc, insertAfterId, timer } }))
+    setPendingDeletes(prev => ({ ...prev, [id]: { scene: sc, insertAfterId, timer } }))
   }
 
   function undoDeleteScene(id: string) {
@@ -676,7 +717,7 @@ export default function AppPage() {
     if (!pending) return
 
     clearTimeout(pending.timer)
-    setPendingSceneDeletes(prev => {
+    setPendingDeletes(prev => {
       const next = { ...prev }
       delete next[id]
       return next
@@ -1040,8 +1081,20 @@ export default function AppPage() {
         />
       )}
 
-      {/* ── UNDO DELETE TOASTS ── */}
-      {Object.values(pendingSceneDeletes).length > 0 && (
+      {/* ── CONFIRM MODAL ── */}
+      {confirmState && (
+        <ConfirmModal
+          title={confirmState.title}
+          body={confirmState.body}
+          confirmLabel={confirmState.confirmLabel}
+          danger
+          onConfirm={confirmState.onConfirm}
+          onClose={() => setConfirmState(null)}
+        />
+      )}
+
+      {/* ── TOASTS (undo deletes + errors) ── */}
+      {(Object.values(pendingSceneDeletes).length > 0 || toasts.length > 0) && (
         <div style={{
           position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
           display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 9999,
@@ -1058,12 +1111,25 @@ export default function AppPage() {
               animation: 'scenePickerIn 0.18s ease both',
             }}>
               <span style={{ color: 'var(--text-2)' }}>Scene &quot;{p.scene.name}&quot; deleted</span>
+              <button className="btn btn-outline btn-sm" onClick={() => undoDeleteScene(id)}>Undo</button>
+            </div>
+          ))}
+          {toasts.map(t => (
+            <div key={t.id} style={{
+              background: 'rgba(180,40,40,0.18)', border: '1px solid rgba(229,53,53,0.4)',
+              borderRadius: '8px', padding: '10px 14px',
+              display: 'flex', alignItems: 'center', gap: '10px',
+              color: 'var(--text)', fontSize: '12px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+              pointerEvents: 'all',
+              animation: 'scenePickerIn 0.18s ease both',
+            }}>
+              <span style={{ color: '#e53535', fontSize: '13px', flexShrink: 0 }}>✕</span>
+              <span style={{ color: 'var(--text-2)' }}>{t.message}</span>
               <button
-                className="btn btn-outline btn-sm"
-                onClick={() => undoDeleteScene(id)}
-              >
-                Undo
-              </button>
+                onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+                style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: '13px', cursor: 'pointer', padding: 0, flexShrink: 0, lineHeight: 1 }}
+              >✕</button>
             </div>
           ))}
         </div>

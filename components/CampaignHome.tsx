@@ -12,7 +12,7 @@ interface Props {
   onUpdateCover:       (campId: string, file: File) => Promise<void>
   onUpdateName:        (campId: string, name: string) => Promise<void>
   onUpdateDescription: (campId: string, description: string) => Promise<void>
-  onDelete:            (campId: string) => Promise<void>
+  onDelete:            (campId: string) => void
 }
 
 function formatDate(str: string) {
