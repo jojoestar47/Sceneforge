@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, memo } from 'react'
 import type { SceneOverlay, OverlayLiveState } from '@/lib/types'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -16,7 +16,7 @@ interface Props {
   liveStates: Record<string, OverlayLiveState>
 }
 
-export default function OverlayStack({ overlays, liveStates }: Props) {
+function OverlayStack({ overlays, liveStates }: Props) {
   if (!overlays.length) return null
 
   return (
@@ -56,6 +56,8 @@ export default function OverlayStack({ overlays, liveStates }: Props) {
   )
 }
 
+export default memo(OverlayStack)
+
 interface OverlayVideoProps {
   src: string
   blendMode: string
@@ -72,6 +74,18 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
   useEffect(() => {
     if (vidRef.current) vidRef.current.playbackRate = playbackRate
   }, [playbackRate])
+
+  // Pause the video while it's faded out — no point decoding every frame
+  // when the overlay is invisible. Resume playback as soon as it becomes visible.
+  useEffect(() => {
+    const v = vidRef.current
+    if (!v) return
+    if (opacity === 0) {
+      v.pause()
+    } else if (v.paused) {
+      v.play().catch(() => {})
+    }
+  }, [opacity])
 
   // mix-blend-mode and opacity go on a <div> wrapper, not the <video> itself.
   // Browsers apply blend modes after GPU compositing of the video, so putting
@@ -90,7 +104,6 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
       <video
         ref={vidRef}
         src={src}
-        autoPlay
         loop
         muted
         playsInline

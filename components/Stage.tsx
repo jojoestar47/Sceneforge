@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { Scene, Track, Character, Handout, SceneOverlay, OverlayLiveState } from '@/lib/types'
 import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
 import AppIcon from '@/components/AppIcon'
@@ -188,8 +188,11 @@ export default function Stage({
     showHandout(null)
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filteredChars = (campaignCharacters || []).filter(c =>
-    !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
+  const filteredChars = useMemo(
+    () => (campaignCharacters || []).filter(c =>
+      !charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase())
+    ),
+    [campaignCharacters, charSearch],
   )
 
   function pickCharacter(c: Character) {

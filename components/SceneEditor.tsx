@@ -816,7 +816,7 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
   const [results,  setResults]  = useState<SpotifyResult[]>([])
   const [searching, setSearching] = useState(false)
   const [noConn,   setNoConn]   = useState(false)
-  const searchTimer = useState<ReturnType<typeof setTimeout> | null>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function submitFile() {
     const n = name || file?.name?.replace(/\.[^.]+$/, '') || 'Track'
@@ -827,7 +827,7 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
 
   function handleQueryChange(q: string) {
     setQuery(q)
-    if (searchTimer[0]) clearTimeout(searchTimer[0])
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     if (!q.trim()) { setResults([]); return }
     const t = setTimeout(async () => {
       setSearching(true)
@@ -844,8 +844,7 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
         setSearching(false)
       }
     }, 400)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    ;(searchTimer as any)[0] = t
+    searchTimerRef.current = t
   }
 
   function pickSpotify(r: SpotifyResult) {
