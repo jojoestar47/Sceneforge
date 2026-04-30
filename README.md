@@ -1,4 +1,4 @@
-# SceneForge
+# Reverie
 
 TTRPG Scene Director — Next.js 15 + Supabase + Vercel
 
@@ -20,7 +20,7 @@ TTRPG Scene Director — Next.js 15 + Supabase + Vercel
 
 ```bash
 git clone <your-repo>
-cd sceneforge
+cd reverie
 npm install
 ```
 
@@ -100,37 +100,43 @@ All tables use Row Level Security — users only access their own data.
 
 ## Storage
 
-Bucket: `scene-media` (private, 500 MB per file)  
-Files stored at `{user_id}/{timestamp}-{random}.{ext}`  
-Signed URLs generated at runtime (1-hour expiry).
+Bucket: `scene-media` (public, CDN-cached)
+Files stored at `{user_id}/{timestamp}-{random}.{ext}`
+Public URLs generated synchronously — no API roundtrip needed.
 
 ---
 
 ## Project Structure
 
 ```
-sceneforge/
+reverie/
 ├── app/
 │   ├── (app)/
 │   │   ├── layout.tsx        # Server: checks auth
-│   │   └── page.tsx          # Main SceneForge UI
+│   │   └── page.tsx          # Main Reverie UI
 │   ├── login/
 │   │   └── page.tsx          # Email + password login
 │   ├── auth/callback/
 │   │   └── route.ts          # Auth callback handler
+│   ├── view/[joinCode]/
+│   │   └── page.tsx          # Public viewer (no auth required)
 │   ├── globals.css
 │   └── layout.tsx
 ├── components/
-│   ├── AudioPanel.tsx        # Audio playback + volume
-│   ├── SceneEditor.tsx       # Alchemy-style scene editor
+│   ├── SceneEditor.tsx       # Scene editor modal
 │   ├── SceneList.tsx         # Scene cards in right panel
-│   ├── Stage.tsx             # Full-screen scene viewer
+│   ├── Stage.tsx             # Full-screen scene viewer (DM)
+│   ├── CharacterRoster.tsx   # Campaign character management
+│   ├── CharacterDisplay.tsx  # Character portrait renderer
+│   ├── OverlayStack.tsx      # Atmospheric video overlays
+│   ├── HandoutLightbox.tsx   # Full-screen handout display
 │   └── UploadZone.tsx        # Drag-and-drop file upload
 ├── lib/
 │   ├── supabase/
 │   │   ├── client.ts         # Browser Supabase client
 │   │   ├── server.ts         # Server Supabase client
-│   │   └── storage.ts        # Upload + signed URL helpers
+│   │   └── storage.ts        # Upload + public URL helpers
+│   ├── useSpotifyPlayer.ts   # Spotify Web Playback SDK hook
 │   └── types.ts              # TypeScript types
 ├── middleware.ts              # Auth redirect middleware
 ├── next.config.ts
