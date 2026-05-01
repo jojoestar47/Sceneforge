@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, publicStorageUrl, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout, SceneOverlay, OverlayLiveState } from '@/lib/types'
+import { resolveSceneUrls, resolveCampaignCovers, resolveCharacterUrls, resolveSoundUrls, publicStorageUrl, uploadMedia, deleteMedia, deleteMediaBatch } from '@/lib/supabase/storage'
+import type { Campaign, Scene, SceneFolder, Character, CampaignTag, CharacterState, Handout, SceneOverlay, OverlayLiveState, CampaignSound, SfxEvent } from '@/lib/types'
 import Stage              from '@/components/Stage'
 import HandoutLightbox    from '@/components/HandoutLightbox'
 import SceneList           from '@/components/SceneList'
@@ -131,6 +131,9 @@ export default function AppPage() {
   const [activeOverlays, setActiveOverlays] = useState<Record<string, OverlayLiveState>>({})
   const overlayDbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // ── Soundboard ─────────────────────────────────────────────────
+  const [campaignSounds, setCampaignSounds] = useState<CampaignSound[]>([])
+
   // ── Auth ──────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -175,15 +178,17 @@ export default function AppPage() {
   // Keep the ref in sync with state so closures always see fresh data
   useEffect(() => { campaignCharactersRef.current = campaignCharacters }, [campaignCharacters])
 
-  // ── Load campaign characters + tags (parallel) ───────────────
+  // ── Load campaign characters + tags + soundboard (parallel) ──
   useEffect(() => {
-    if (!activeCampId) { setCampaignCharacters([]); setCampaignTags([]); return }
+    if (!activeCampId) { setCampaignCharacters([]); setCampaignTags([]); setCampaignSounds([]); return }
     Promise.all([
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name'),
       supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name'),
-    ]).then(([{ data: chars }, { data: tags }]) => {
-      if (chars) setCampaignCharacters(resolveCharacterUrls(chars as Character[]))
-      if (tags)  setCampaignTags(tags as CampaignTag[])
+      supabase.from('campaign_sounds').select('*').eq('campaign_id', activeCampId).order('order_index'),
+    ]).then(([{ data: chars }, { data: tags }, { data: sounds }]) => {
+      if (chars)  setCampaignCharacters(resolveCharacterUrls(chars as Character[]))
+      if (tags)   setCampaignTags(tags as CampaignTag[])
+      if (sounds) setCampaignSounds(resolveSoundUrls(sounds as CampaignSound[]))
     })
   }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -338,6 +343,17 @@ export default function AppPage() {
   async function handleMusicTrackChange(trackId: string | null) {
     if (!sessionId || !isLive) return
     await supabase.from('sessions').update({ active_music_track_id: trackId }).eq('id', sessionId)
+  }
+
+  async function handlePlaySfx(sound: CampaignSound) {
+    if (!sessionId || !isLive) return
+    const ev: SfxEvent = {
+      id: `${sound.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sound_id: sound.id,
+      played_at: Date.now(),
+      volume: sound.volume,
+    }
+    await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
   }
 
   function handleOverlayStateChange(id: string, state: OverlayLiveState) {
@@ -891,6 +907,11 @@ export default function AppPage() {
               isLive={isLive}
               activeOverlays={activeOverlays}
               onOverlayStateChange={handleOverlayStateChange}
+              sounds={campaignSounds}
+              campaignId={activeCampId}
+              userId={userId}
+              onSoundsChange={setCampaignSounds}
+              onPlaySfx={handlePlaySfx}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{
