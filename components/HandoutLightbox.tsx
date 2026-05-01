@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import type { Handout } from '@/lib/types'
+import { mediaUrl } from '@/lib/media'
 
 interface Props {
   handout: Handout
@@ -19,7 +20,7 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
   const lastXY    = useRef({ x: 0, y: 0 })
   const lastPinch = useRef<number | null>(null)
 
-  const imgUrl     = handout.media?.signed_url || handout.media?.url || null
+  const imgUrl     = mediaUrl(handout.media)
   const isZoomed   = zoom > 1.02
   const isModified = Math.abs(zoom - 1) > 0.02
 

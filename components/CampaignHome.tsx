@@ -3,6 +3,7 @@
 import { memo, useCallback, useRef, useState } from 'react'
 import Image from 'next/image'
 import type { Campaign } from '@/lib/types'
+import { formatDate } from '@/lib/format'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
@@ -13,10 +14,6 @@ interface Props {
   onUpdateName:        (campId: string, name: string) => Promise<void>
   onUpdateDescription: (campId: string, description: string) => Promise<void>
   onDelete:            (campId: string) => void
-}
-
-function formatDate(str: string) {
-  return new Date(str).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 interface Accent { border: string; glow: string; badge: string }

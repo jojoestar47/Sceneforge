@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Scene, SceneFolder } from '@/lib/types'
+import { mediaUrl } from '@/lib/media'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
@@ -22,11 +23,6 @@ interface Props {
   onFolderDelete?:         (id: string) => void
   onFolderColor?:          (id: string, color: string) => void
   onMoveToFolder?:         (sceneId: string, folderId: string | null) => void
-}
-
-function mediaUrl(m: Scene['bg']): string | null {
-  if (!m) return null
-  return m.signed_url || m.url || null
 }
 
 export default function SceneList({

@@ -2,7 +2,8 @@
 
 import { memo, useCallback, useMemo, useState } from 'react'
 import type { Character, CampaignTag } from '@/lib/types'
-import { publicStorageUrl } from '@/lib/supabase/storage'
+import { formatDate } from '@/lib/format'
+import { characterImageUrl } from '@/lib/media'
 import AppIcon from '@/components/AppIcon'
 import UploadZone from '@/components/UploadZone'
 
@@ -39,14 +40,6 @@ function EditIcon({ size = 13 }: { size?: number }) {
         c2.518,2.51,3.905,5.855,3.905,9.414C470.516,51.036,469.127,54.38,466.61,56.897z"/>
     </svg>
   )
-}
-
-function characterImageUrl(c: Character): string | null {
-  return c.storage_path ? publicStorageUrl(c.storage_path) : (c.url || null)
-}
-
-function formatDate(str: string) {
-  return new Date(str).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 interface Props {

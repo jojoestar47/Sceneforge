@@ -5,7 +5,7 @@ import Image from 'next/image'
 import type { Scene, Track, MediaRef, Character, Handout, SceneOverlay } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
-import { characterImageUrl } from '@/components/CharacterDisplay'
+import { mediaUrl, characterImageUrl } from '@/lib/media'
 import UploadZone from './UploadZone'
 
 interface Props {
@@ -522,7 +522,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                   {/* Handout list */}
                   <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                     {draft.handouts.map((h, idx) => {
-                      const imgUrl = h.media?.signed_url || h.media?.url || null
+                      const imgUrl = mediaUrl(h.media)
                       return (
                         <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--editor-row)', borderRadius: '8px', padding: '10px 12px', marginTop: '8px' }}>
                           <div style={{ width: '48px', height: '48px', borderRadius: '6px', background: 'var(--editor-card)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
