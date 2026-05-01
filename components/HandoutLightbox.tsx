@@ -15,17 +15,17 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
   const [isDragging, setIsDragging] = useState(false)
 
   const dragging  = useRef(false)
-  const hasMoved  = useRef(false)
+  const hasMoved  = useRef(false)   // true if pointer/touch moved since pointerdown
   const lastXY    = useRef({ x: 0, y: 0 })
   const lastPinch = useRef<number | null>(null)
 
   const imgUrl     = handout.media?.signed_url || handout.media?.url || null
-  const isZoomed   = zoom > 1.02          // controls drag-to-pan behaviour
-  const isModified = Math.abs(zoom - 1) > 0.02 // controls Reset button visibility
+  const isZoomed   = zoom > 1.02
+  const isModified = Math.abs(zoom - 1) > 0.02
 
   function dismiss() {
     setClosing(true)
-    setTimeout(onClose, 260) // matches slide-out duration
+    setTimeout(onClose, 260)
   }
 
   function resetView() { setZoom(1); setPan({ x: 0, y: 0 }) }
@@ -40,7 +40,7 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
     return () => { document.body.style.overflow = prev }
   }, [])
 
-  // ── Drag ─────────────────────────────────────────────────────
+  // ── Drag / pan helpers ────────────────────────────────────────
   function startDrag(x: number, y: number) {
     dragging.current  = true
     hasMoved.current  = false
@@ -49,12 +49,14 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
   }
 
   function moveDrag(x: number, y: number) {
-    if (!dragging.current || !isZoomed) return
+    if (!dragging.current) return
     const dx = x - lastXY.current.x
     const dy = y - lastXY.current.y
-    if (Math.abs(dx) + Math.abs(dy) > 3) hasMoved.current = true
+    // Always track movement — even when not panning — so we can distinguish
+    // a tap (no movement) from a swipe (moved), regardless of zoom level.
+    if (Math.abs(dx) + Math.abs(dy) > 4) hasMoved.current = true
     lastXY.current = { x, y }
-    setPan(p => ({ x: p.x + dx, y: p.y + dy }))
+    if (isZoomed) setPan(p => ({ x: p.x + dx, y: p.y + dy }))
   }
 
   function endDrag() { dragging.current = false; setIsDragging(false) }
@@ -85,6 +87,7 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
       const d = pinchDist(e)
       if (d !== null && lastPinch.current !== null) {
         setZoom(z => Math.min(6, Math.max(0.25, z * (d / lastPinch.current!))))
+        hasMoved.current = true   // pinch counts as a gesture, not a tap
       }
       lastPinch.current = d
     } else if (e.touches.length === 1) {
@@ -92,12 +95,37 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
     }
   }
 
+  function handleTouchEnd(e: React.TouchEvent) {
+    endDrag()
+    lastPinch.current = null
+    // Single-finger tap on the background (not the image) → dismiss.
+    // e.target is where the touch started; if it's the overlay wrapper
+    // itself (not a child like the image or a button) and the finger
+    // didn't move, treat it as a "tap outside" and close.
+    if (
+      e.changedTouches.length === 1 &&
+      !hasMoved.current &&
+      (e.target as HTMLElement).dataset.dismiss === 'true'
+    ) {
+      dismiss()
+    }
+    hasMoved.current = false
+  }
+
+  // ── Click outside to close (desktop) ─────────────────────────
+  // The overlay wrapper covers inset:0 but the image is smaller and
+  // flex-centered. Clicks that land on the wrapper itself (not a child)
+  // are "outside" the image — dismiss on those.
+  function handleOverlayClick(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).dataset.dismiss === 'true' && !hasMoved.current) {
+      dismiss()
+    }
+    hasMoved.current = false
+  }
+
   return (
     <>
-      {/* Backdrop — fades in, click outside to close.
-          position:absolute (not fixed) so the lightbox is contained within
-          the Stage's position:relative+overflow:hidden boundary — preventing
-          it from covering the sidebar and other page chrome in the DM view. */}
+      {/* Backdrop — fades in */}
       <div
         style={{
           position: 'absolute', inset: 0, zIndex: 9999,
@@ -106,13 +134,13 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
             ? 'lbBdOut 0.26s ease forwards'
             : 'lbBdIn  0.2s  ease forwards',
         }}
-        onClick={() => { if (!hasMoved.current) dismiss(); hasMoved.current = false }}
-        onMouseMove={e => moveDrag(e.clientX, e.clientY)}
-        onMouseUp={endDrag}
-        onMouseLeave={endDrag}
       >
-        {/* Content sheet — slides up from bottom */}
+        {/* Overlay wrapper — fills backdrop, flex-centers the image.
+            Clicks/taps that land directly on this wrapper (data-dismiss="true")
+            are "outside" the image and should close. Children that want to
+            prevent closing (image, buttons) stop propagation themselves. */}
         <div
+          data-dismiss="true"
           style={{
             position: 'absolute', inset: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -120,23 +148,28 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
             animation: closing
               ? 'lbSlideOut 0.26s cubic-bezier(0.4, 0, 1, 1)    forwards'
               : 'lbSlideIn  0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+            cursor: isZoomed ? (isDragging ? 'grabbing' : 'grab') : 'default',
           }}
-          onClick={e => e.stopPropagation()}
+          onClick={handleOverlayClick}
           onMouseDown={e => { e.preventDefault(); startDrag(e.clientX, e.clientY) }}
+          onMouseMove={e => moveDrag(e.clientX, e.clientY)}
+          onMouseUp={endDrag}
+          onMouseLeave={endDrag}
           onWheel={handleWheel}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          onTouchEnd={() => { endDrag(); lastPinch.current = null }}
+          onTouchEnd={handleTouchEnd}
         >
-          {/* Image — fills the viewport, contained with correct aspect ratio */}
+          {/* Image — stopPropagation prevents image taps from triggering dismiss */}
           {imgUrl && (
             <img
               src={imgUrl}
               alt={handout.name}
               draggable={false}
+              onClick={e => e.stopPropagation()}
               style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
+                maxWidth: '92%',
+                maxHeight: '88%',
                 objectFit: 'contain',
                 display: 'block',
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -145,18 +178,23 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
                 cursor: isZoomed ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in',
+                // Raise pointer events so clicks are absorbed by the image, not
+                // the wrapper behind it.
+                position: 'relative',
+                zIndex: 1,
               }}
             />
           )}
 
-          {/* Floating header with top-fade gradient */}
+          {/* Floating header — pointerEvents:none on the gradient, all on buttons */}
           <div
             style={{
               position: 'absolute', top: 0, left: 0, right: 0,
-              padding: '20px 20px 52px',
+              padding: '16px 16px 52px',
               background: 'linear-gradient(to bottom, rgba(0,0,0,0.82) 0%, transparent 100%)',
-              display: 'flex', alignItems: 'center', gap: '12px',
+              display: 'flex', alignItems: 'center', gap: '10px',
               pointerEvents: 'none',
+              zIndex: 2,
             }}
           >
             <span style={{
@@ -173,10 +211,12 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
                   onClick={e => { e.stopPropagation(); resetView() }}
                   style={{
                     fontSize: '10px', fontWeight: 700, letterSpacing: '.5px',
-                    padding: '4px 10px', borderRadius: '5px',
+                    padding: '0 12px', borderRadius: '6px',
                     border: '1px solid rgba(255,255,255,0.2)',
                     background: 'rgba(0,0,0,0.55)', color: 'rgba(255,255,255,0.65)',
                     cursor: 'pointer', whiteSpace: 'nowrap',
+                    // Minimum tap target for mobile
+                    minHeight: '44px', minWidth: '44px',
                   }}
                 >
                   {Math.round(zoom * 100)}% · Reset
@@ -186,16 +226,18 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
                 onClick={e => { e.stopPropagation(); dismiss() }}
                 style={{
                   background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.2)',
-                  borderRadius: '6px', color: 'rgba(255,255,255,0.75)',
-                  fontSize: '14px', cursor: 'pointer',
-                  width: '34px', height: '34px',
+                  borderRadius: '8px', color: 'rgba(255,255,255,0.85)',
+                  fontSize: '16px', cursor: 'pointer',
+                  // 44px minimum touch target (Apple HIG / WCAG 2.5.5)
+                  width: '44px', height: '44px',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                 }}
+                aria-label="Close handout"
               >✕</button>
             </div>
           </div>
 
-          {/* Floating footer hint with bottom-fade gradient */}
+          {/* Floating footer hint */}
           <div
             style={{
               position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -204,9 +246,10 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
               fontSize: '10px', color: 'rgba(255,255,255,0.22)',
               textAlign: 'center', letterSpacing: '.5px',
               pointerEvents: 'none',
+              zIndex: 2,
             }}
           >
-            Scroll to zoom · Drag to pan · Click outside to close
+            Pinch to zoom · Drag to pan · Tap outside to close
           </div>
         </div>
       </div>
