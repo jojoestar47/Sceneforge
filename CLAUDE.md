@@ -4,9 +4,16 @@
 > This file covers the things you have to grep around to figure out otherwise:
 > architecture, file map, conventions, and gotchas.
 
-The product, package, and Vercel project are **Reverie**. The GitHub repo
-URL may still read `jojoestar47/Sceneforge` (legacy name) until the rename
-lands — GitHub auto-redirects old URLs, so existing clones keep working.
+> **Keeping this file current:** when a change would help future sessions —
+> a new top-level file/hook/component, a changed convention, a new gotcha
+> you spent more than ~15 min figuring out, or a schema tweak to the
+> `sessions` row contract — update this file in the same PR. Fix stale
+> entries when you spot them. The point is to keep the next agent from
+> repeating the treasure hunt.
+
+The product, package, repo, and Vercel project are all **Reverie**
+(`github.com/jojoestar47/reverie`). Older clones may still reference
+`Sceneforge` — GitHub auto-redirects, so they keep working.
 
 ## The 30-second mental model
 
