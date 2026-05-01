@@ -37,13 +37,14 @@ The DM writes, the viewer subscribes. No WebSocket of our own.
 | Viewer main shell | `app/view/[joinCode]/page.tsx` |
 | Stage rendering, audio mixer, soundboard, character slots, overlays | `components/Stage.tsx` (large — split deferred) |
 | Scene editor (modal) — orchestrator + 3 tabs | `components/SceneEditor/` (split into per-tab files) |
-| Scene list / folders / drag-drop in sidebar | `components/SceneList.tsx` |
+| Scene list / folders / drag-drop in sidebar | `components/SceneList/` (orchestrator + `SceneCard` + `FolderRow`) |
 | Campaign characters page | `components/CharacterRoster.tsx` |
 | Campaign list / new campaign / settings | `components/CampaignHome.tsx` |
 | Campaign-data loading + Realtime subscription | `lib/useCampaignData.ts` |
 | Spotify Web Playback SDK integration | `lib/useSpotifyPlayer.ts` |
 | Supabase storage URL stamping + uploads | `lib/supabase/storage.ts` |
 | Date formatter / media URL resolver / character image URL | `lib/format.ts`, `lib/media.ts` |
+| Touch-device detection (one-shot) | `lib/useIsTouchDevice.ts` |
 | Spotify type surface | `lib/spotify.ts` |
 | Spotify token / search API routes | `app/api/spotify/{token,search}/route.ts` |
 | All canonical types (DB row shapes + drafts) | `lib/types.ts` |
