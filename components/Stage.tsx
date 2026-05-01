@@ -594,11 +594,18 @@ export default function Stage({
     await supabase.from('campaign_sounds').update({ name: trimmed }).eq('id', s.id)
   }
 
-  async function handleSbVolume(s: CampaignSound, vol: number) {
+  // Debounce per-sound volume writes — slider drags fire onChange ~60×/sec.
+  const sbVolumeTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  function handleSbVolume(s: CampaignSound, vol: number) {
     if (!onSoundsChange) return
     const v = Math.max(0, Math.min(1, vol))
     onSoundsChange((sounds ?? []).map(x => x.id === s.id ? { ...x, volume: v } : x))
-    await supabase.from('campaign_sounds').update({ volume: v }).eq('id', s.id)
+    const existing = sbVolumeTimersRef.current[s.id]
+    if (existing) clearTimeout(existing)
+    sbVolumeTimersRef.current[s.id] = setTimeout(async () => {
+      delete sbVolumeTimersRef.current[s.id]
+      await supabase.from('campaign_sounds').update({ volume: v }).eq('id', s.id)
+    }, 200)
   }
 
   async function handleSbDelete(s: CampaignSound) {
@@ -1019,15 +1026,50 @@ export default function Stage({
                 </div>
               )}
 
-              {(sounds && sounds.length > 0) || sbEditMode ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                  {(sounds ?? []).map(s => {
-                    const recentlyPlayed = sbRecentlyPlayed[s.id]
-                    const isHot = recentlyPlayed && Date.now() - recentlyPlayed < 600
-                    return (
-                      <div key={s.id} style={{ position: 'relative' }}>
+              {(sounds && sounds.length > 0) ? (
+                sbEditMode ? (
+                  // ── Edit mode: list of rows with rename + volume + delete ──
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {(sounds ?? []).map(s => (
+                      <SfxEditRow
+                        key={s.id}
+                        sound={s}
+                        onPlay={() => playSfx(s)}
+                        onRename={(name) => handleSbRename(s, name)}
+                        onVolume={(v) => handleSbVolume(s, v)}
+                        onDelete={() => handleSbDelete(s)}
+                      />
+                    ))}
+                    {/* Add-sound row */}
+                    <button
+                      onClick={() => sbFileInputRef.current?.click()}
+                      disabled={sbUploading}
+                      style={{
+                        width: '100%', height: '40px',
+                        background: 'transparent',
+                        border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
+                        color: 'rgba(255,255,255,0.45)', cursor: sbUploading ? 'wait' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                        fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px',
+                        transition: 'border-color 0.15s ease, color 0.15s ease',
+                      }}
+                      onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
+                    >
+                      <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
+                      <span>{sbUploading ? 'Uploading…' : 'Add sound'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  // ── View mode: 4-col grid for fast firing ──
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                    {(sounds ?? []).map(s => {
+                      const recentlyPlayed = sbRecentlyPlayed[s.id]
+                      const isHot = recentlyPlayed && Date.now() - recentlyPlayed < 600
+                      return (
                         <button
-                          onClick={() => !sbEditMode && playSfx(s)}
+                          key={s.id}
+                          onClick={() => playSfx(s)}
                           title={s.name}
                           style={{
                             width: '100%', aspectRatio: '1 / 1',
@@ -1035,58 +1077,39 @@ export default function Stage({
                             border: `1px solid ${isHot ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
                             borderRadius: '8px',
                             color: isHot ? 'var(--accent)' : 'rgba(255,255,255,0.78)',
-                            cursor: sbEditMode ? 'default' : 'pointer',
+                            cursor: 'pointer',
                             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                             padding: '4px', overflow: 'hidden', transition: 'background 0.15s ease, border-color 0.15s ease',
                             fontSize: '9px', fontWeight: 600, letterSpacing: '0.3px', textAlign: 'center',
                           }}
-                          onMouseEnter={e => { if (!sbEditMode && !isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
-                          onMouseLeave={e => { if (!sbEditMode && !isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                          onMouseEnter={e => { if (!isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                          onMouseLeave={e => { if (!isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                         >
                           <span style={{ fontSize: '16px', marginBottom: '4px', opacity: 0.7 }}>🔊</span>
                           <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{s.name}</span>
                         </button>
-                        {sbEditMode && (
-                          <>
-                            <button
-                              onClick={() => {
-                                const name = prompt('Rename sound', s.name)
-                                if (name !== null) handleSbRename(s, name)
-                              }}
-                              title="Rename"
-                              style={{ position: 'absolute', top: '-6px', left: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'rgba(13,14,22,0.95)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                            >✎</button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Delete "${s.name}"?`)) handleSbDelete(s)
-                              }}
-                              title="Delete"
-                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: '#e53535', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                            >✕</button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                  {/* Upload pad */}
-                  <button
-                    onClick={() => sbFileInputRef.current?.click()}
-                    disabled={sbUploading}
-                    title="Upload sound"
-                    style={{
-                      width: '100%', aspectRatio: '1 / 1',
-                      background: 'transparent',
-                      border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
-                      color: 'rgba(255,255,255,0.4)', cursor: sbUploading ? 'wait' : 'pointer',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '20px', transition: 'border-color 0.15s ease, color 0.15s ease',
-                    }}
-                    onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
-                  >
-                    {sbUploading ? <span style={{ fontSize: '10px', fontWeight: 600 }}>…</span> : '+'}
-                  </button>
-                </div>
+                      )
+                    })}
+                    {/* Upload pad */}
+                    <button
+                      onClick={() => sbFileInputRef.current?.click()}
+                      disabled={sbUploading}
+                      title="Upload sound"
+                      style={{
+                        width: '100%', aspectRatio: '1 / 1',
+                        background: 'transparent',
+                        border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
+                        color: 'rgba(255,255,255,0.4)', cursor: sbUploading ? 'wait' : 'pointer',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '20px', transition: 'border-color 0.15s ease, color 0.15s ease',
+                      }}
+                      onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+                    >
+                      {sbUploading ? <span style={{ fontSize: '10px', fontWeight: 600 }}>…</span> : '+'}
+                    </button>
+                  </div>
+                )
               ) : null}
             </div>
           </div>
@@ -1424,6 +1447,109 @@ export default function Stage({
 }
 
 import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
+
+// ── Soundboard edit row ────────────────────────────────────────
+// Renders one sound in edit mode: preview play, name input (saves on
+// blur/Enter), volume slider, and a 2-stage delete (one click arms a
+// red confirm; second click within 4s confirms; click anywhere else
+// or wait → cancels).
+
+interface SfxEditRowProps {
+  sound:    CampaignSound
+  onPlay:   () => void
+  onRename: (name: string) => void
+  onVolume: (v: number) => void
+  onDelete: () => void
+}
+
+function SfxEditRow({ sound, onPlay, onRename, onVolume, onDelete }: SfxEditRowProps) {
+  const [draftName, setDraftName] = useState(sound.name)
+  const [confirming, setConfirming] = useState(false)
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep input in sync if the sound is renamed elsewhere (e.g. realtime).
+  useEffect(() => { setDraftName(sound.name) }, [sound.name])
+
+  useEffect(() => () => {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+  }, [])
+
+  function commitName() {
+    const trimmed = draftName.trim()
+    if (!trimmed) { setDraftName(sound.name); return }
+    if (trimmed !== sound.name) onRename(trimmed)
+  }
+
+  function armDelete() {
+    setConfirming(true)
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+    confirmTimerRef.current = setTimeout(() => setConfirming(false), 4000)
+  }
+
+  function cancelDelete() {
+    setConfirming(false)
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+  }
+
+  const vol = sound.volume ?? 1
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      {/* Top row: play, name, delete */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          onClick={onPlay}
+          title="Preview"
+          style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >▶</button>
+        <input
+          type="text"
+          value={draftName}
+          onChange={e => setDraftName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.currentTarget.blur() }
+            else if (e.key === 'Escape') { setDraftName(sound.name); e.currentTarget.blur() }
+          }}
+          spellCheck={false}
+          style={{ flex: 1, minWidth: 0, height: '32px', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '12px', fontFamily: 'inherit', outline: 'none' }}
+        />
+        {!confirming ? (
+          <button
+            onClick={armDelete}
+            title="Delete"
+            style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.55)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >✕</button>
+        ) : (
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+            <button
+              onClick={cancelDelete}
+              title="Cancel"
+              style={{ height: '32px', padding: '0 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
+            >Cancel</button>
+            <button
+              onClick={() => { cancelDelete(); onDelete() }}
+              title="Confirm delete"
+              style={{ height: '32px', padding: '0 10px', borderRadius: '6px', border: '1px solid rgba(229,53,53,0.5)', background: 'rgba(229,53,53,0.18)', color: '#ff7a7a', fontSize: '10px', fontWeight: 700, letterSpacing: '0.4px', cursor: 'pointer' }}
+            >Delete</button>
+          </div>
+        )}
+      </div>
+      {/* Bottom row: volume slider */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
+        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
+        <input
+          type="range" min={0} max={1} step={0.01} value={vol}
+          onChange={e => onVolume(Number(e.target.value))}
+          onClick={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()}
+          style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
+        />
+        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '32px', textAlign: 'right', flexShrink: 0 }}>{Math.round(vol * 100)}%</span>
+      </div>
+    </div>
+  )
+}
 
 interface MiniTrackRowProps {
   t:          Track
