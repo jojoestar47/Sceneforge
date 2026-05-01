@@ -203,7 +203,6 @@ export default function ViewerPage() {
       })
       return
     }
-    if (!hasInteracted.current) return // browser audio not yet unlocked
     const sound = soundsList.find(s => s.id === ev.sound_id)
     if (!sound) return
     const src = sound.signed_url
@@ -223,7 +222,20 @@ export default function ViewerPage() {
     }
     a.addEventListener('ended', cleanup)
     a.addEventListener('error', cleanup)
-    a.play().catch(() => cleanup())
+    // Always attempt — gating on hasInteracted misses the case where the
+    // scene has no tracks (no autoplay attempt is ever made, so the tap
+    // overlay never appears and audio stays locked forever). If play()
+    // rejects because the browser hasn't received a user gesture, surface
+    // the tap overlay so the viewer can unlock audio for future SFX.
+    a.play()
+      .then(() => {
+        hasInteracted.current = true
+        setNeedsTap(false)
+      })
+      .catch(() => {
+        cleanup()
+        if (!hasInteracted.current) setNeedsTap(true)
+      })
   }, [])
 
   // ── Handout sync ─────────────────────────────────────────────
