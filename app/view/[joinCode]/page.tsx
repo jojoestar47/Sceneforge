@@ -97,10 +97,11 @@ export default function ViewerPage() {
   const [muted,   setMuted]   = useState(false)
   const [mixerOpen, setMixerOpen] = useState(false)
   const [needsTap,  setNeedsTap]  = useState(false)
-  const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>(() => {
-    if (typeof window === 'undefined') return 'top-left'
-    return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
-  })
+  const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
+  useEffect(() => {
+    const saved = localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right' | null
+    if (saved) setMixerPos(saved)
+  }, [])
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
   // ── Handout sync ─────────────────────────────────────────────
@@ -290,7 +291,7 @@ export default function ViewerPage() {
 
   // ── Load scene ────────────────────────────────────────────────
   const loadScene = useCallback(async (sceneId: string | null, sessionOverlays?: Record<string, OverlayLiveState> | null) => {
-    if (!sceneId) { setScene(null); setStatus('live'); return }
+    if (!sceneId) { setScene(null); return }
     const { data } = await supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('id', sceneId).single()
     if (data) {
       const scene = { ...(data as any), overlays: (data as any).scene_overlays ?? [] } as Scene

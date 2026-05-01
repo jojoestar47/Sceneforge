@@ -175,7 +175,7 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     function initPlayer() {
       if (playerRef.current) return
       const player = new window.Spotify.Player({
-        name: 'Sceneforge',
+        name: 'Reverie',
         getOAuthToken: async (cb: (token: string) => void) => {
           const token = await fetchToken()
           if (token) cb(token)

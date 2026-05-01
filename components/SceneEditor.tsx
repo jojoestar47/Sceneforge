@@ -225,22 +225,26 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
         sceneId = data!.id
       }
 
-      // Tracks
+      // Tracks — preserve IDs so active_music_track_id in sessions stays valid
+      const draftTrackIds = new Set(draft.tracks.filter(t => t.id).map(t => t.id!))
       if (scene?.id) {
-        const { data: existingTracks } = await supabase.from('tracks').select('storage_path').eq('scene_id', sceneId!)
-        const reusedPaths = new Set(draft.tracks.filter(t => !t._file).map(t => t.storage_path).filter(Boolean))
-        const orphanedPaths = (existingTracks ?? []).map(t => t.storage_path).filter((p): p is string => !!p && !reusedPaths.has(p))
-        await supabase.from('tracks').delete().eq('scene_id', sceneId!)
+        const { data: existingTracks } = await supabase.from('tracks').select('id, storage_path').eq('scene_id', sceneId!)
+        const tracksToDelete = (existingTracks ?? []).filter(t => !draftTrackIds.has(t.id))
+        const orphanedPaths  = tracksToDelete.map(t => t.storage_path).filter((p): p is string => !!p)
+        if (tracksToDelete.length) await supabase.from('tracks').delete().in('id', tracksToDelete.map(t => t.id))
         await deleteMediaBatch(supabase, orphanedPaths)
       }
-      const trackInserts = (await Promise.all(draft.tracks.map(async (t, i) => {
+      const allTrackRows = (await Promise.all(draft.tracks.map(async (t, i) => {
         let storagePath = t.storage_path, fileName = t.file_name, url = t.url || null
         if (t._file) { storagePath = await uploadMedia(supabase, userId, t._file); fileName = t._file.name; url = null }
         // Skip tracks that have no playable source and no Spotify URI
         if (!storagePath && !url && !t.spotify_uri) return null
-        return { scene_id: sceneId!, kind: t.kind, name: t.name, url, storage_path: storagePath || null, file_name: fileName || null, spotify_uri: t.spotify_uri || null, spotify_type: t.spotify_type || null, loop: t.loop, volume: t.volume, order_index: i }
+        return { id: t.id, scene_id: sceneId!, kind: t.kind, name: t.name, url, storage_path: storagePath || null, file_name: fileName || null, spotify_uri: t.spotify_uri || null, spotify_type: t.spotify_type || null, loop: t.loop, volume: t.volume, order_index: i }
       }))).filter((t): t is NonNullable<typeof t> => t !== null)
-      if (trackInserts.length) await supabase.from('tracks').insert(trackInserts)
+      const tracksToUpsert = allTrackRows.filter(t => t.id).map(t => ({ ...t, id: t.id! }))
+      const tracksToInsert = allTrackRows.filter(t => !t.id).map(({ id: _id, ...rest }) => rest)
+      if (tracksToUpsert.length) await supabase.from('tracks').upsert(tracksToUpsert, { onConflict: 'id' })
+      if (tracksToInsert.length) await supabase.from('tracks').insert(tracksToInsert)
 
       // Scene characters — delete existing, re-insert pool (no position)
       await supabase.from('scene_characters').delete().eq('scene_id', sceneId!)
@@ -251,17 +255,18 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       }))
       if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
 
-      // Handouts — delete existing, re-insert
+      // Handouts — preserve IDs so active_handout_id in sessions stays valid
+      const draftHandoutIds = new Set(draft.handouts.filter(h => h.id).map(h => h.id!))
       if (scene?.id) {
-        const { data: existingHandouts } = await supabase.from('handouts').select('media').eq('scene_id', sceneId!)
-        const reusedHandoutPaths = new Set(draft.handouts.filter(h => !h._file).map(h => h.media?.storage_path).filter(Boolean))
-        const orphanedHandoutPaths = (existingHandouts ?? [])
+        const { data: existingHandouts } = await supabase.from('handouts').select('id, media').eq('scene_id', sceneId!)
+        const handoutsToDelete     = (existingHandouts ?? []).filter(h => !draftHandoutIds.has(h.id))
+        const orphanedHandoutPaths = handoutsToDelete
           .map((h: { media?: { storage_path?: string } | null }) => h.media?.storage_path)
-          .filter((p): p is string => !!p && !reusedHandoutPaths.has(p))
-        await supabase.from('handouts').delete().eq('scene_id', sceneId!)
+          .filter((p): p is string => !!p)
+        if (handoutsToDelete.length) await supabase.from('handouts').delete().in('id', handoutsToDelete.map(h => h.id))
         await deleteMediaBatch(supabase, orphanedHandoutPaths)
       }
-      const handoutInserts = await Promise.all(draft.handouts.map(async (h, i) => {
+      const allHandoutRows = await Promise.all(draft.handouts.map(async (h, i) => {
         // Strip signed_url before storing — it's ephemeral and must not be persisted in DB
         let media: MediaRef | null = h.media
           ? { type: h.media.type, url: h.media.url, storage_path: h.media.storage_path, file_name: h.media.file_name }
@@ -270,38 +275,44 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
           const path = await uploadMedia(supabase, userId, h._file)
           media = { type: 'image', storage_path: path, file_name: h._file.name }
         }
-        return { scene_id: sceneId!, name: h.name, media: media || null, order_index: i }
+        return { id: h.id, scene_id: sceneId!, name: h.name, media: media || null, order_index: i }
       }))
-      if (handoutInserts.length) {
-        const { error: handoutInsertError } = await supabase.from('handouts').insert(handoutInserts)
+      const handoutsToUpsert = allHandoutRows.filter(h => h.id).map(h => ({ ...h, id: h.id! }))
+      const handoutsToInsert = allHandoutRows.filter(h => !h.id).map(({ id: _id, ...rest }) => rest)
+      if (handoutsToUpsert.length) await supabase.from('handouts').upsert(handoutsToUpsert, { onConflict: 'id' })
+      if (handoutsToInsert.length) {
+        const { error: handoutInsertError } = await supabase.from('handouts').insert(handoutsToInsert)
         if (handoutInsertError) throw handoutInsertError
       }
 
-      // Overlays — delete existing, re-insert
+      // Overlays — preserve IDs so active_overlays in sessions stays valid
+      const draftOverlayIds = new Set(draft.overlays.filter(o => o.id).map(o => o.id!))
       if (scene?.id) {
-        const { data: existingOverlays } = await supabase.from('scene_overlays').select('storage_path').eq('scene_id', sceneId!)
-        const reusedOverlayPaths = new Set(draft.overlays.filter(o => !o._file).map(o => o.storage_path).filter(Boolean))
-        const orphanedOverlayPaths = (existingOverlays ?? [])
+        const { data: existingOverlays } = await supabase.from('scene_overlays').select('id, storage_path').eq('scene_id', sceneId!)
+        const overlaysToDelete     = (existingOverlays ?? []).filter(o => !draftOverlayIds.has(o.id))
+        const orphanedOverlayPaths = overlaysToDelete
           .map((o: { storage_path?: string | null }) => o.storage_path)
-          .filter((p): p is string => !!p && !reusedOverlayPaths.has(p))
-        await supabase.from('scene_overlays').delete().eq('scene_id', sceneId!)
+          .filter((p): p is string => !!p)
+        if (overlaysToDelete.length) await supabase.from('scene_overlays').delete().in('id', overlaysToDelete.map(o => o.id))
         await deleteMediaBatch(supabase, orphanedOverlayPaths)
       }
-      const overlayInserts = await Promise.all(draft.overlays.map(async (o, i) => {
+      const allOverlayRows = (await Promise.all(draft.overlays.map(async (o, i) => {
         let storagePath = o.storage_path, fileName = o.file_name, url = o.url || null
         if (o._file) { storagePath = await uploadMedia(supabase, userId, o._file); fileName = o._file.name; url = null }
         if (!storagePath && !url) return null
         return {
-          scene_id: sceneId!, name: o.name, source: o.source,
+          id: o.id, scene_id: sceneId!, name: o.name, source: o.source,
           library_key: o.library_key || null,
           storage_path: storagePath || null, url: url || null, file_name: fileName || null,
           blend_mode: o.blend_mode, opacity: o.opacity, playback_rate: o.playback_rate,
           scale: o.scale, pan_x: o.pan_x, pan_y: o.pan_y,
           enabled_default: o.enabled_default, order_index: i,
         }
-      }))
-      const validOverlayInserts = overlayInserts.filter((o): o is NonNullable<typeof o> => o !== null)
-      if (validOverlayInserts.length) await supabase.from('scene_overlays').insert(validOverlayInserts)
+      }))).filter((o): o is NonNullable<typeof o> => o !== null)
+      const overlaysToUpsert = allOverlayRows.filter(o => o.id).map(o => ({ ...o, id: o.id! }))
+      const overlaysToInsert = allOverlayRows.filter(o => !o.id).map(({ id: _id, ...rest }) => rest)
+      if (overlaysToUpsert.length) await supabase.from('scene_overlays').upsert(overlaysToUpsert, { onConflict: 'id' })
+      if (overlaysToInsert.length) await supabase.from('scene_overlays').insert(overlaysToInsert)
 
       const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('id', sceneId!).single()
       const savedSceneTyped = savedScene as Scene & { scene_overlays?: SceneOverlay[] }
@@ -493,12 +504,14 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                   {/* Handout list */}
                   <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                     {draft.handouts.map((h, idx) => {
-                      const imgUrl = h.media?.signed_url || h.media?.url || (h._file ? URL.createObjectURL(h._file) : null)
+                      const imgUrl = h.media?.signed_url || h.media?.url || null
                       return (
                         <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--editor-row)', borderRadius: '8px', padding: '10px 12px', marginTop: '8px' }}>
                           <div style={{ width: '48px', height: '48px', borderRadius: '6px', background: 'var(--editor-card)', border: '1px solid var(--border-lt)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {imgUrl
                               ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : h._file
+                              ? <BlobImage file={h._file} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               : <span style={{ fontSize: '18px', opacity: 0.4 }}>🗺</span>
                             }
                           </div>
@@ -829,7 +842,7 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
     setQuery(q)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     if (!q.trim()) { setResults([]); return }
-    const t = setTimeout(async () => {
+    searchTimerRef.current = setTimeout(async () => {
       setSearching(true)
       try {
         const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`)
@@ -844,7 +857,6 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
         setSearching(false)
       }
     }, 400)
-    searchTimerRef.current = t
   }
 
   function pickSpotify(r: SpotifyResult) {
@@ -946,6 +958,18 @@ function TrackChip({ track, globalIdx, onRemove }: { track: TrackDraft; globalId
       <button onClick={() => onRemove(globalIdx)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '12px', opacity: .6 }}>✕</button>
     </div>
   )
+}
+
+/** Renders a local File as an <img> using a blob URL, revoking it on unmount. */
+function BlobImage({ file, alt, style }: { file: File; alt: string; style: React.CSSProperties }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    const url = URL.createObjectURL(file)
+    setSrc(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+  if (!src) return null
+  return <img src={src} alt={alt} style={style} />
 }
 
 function SpotifyMark() {

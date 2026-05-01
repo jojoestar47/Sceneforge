@@ -109,10 +109,11 @@ export default function Stage({
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>(() => {
-    if (typeof window === 'undefined') return 'top-left'
-    return (localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right') || 'top-left'
-  })
+  const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
+  useEffect(() => {
+    const saved = localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right' | null
+    if (saved) setMixerPos(saved)
+  }, [])
   const prevSceneIdForVolRef = useRef<string | null>(null)
   // Playlist: tracks the currently active base-music track index
   const [musicIdx, setMusicIdx] = useState(0)
@@ -442,7 +443,8 @@ export default function Stage({
   const amb          = allTracks.filter(t => t.kind === 'ambience')
   const handouts     = scene.handouts || []
   const hasTracks    = allTracks.length > 0
-  // Keep sceneMusicRef in sync for the onended callback (can't use useEffect here as it's in render)
+  // Keep sceneMusicRef in sync with the current scene's music list so the
+  // onended closure always advances to the correct next track
   sceneMusicRef.current = baseMusic
   const clampedMusicIdx     = Math.min(musicIdx, Math.max(0, baseMusic.length - 1))
   const currentMusicTrack   = baseMusic[clampedMusicIdx] ?? null
