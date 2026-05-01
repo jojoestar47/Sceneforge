@@ -81,6 +81,15 @@ export function resolveSoundUrls(sounds: CampaignSound[]): CampaignSound[] {
   )
 }
 
+/** Stamp public URLs onto a flat handouts array (campaign or scene scoped). Synchronous. */
+export function resolveHandoutUrls(handouts: Handout[]): Handout[] {
+  return handouts.map(h =>
+    h.media?.storage_path
+      ? { ...h, media: { ...h.media, signed_url: publicStorageUrl(h.media.storage_path) } }
+      : h
+  )
+}
+
 // ── Upload / delete ───────────────────────────────────────────────────────────
 
 /** Upload a file to Storage, return the storage_path */

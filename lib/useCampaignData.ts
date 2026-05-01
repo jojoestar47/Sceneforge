@@ -20,6 +20,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   resolveCampaignCovers,
   resolveCharacterUrls,
+  resolveHandoutUrls,
   resolveSceneUrls,
   resolveSoundUrls,
 } from '@/lib/supabase/storage'
@@ -29,6 +30,7 @@ import type {
   CampaignTag,
   Character,
   CharacterState,
+  Handout,
   Scene,
   SceneFolder,
 } from '@/lib/types'
@@ -63,6 +65,7 @@ export interface UseCampaignData {
   campaignCharacters:  Character[]
   campaignTags:        CampaignTag[]
   campaignSounds:      CampaignSound[]
+  campaignHandouts:    Handout[]
   loading:             boolean
 
   // ── Live session ──
@@ -83,6 +86,7 @@ export interface UseCampaignData {
   setCampaignCharacters:       React.Dispatch<React.SetStateAction<Character[]>>
   setCampaignTags:             React.Dispatch<React.SetStateAction<CampaignTag[]>>
   setCampaignSounds:           React.Dispatch<React.SetStateAction<CampaignSound[]>>
+  setCampaignHandouts:         React.Dispatch<React.SetStateAction<Handout[]>>
   setSessionId:                React.Dispatch<React.SetStateAction<string | null>>
   setJoinCode:                 React.Dispatch<React.SetStateAction<string | null>>
   setIsLive:                   React.Dispatch<React.SetStateAction<boolean>>
@@ -123,6 +127,7 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([])
   const [campaignTags,       setCampaignTags]       = useState<CampaignTag[]>([])
   const [campaignSounds,     setCampaignSounds]     = useState<CampaignSound[]>([])
+  const [campaignHandouts,   setCampaignHandouts]   = useState<Handout[]>([])
   const [loading,            setLoading]            = useState(true)
 
   // ── Live session ──
@@ -188,18 +193,52 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
     else { setScenes([]); setFolders([]) }
   }, [activeCampId, loadScenes])
 
-  // ── Load campaign characters + tags + soundboard (parallel) ──
+  // ── Load campaign characters + tags + soundboard + handouts (parallel) ──
   useEffect(() => {
-    if (!activeCampId) { setCampaignCharacters([]); setCampaignTags([]); setCampaignSounds([]); return }
+    if (!activeCampId) {
+      setCampaignCharacters([]); setCampaignTags([]); setCampaignSounds([]); setCampaignHandouts([])
+      return
+    }
     Promise.all([
       supabase.from('characters').select('*').eq('campaign_id', activeCampId).order('name'),
       supabase.from('campaign_tags').select('*').eq('campaign_id', activeCampId).order('name'),
       supabase.from('campaign_sounds').select('*').eq('campaign_id', activeCampId).order('order_index'),
-    ]).then(([{ data: chars }, { data: tags }, { data: sounds }]) => {
-      if (chars)  setCampaignCharacters(resolveCharacterUrls(chars as Character[]))
-      if (tags)   setCampaignTags(tags as CampaignTag[])
-      if (sounds) setCampaignSounds(resolveSoundUrls(sounds as CampaignSound[]))
+      supabase.from('handouts').select('*').eq('campaign_id', activeCampId).order('order_index'),
+    ]).then(([{ data: chars }, { data: tags }, { data: sounds }, { data: handouts }]) => {
+      if (chars)    setCampaignCharacters(resolveCharacterUrls(chars as Character[]))
+      if (tags)     setCampaignTags(tags as CampaignTag[])
+      if (sounds)   setCampaignSounds(resolveSoundUrls(sounds as CampaignSound[]))
+      if (handouts) setCampaignHandouts(resolveHandoutUrls(handouts as Handout[]))
     })
+  }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Realtime: campaign-scoped handouts inserts/updates/deletes ──
+  // Keeps both DM tabs and the viewer in sync when handouts are added or
+  // removed mid-session. Uses a filter on campaign_id, so scene handouts
+  // (which have campaign_id=null) never match.
+  useEffect(() => {
+    if (!activeCampId) return
+    const ch = supabase.channel('campaign-handouts-' + activeCampId)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'handouts', filter: `campaign_id=eq.${activeCampId}` },
+        payload => {
+          const h = payload.new as Handout
+          setCampaignHandouts(prev => prev.some(x => x.id === h.id) ? prev : [...prev, ...resolveHandoutUrls([h])])
+        })
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'handouts', filter: `campaign_id=eq.${activeCampId}` },
+        payload => {
+          const h = payload.new as Handout
+          setCampaignHandouts(prev => prev.map(x => x.id === h.id ? resolveHandoutUrls([h])[0] : x))
+        })
+      .on('postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'handouts', filter: `campaign_id=eq.${activeCampId}` },
+        payload => {
+          const id = (payload.old as { id: string }).id
+          setCampaignHandouts(prev => prev.filter(x => x.id !== id))
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
   }, [activeCampId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Per-scene roster + framing defaults ──
@@ -293,10 +332,10 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
   }, [sessionId, syncCharacterState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
-    campaigns, scenes, folders, campaignCharacters, campaignTags, campaignSounds, loading,
+    campaigns, scenes, folders, campaignCharacters, campaignTags, campaignSounds, campaignHandouts, loading,
     sessionId, joinCode, isLive, activeCharacters,
     sceneRosterChars, characterScales, characterDisplayDefaults,
-    setCampaigns, setScenes, setFolders, setCampaignCharacters, setCampaignTags, setCampaignSounds,
+    setCampaigns, setScenes, setFolders, setCampaignCharacters, setCampaignTags, setCampaignSounds, setCampaignHandouts,
     setSessionId, setJoinCode, setIsLive, setActiveCharacters,
     setSceneRosterChars, setCharacterScales, setCharacterDisplayDefaults,
     loadScenes, loadSceneRoster,

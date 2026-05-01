@@ -9,6 +9,7 @@ import { mediaUrl, characterImageUrl } from '@/lib/media'
 import AppIcon from '@/components/AppIcon'
 import HandoutLightbox from '@/components/HandoutLightbox'
 import OverlayStack from '@/components/OverlayStack'
+import UploadZone from '@/components/UploadZone'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 
 interface ActiveCharacters {
@@ -64,6 +65,9 @@ interface Props {
   onSoundsChange?: (next: CampaignSound[]) => void
   onPlaySfx?: (sound: CampaignSound) => void
   onStopSfx?: (soundId: string) => void
+  // Campaign-level library handouts (DM only — undefined on viewer)
+  campaignHandouts?: Handout[]
+  onCampaignHandoutsChange?: (next: Handout[]) => void
 }
 
 const SFX_DEFAULT_VOL    = 1
@@ -83,6 +87,7 @@ export default function Stage({
   onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
   activeOverlays, onOverlayStateChange,
   sounds, campaignId, userId, onSoundsChange, onPlaySfx, onStopSfx,
+  campaignHandouts, onCampaignHandoutsChange,
 }: Props) {
   const supabase = createClient()
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -204,6 +209,19 @@ export default function Stage({
   // ── Handouts ─────────────────────────────────────────────────
   const [handoutsOpen,   setHandoutsOpen]   = useState(false)
   const [activeHandout,  setActiveHandout]  = useState<Handout | null>(null)
+
+  // ── Campaign Library (campaign-scoped handouts) ──────────────
+  // Separate from scene handouts: opening a library handout shows it locally
+  // on the DM screen only and never writes to active_handout_id, so viewers
+  // are unaffected. Viewers have their own library button and pull these
+  // independently.
+  const [libraryOpen,     setLibraryOpen]     = useState(false)
+  const [libraryHandout,  setLibraryHandout]  = useState<Handout | null>(null)
+  const [libAddOpen,      setLibAddOpen]      = useState(false)
+  const [libAddName,      setLibAddName]      = useState('')
+  const [libAddFile,      setLibAddFile]      = useState<File | null>(null)
+  const [libAddUrl,       setLibAddUrl]       = useState('')
+  const [libAddSaving,    setLibAddSaving]    = useState(false)
 
   // ── Overlays panel ───────────────────────────────────────────
   const [overlaysOpen, setOverlaysOpen] = useState(false)
@@ -743,6 +761,56 @@ export default function Stage({
     }
   }
 
+  // ── Campaign Library CRUD ───────────────────────────────────
+  function libAddReset() {
+    setLibAddOpen(false); setLibAddName(''); setLibAddFile(null); setLibAddUrl('')
+  }
+
+  async function handleLibAdd() {
+    if (!campaignId || !userId || !onCampaignHandoutsChange) return
+    const name = libAddName.trim()
+    if (!name || (!libAddFile && !libAddUrl.trim())) return
+    setLibAddSaving(true)
+    try {
+      let media: { type: 'image'; url?: string; storage_path?: string; file_name?: string } | null = null
+      if (libAddFile) {
+        const path = await uploadMedia(supabase, userId, libAddFile)
+        media = { type: 'image', storage_path: path, file_name: libAddFile.name }
+      } else if (libAddUrl.trim()) {
+        media = { type: 'image', url: libAddUrl.trim() }
+      }
+      const next_order = campaignHandouts?.length ?? 0
+      const { data, error } = await supabase.from('handouts')
+        .insert({ campaign_id: campaignId, scene_id: null, name, media, order_index: next_order })
+        .select()
+        .single()
+      if (error) throw error
+      const inserted = data as Handout
+      const stamped = inserted.media?.storage_path
+        ? { ...inserted, media: { ...inserted.media, signed_url: publicStorageUrl(inserted.media.storage_path) } }
+        : inserted
+      onCampaignHandoutsChange([...(campaignHandouts ?? []), stamped])
+      libAddReset()
+    } catch (e) {
+      console.error('[library] add failed:', e)
+    } finally {
+      setLibAddSaving(false)
+    }
+  }
+
+  async function handleLibRemove(h: Handout) {
+    if (!onCampaignHandoutsChange) return
+    onCampaignHandoutsChange((campaignHandouts ?? []).filter(x => x.id !== h.id))
+    if (libraryHandout?.id === h.id) setLibraryHandout(null)
+    const { error } = await supabase.from('handouts').delete().eq('id', h.id)
+    if (error) console.error('[library] delete failed:', error)
+    if (h.media?.storage_path) {
+      try { await deleteMedia(supabase, h.media.storage_path) } catch (e) {
+        console.error('[library] storage delete failed:', e)
+      }
+    }
+  }
+
   function setCrossfadePref(ms: number) {
     const clamped = Math.max(0, Math.min(CROSSFADE_MAX, Math.round(ms)))
     setCrossfadeMs(clamped)
@@ -952,7 +1020,7 @@ export default function Stage({
         <div style={{ display: 'flex', gap: '8px' }}>
           {handouts.length > 0 && (
             <button
-              onClick={() => { setHandoutsOpen(o => !o); setOverlaysOpen(false) }}
+              onClick={() => { setHandoutsOpen(o => !o); setOverlaysOpen(false); setLibraryOpen(false); setSoundboardOpen(false) }}
               title="Handouts"
               style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: handoutsOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: handoutsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
@@ -962,9 +1030,21 @@ export default function Stage({
               </svg>
             </button>
           )}
+          {onCampaignHandoutsChange && (
+            <button
+              onClick={() => { setLibraryOpen(o => !o); setHandoutsOpen(false); setOverlaysOpen(false); setSoundboardOpen(false) }}
+              title="Campaign Library"
+              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${libraryOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: libraryOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: libraryOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2.5 3.2c0-.3.2-.5.5-.5h3.6c.6 0 1.1.5 1.1 1.1v9.5c0-.6-.5-1.1-1.1-1.1H3c-.3 0-.5-.2-.5-.5V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <path d="M12.5 3.2c0-.3-.2-.5-.5-.5H8.4c-.6 0-1.1.5-1.1 1.1v9.5c0-.6.5-1.1 1.1-1.1H12c.3 0 .5-.2.5-.5V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
           {sceneOverlays.length > 0 && onOverlayStateChange && (
             <button
-              onClick={() => { setOverlaysOpen(o => !o); setHandoutsOpen(false) }}
+              onClick={() => { setOverlaysOpen(o => !o); setHandoutsOpen(false); setLibraryOpen(false); setSoundboardOpen(false) }}
               title="Overlays"
               style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${overlaysOpen ? 'rgba(201,168,76,0.5)' : activeOverlayCount > 0 ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.14)'}`, background: overlaysOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: overlaysOpen || activeOverlayCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
             >
@@ -980,7 +1060,7 @@ export default function Stage({
           )}
           {onSoundsChange && (
             <button
-              onClick={() => { setSoundboardOpen(o => !o); setHandoutsOpen(false); setOverlaysOpen(false) }}
+              onClick={() => { setSoundboardOpen(o => !o); setHandoutsOpen(false); setOverlaysOpen(false); setLibraryOpen(false) }}
               title="Soundboard"
               style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${soundboardOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: soundboardOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: soundboardOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
@@ -1010,6 +1090,104 @@ export default function Stage({
             {isFullscreen ? '✕' : '⛶'}
           </button>
         </div>
+
+        {/* Campaign Library dropdown panel — DM CRUD inline; handouts shown
+            here are NOT broadcast (independent from active_handout_id). */}
+        {libraryOpen && onCampaignHandoutsChange && (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ width: '280px', background: 'rgba(18,20,30,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+          >
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Library</span>
+              <button onClick={() => setLibraryOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+            </div>
+            <div style={{ maxHeight: '360px', overflowY: 'auto', padding: '6px 8px' }}>
+              {(campaignHandouts ?? []).map(h => {
+                const imgUrl = mediaUrl(h.media)
+                return (
+                  <div
+                    key={h.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 4px', borderRadius: '6px' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <button
+                      onClick={() => { setLibraryHandout(h); setLibraryOpen(false) }}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '4px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                    >
+                      <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {imgUrl
+                          ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <span style={{ fontSize: '16px', opacity: 0.5 }}>📖</span>
+                        }
+                      </div>
+                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                    </button>
+                    <button
+                      onClick={() => handleLibRemove(h)}
+                      title="Remove"
+                      style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: '11px', padding: '4px 8px', flexShrink: 0 }}
+                    >Remove</button>
+                  </div>
+                )
+              })}
+              {(campaignHandouts?.length ?? 0) === 0 && !libAddOpen && (
+                <div style={{ padding: '20px 8px', textAlign: 'center', fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>
+                  No library handouts yet.<br/>Add maps or references players can browse anytime.
+                </div>
+              )}
+            </div>
+            {/* Inline add ─────────────────────────── */}
+            <div style={{ padding: '8px 10px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <button
+                className={`add-pill${libAddOpen ? ' active' : ''}`}
+                style={{ fontSize: '10px', padding: '6px 12px' }}
+                onClick={() => { libAddOpen ? libAddReset() : setLibAddOpen(true) }}
+              >
+                + ADD HANDOUT <span style={{ fontSize: '9px' }}>▼</span>
+              </button>
+              {libAddOpen && (
+                <div style={{ background: 'rgba(13,14,22,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '12px', marginTop: '8px' }}>
+                  <input
+                    className="finput"
+                    placeholder="Name (e.g. World Map, Pantheon)"
+                    value={libAddName}
+                    onChange={e => setLibAddName(e.target.value)}
+                    style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px', width: '100%' }}
+                  />
+                  <UploadZone
+                    accept="image/*"
+                    label="Drop image here"
+                    icon="📖"
+                    hint="PNG, JPG, WebP"
+                    onFile={f => setLibAddFile(f)}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0', color: 'rgba(255,255,255,0.3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.8px' }}>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />or paste a URL<div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+                  </div>
+                  <input
+                    className="finput"
+                    placeholder="https://… image URL"
+                    value={libAddUrl}
+                    onChange={e => setLibAddUrl(e.target.value)}
+                    style={{ fontSize: '12px', padding: '7px 10px', width: '100%' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={libAddReset} disabled={libAddSaving}>Cancel</button>
+                    <button
+                      className="btn btn-red btn-sm"
+                      disabled={libAddSaving || !libAddName.trim() || (!libAddFile && !libAddUrl.trim())}
+                      onClick={handleLibAdd}
+                    >
+                      {libAddSaving ? 'Adding…' : 'Add Handout'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Handouts dropdown panel */}
         {handoutsOpen && handouts.length > 0 && (
@@ -1349,6 +1527,11 @@ export default function Stage({
       {/* ── Handout lightbox ── */}
       {activeHandout && (
         <HandoutLightbox handout={activeHandout} onClose={() => showHandout(null)} />
+      )}
+
+      {/* ── Library lightbox — DM-local only, no broadcast ── */}
+      {libraryHandout && (
+        <HandoutLightbox handout={libraryHandout} onClose={() => setLibraryHandout(null)} />
       )}
 
       {/* ── DM Character Slots ──────────────────────────────────
