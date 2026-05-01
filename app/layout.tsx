@@ -6,11 +6,6 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 export const metadata: Metadata = {
   title: 'Reverie',
   description: 'TTRPG Scene Director — build and run cinematic scenes for your tabletop campaigns.',
-  icons: {
-    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
-    shortcut: '/favicon.svg',
-    apple: '/favicon.svg',
-  },
   openGraph: {
     title: 'Reverie',
     description: 'TTRPG Scene Director — build and run cinematic scenes for your tabletop campaigns.',

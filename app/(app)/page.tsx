@@ -212,6 +212,17 @@ export default function AppPage() {
     await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
   }
 
+  async function handleStopSfx(soundId: string) {
+    if (!sessionId || !isLive) return
+    const ev: SfxEvent = {
+      id: `${soundId}-stop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sound_id: soundId,
+      played_at: Date.now(),
+      stop: true,
+    }
+    await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
+  }
+
   function handleOverlayStateChange(id: string, state: OverlayLiveState) {
     const next = { ...activeOverlays, [id]: state }
     setActiveOverlays(next)
@@ -348,9 +359,10 @@ export default function AppPage() {
       const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', campId)
       const sceneIds = (campScenes ?? []).map(s => s.id)
 
-      const [{ data: allTracks }, { data: allChars }] = await Promise.all([
+      const [{ data: allTracks }, { data: allChars }, { data: allSounds }] = await Promise.all([
         sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
         supabase.from('characters').select('storage_path').eq('campaign_id', campId),
+        supabase.from('campaign_sounds').select('storage_path').eq('campaign_id', campId),
       ])
 
       // Delete DB rows first — orphan storage is cheaper than dangling rows
@@ -362,6 +374,7 @@ export default function AppPage() {
         supabase.from('scenes').delete().eq('campaign_id', campId),
         supabase.from('characters').delete().eq('campaign_id', campId),
         supabase.from('sessions').delete().eq('campaign_id', campId),
+        supabase.from('campaign_sounds').delete().eq('campaign_id', campId),
       ])
       await supabase.from('campaigns').delete().eq('id', campId)
 
@@ -370,6 +383,7 @@ export default function AppPage() {
         ...(campScenes ?? []).flatMap(s => [s.bg?.storage_path, s.overlay?.storage_path]),
         ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
         ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
+        ...(allSounds ?? []).map((s: { storage_path?: string | null }) => s.storage_path),
       ].filter((p): p is string => !!p)
       await deleteMediaBatch(supabase, storagePaths).catch(() => {})
 
@@ -768,6 +782,7 @@ export default function AppPage() {
               userId={userId}
               onSoundsChange={setCampaignSounds}
               onPlaySfx={handlePlaySfx}
+              onStopSfx={handleStopSfx}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{
