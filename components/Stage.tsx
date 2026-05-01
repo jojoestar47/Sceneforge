@@ -357,6 +357,12 @@ export default function Stage({
     return () => document.removeEventListener('keydown', onKey)
   }, [sbQuickEdit])
 
+  // Closing the soundboard panel should also dismiss any open popover.
+  // Otherwise it hovers in the void with no anchor visible.
+  useEffect(() => {
+    if (!soundboardOpen) setSbQuickEdit(null)
+  }, [soundboardOpen])
+
   function showHandout(h: Handout | null) {
     setActiveHandout(h)
     onHandoutShow?.(h?.id ?? null)
@@ -576,6 +582,10 @@ export default function Stage({
       outgoingHandlers.current = {}
       Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
       sfxAudioRef.current = {}
+      // Cancel pending volume save debouncers and the long-press timer.
+      Object.values(sbVolumeTimersRef.current).forEach(t => clearTimeout(t))
+      sbVolumeTimersRef.current = {}
+      if (padTimerRef.current) { clearTimeout(padTimerRef.current); padTimerRef.current = null }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -728,9 +738,12 @@ export default function Stage({
   async function handleSbDelete(s: CampaignSound) {
     if (!onSoundsChange) return
     onSoundsChange((sounds ?? []).filter(x => x.id !== s.id))
-    await supabase.from('campaign_sounds').delete().eq('id', s.id)
+    const { error } = await supabase.from('campaign_sounds').delete().eq('id', s.id)
+    if (error) console.error('[soundboard] delete failed:', error)
     if (s.storage_path) {
-      try { await deleteMedia(supabase, s.storage_path) } catch {}
+      try { await deleteMedia(supabase, s.storage_path) } catch (e) {
+        console.error('[soundboard] storage delete failed:', e)
+      }
     }
   }
 
@@ -1151,6 +1164,7 @@ export default function Stage({
                       <SfxEditRow
                         key={s.id}
                         sound={s}
+                        isPlaying={(sfxActiveCounts[s.id] ?? 0) > 0}
                         onPlay={() => playSfx(s)}
                         onRename={(name) => handleSbRename(s, name)}
                         onVolume={(v) => handleSbVolume(s, v)}
@@ -1256,6 +1270,7 @@ export default function Stage({
       {sbQuickEdit && (() => {
         const s = (sounds ?? []).find(x => x.id === sbQuickEdit.soundId)
         if (!s) return null
+        const isSfxPlaying = (sfxActiveCounts[s.id] ?? 0) > 0
         // Backdrop ignores dismiss attempts within the grace window so the
         // trailing pointerup/click from the gesture that opened the popover
         // doesn't immediately close it.
@@ -1289,9 +1304,17 @@ export default function Stage({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   onClick={() => playSfx(s)}
-                  title="Preview"
-                  style={{ width: '36px', height: '36px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.75)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
-                >▶</button>
+                  title={isSfxPlaying ? 'Stop' : 'Preview'}
+                  style={{
+                    width: '36px', height: '36px', flexShrink: 0, borderRadius: '6px',
+                    border: `1px solid ${isSfxPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
+                    background: isSfxPlaying ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.05)',
+                    color: isSfxPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.75)',
+                    fontSize: '12px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    touchAction: 'manipulation',
+                  }}
+                >{isSfxPlaying ? '⏹' : '▶'}</button>
                 <input
                   type="text"
                   defaultValue={s.name}
@@ -1667,14 +1690,15 @@ import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 // or wait → cancels).
 
 interface SfxEditRowProps {
-  sound:    CampaignSound
-  onPlay:   () => void
-  onRename: (name: string) => void
-  onVolume: (v: number) => void
-  onDelete: () => void
+  sound:     CampaignSound
+  isPlaying: boolean
+  onPlay:    () => void
+  onRename:  (name: string) => void
+  onVolume:  (v: number) => void
+  onDelete:  () => void
 }
 
-function SfxEditRow({ sound, onPlay, onRename, onVolume, onDelete }: SfxEditRowProps) {
+function SfxEditRow({ sound, isPlaying, onPlay, onRename, onVolume, onDelete }: SfxEditRowProps) {
   const [draftName, setDraftName] = useState(sound.name)
   const [confirming, setConfirming] = useState(false)
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1711,9 +1735,17 @@ function SfxEditRow({ sound, onPlay, onRename, onVolume, onDelete }: SfxEditRowP
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button
           onClick={onPlay}
-          title="Preview"
-          style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >▶</button>
+          title={isPlaying ? 'Stop' : 'Preview'}
+          style={{
+            width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px',
+            border: `1px solid ${isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
+            background: isPlaying ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.05)',
+            color: isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.7)',
+            fontSize: '11px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            touchAction: 'manipulation',
+          }}
+        >{isPlaying ? '⏹' : '▶'}</button>
         <input
           type="text"
           value={draftName}
