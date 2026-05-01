@@ -94,10 +94,13 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
 
   return (
     <>
-      {/* Backdrop — fades in, click outside to close */}
+      {/* Backdrop — fades in, click outside to close.
+          position:absolute (not fixed) so the lightbox is contained within
+          the Stage's position:relative+overflow:hidden boundary — preventing
+          it from covering the sidebar and other page chrome in the DM view. */}
       <div
         style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
+          position: 'absolute', inset: 0, zIndex: 9999,
           background: 'rgba(0,0,0,0.92)',
           animation: closing
             ? 'lbBdOut 0.26s ease forwards'
