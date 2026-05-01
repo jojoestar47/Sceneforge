@@ -134,6 +134,12 @@ export default function ViewerPage() {
   const lastSfxEventIdRef = useRef<string | null>(null)
   const [sessionCampaignId, setSessionCampaignId] = useState<string | null>(null)
 
+  // ── Campaign Library (campaign-scoped handouts) ──
+  // Players browse these themselves — independent of the DM-pushed handout.
+  const [campaignHandouts, setCampaignHandouts] = useState<Handout[]>([])
+  const [libraryOpen,      setLibraryOpen]      = useState(false)
+  const [libraryHandout,   setLibraryHandout]   = useState<Handout | null>(null)
+
   // ── Volume ramp helpers ───────────────────────────────────────
   const cancelRamp = useCallback((a: HTMLAudioElement) => {
     const c = rampClearersRef.current.get(a)
@@ -519,12 +525,16 @@ export default function ViewerPage() {
     ])
     setActiveHandoutId(data.active_handout_id ?? null)
     setActiveMusicTrackId(data.active_music_track_id ?? null)
-    // Soundboard: fetch the campaign's sounds so SFX events can resolve
+    // Soundboard + Library: fetch campaign-scoped data so SFX events resolve
+    // and the library button has its handouts ready.
     if (data.campaign_id) {
       setSessionCampaignId(data.campaign_id)
-      const { data: sounds } = await supabase.from('campaign_sounds')
-        .select('*').eq('campaign_id', data.campaign_id).order('order_index')
-      if (sounds) setCampaignSounds(sounds as CampaignSound[])
+      const [{ data: sounds }, { data: handouts }] = await Promise.all([
+        supabase.from('campaign_sounds').select('*').eq('campaign_id', data.campaign_id).order('order_index'),
+        supabase.from('handouts').select('*').eq('campaign_id', data.campaign_id).order('order_index'),
+      ])
+      if (sounds)   setCampaignSounds(sounds as CampaignSound[])
+      if (handouts) setCampaignHandouts(handouts as Handout[])
     }
     // Mark any pre-existing SFX event as already-handled so we don't replay
     // it on reload.
@@ -591,6 +601,30 @@ export default function ViewerPage() {
           } else if (payload.eventType === 'DELETE') {
             const id = (payload.old as { id: string }).id
             setCampaignSounds(prev => prev.filter(x => x.id !== id))
+          }
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [sessionCampaignId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Realtime: campaign-scoped handouts so library updates appear without a
+  // page reload. Filter on campaign_id so scene handouts (campaign_id=null)
+  // never match.
+  useEffect(() => {
+    if (!sessionCampaignId) return
+    const ch = supabase.channel('viewer-library-' + sessionCampaignId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'handouts', filter: `campaign_id=eq.${sessionCampaignId}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const h = payload.new as Handout
+            setCampaignHandouts(prev => prev.some(x => x.id === h.id) ? prev : [...prev, h])
+          } else if (payload.eventType === 'UPDATE') {
+            const h = payload.new as Handout
+            setCampaignHandouts(prev => prev.map(x => x.id === h.id ? h : x))
+          } else if (payload.eventType === 'DELETE') {
+            const id = (payload.old as { id: string }).id
+            setCampaignHandouts(prev => prev.filter(x => x.id !== id))
+            setLibraryHandout(curr => curr?.id === id ? null : curr)
           }
         })
       .subscribe()
@@ -804,10 +838,60 @@ export default function ViewerPage() {
         </div>
       )}
 
-      {/* Fullscreen button — opposite corner from mixer */}
-      <button onClick={toggleFs} style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {isFs ? '✕' : '⛶'}
-      </button>
+      {/* Fullscreen + Library — opposite corner from mixer */}
+      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {campaignHandouts.length > 0 && (
+            <button
+              onClick={() => setLibraryOpen(o => !o)}
+              title="Campaign Library"
+              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${libraryOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.12)'}`, background: libraryOpen ? 'rgba(201,168,76,0.12)' : MIXER_BG, color: libraryOpen ? 'var(--accent)' : 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2.5 3.2c0-.3.2-.5.5-.5h3.6c.6 0 1.1.5 1.1 1.1v9.5c0-.6-.5-1.1-1.1-1.1H3c-.3 0-.5-.2-.5-.5V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <path d="M12.5 3.2c0-.3-.2-.5-.5-.5H8.4c-.6 0-1.1.5-1.1 1.1v9.5c0-.6.5-1.1 1.1-1.1H12c.3 0 .5-.2.5-.5V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+          <button onClick={toggleFs} style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {isFs ? '✕' : '⛶'}
+          </button>
+        </div>
+
+        {libraryOpen && campaignHandouts.length > 0 && (
+          <div
+            onPointerDown={e => e.stopPropagation()}
+            style={{ width: '260px', background: MIXER_BG_PANEL, border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+          >
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Library</span>
+              <button onClick={() => setLibraryOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+            </div>
+            <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
+              {campaignHandouts.map(h => {
+                const imgUrl = pubUrl(h.media)
+                return (
+                  <button
+                    key={h.id}
+                    onClick={() => { setLibraryHandout(h); setLibraryOpen(false) }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '6px', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {imgUrl
+                        ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span style={{ fontSize: '16px', opacity: 0.5 }}>📖</span>
+                      }
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.85)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Spotify connect prompt — shown when scene has Spotify tracks but player isn't connected */}
       {hasSpotifyTracks && !spotify.connected && (
@@ -835,6 +919,14 @@ export default function ViewerPage() {
           ? { ...activeHandout.media, signed_url: pubUrl(activeHandout.media as any) || activeHandout.media.url }
           : null
         return <HandoutLightbox handout={{ ...activeHandout, media: resolvedMedia }} onClose={() => setActiveHandoutId(null)} />
+      })()}
+
+      {/* ── Library lightbox — viewer-pulled, independent of DM ── */}
+      {libraryHandout && (() => {
+        const resolvedMedia = libraryHandout.media
+          ? { ...libraryHandout.media, signed_url: pubUrl(libraryHandout.media as any) || libraryHandout.media.url }
+          : null
+        return <HandoutLightbox handout={{ ...libraryHandout, media: resolvedMedia }} onClose={() => setLibraryHandout(null)} />
       })()}
 
       {/* Audio Mixer */}

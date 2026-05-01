@@ -29,7 +29,9 @@ export interface SceneFolder {
 
 export interface Handout {
   id: string
-  scene_id: string
+  // Exactly one of scene_id / campaign_id is set (DB CHECK constraint).
+  scene_id: string | null
+  campaign_id: string | null
   name: string
   media: MediaRef | null
   order_index: number

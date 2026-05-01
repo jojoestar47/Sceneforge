@@ -122,10 +122,10 @@ export default function AppPage() {
     onActiveSceneIdChange: id => setActiveSceneId(id),
   })
   const {
-    campaigns, scenes, folders, campaignCharacters, campaignTags, campaignSounds, loading,
+    campaigns, scenes, folders, campaignCharacters, campaignTags, campaignSounds, campaignHandouts, loading,
     sessionId, joinCode, isLive, activeCharacters,
     sceneRosterChars, characterScales, characterDisplayDefaults,
-    setCampaigns, setScenes, setFolders, setCampaignCharacters, setCampaignTags, setCampaignSounds,
+    setCampaigns, setScenes, setFolders, setCampaignCharacters, setCampaignTags, setCampaignSounds, setCampaignHandouts,
     setSessionId, setJoinCode, setIsLive, setActiveCharacters,
     setSceneRosterChars, setCharacterScales, setCharacterDisplayDefaults,
     loadSceneRoster,
@@ -790,6 +790,8 @@ export default function AppPage() {
               onSoundsChange={setCampaignSounds}
               onPlaySfx={handlePlaySfx}
               onStopSfx={handleStopSfx}
+              campaignHandouts={campaignHandouts}
+              onCampaignHandoutsChange={setCampaignHandouts}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{

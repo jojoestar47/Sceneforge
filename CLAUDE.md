@@ -46,6 +46,7 @@ The DM writes, the viewer subscribes. No WebSocket of our own.
 | Date formatter / media URL resolver / character image URL | `lib/format.ts`, `lib/media.ts` |
 | Touch-device detection (one-shot) | `lib/useIsTouchDevice.ts` |
 | Spotify type surface | `lib/spotify.ts` |
+| Campaign Library button (DM toolbar + viewer corner) | `components/Stage.tsx` (DM) + `app/view/[joinCode]/page.tsx` (viewer) |
 | Spotify token / search API routes | `app/api/spotify/{token,search}/route.ts` |
 | All canonical types (DB row shapes + drafts) | `lib/types.ts` |
 | Database schema & RLS | `supabase/migrations/*.sql` (date-prefixed, applied in order) |
@@ -136,6 +137,12 @@ synchronously — no API roundtrip, no token expiry.
 
 6. **`SceneEditor` strips `signed_url` from handout media before persisting.**
    The runtime URL is regenerated on next read.
+
+   Also: `handouts` rows are dual-scoped — exactly one of `scene_id` /
+   `campaign_id` is set (DB CHECK). Scene handouts get DM-pushed via
+   `sessions.active_handout_id`; **campaign handouts are viewer-pulled only**
+   and never touch the session row. Don't add `active_campaign_handout_id` —
+   that would break the mental model.
 
 7. **`scene-media` is public** — RLS doesn't gate file access. RLS gates the
    metadata rows. If you need privacy-sensitive media, that's a separate bucket.
