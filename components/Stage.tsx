@@ -711,6 +711,11 @@ export default function Stage({
     if (!onSoundsChange) return
     const v = Math.max(0, Math.min(1, vol))
     onSoundsChange((sounds ?? []).map(x => x.id === s.id ? { ...x, volume: v } : x))
+    // Live-update any in-flight playback of this sound so dragging the slider
+    // changes loudness immediately during preview.
+    Object.values(sfxAudioRef.current).forEach(({ audio, soundId }) => {
+      if (soundId === s.id) audio.volume = v
+    })
     const existing = sbVolumeTimersRef.current[s.id]
     if (existing) clearTimeout(existing)
     sbVolumeTimersRef.current[s.id] = setTimeout(async () => {
