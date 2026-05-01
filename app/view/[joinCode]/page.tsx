@@ -188,11 +188,9 @@ export default function ViewerPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SFX playback ──────────────────────────────────────────────
-  // Read mute via ref so this callback is stable — otherwise the realtime
-  // session subscription would tear down + resubscribe on every mute toggle.
-  const mutedRef = useRef(muted)
-  useEffect(() => { mutedRef.current = muted }, [muted])
-
+  // Reads `muted` via the existing mutedRef (declared above) so this callback
+  // stays stable — otherwise the realtime session subscription would tear
+  // down and resubscribe on every mute toggle.
   const playSfxEvent = useCallback((ev: SfxEvent, soundsList: CampaignSound[]) => {
     if (!hasInteracted.current) return // browser audio not yet unlocked
     const sound = soundsList.find(s => s.id === ev.sound_id)
