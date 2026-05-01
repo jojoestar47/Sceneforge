@@ -62,6 +62,7 @@ interface Props {
   userId?: string
   onSoundsChange?: (next: CampaignSound[]) => void
   onPlaySfx?: (sound: CampaignSound) => void
+  onStopSfx?: (soundId: string) => void
 }
 
 const SFX_DEFAULT_VOL    = 1
@@ -85,7 +86,7 @@ export default function Stage({
   characters, slotScales, slotDisplayProps, campaignCharacters,
   onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
   activeOverlays, onOverlayStateChange,
-  sounds, campaignId, userId, onSoundsChange, onPlaySfx,
+  sounds, campaignId, userId, onSoundsChange, onPlaySfx, onStopSfx,
 }: Props) {
   const supabase = createClient()
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -220,9 +221,13 @@ export default function Stage({
   // Right-click quick-edit popover anchored at cursor position
   const [sbQuickEdit, setSbQuickEdit] = useState<{ soundId: string; x: number; y: number } | null>(null)
   const sbFileInputRef   = useRef<HTMLInputElement>(null)
-  // Concurrent SFX playbacks — keyed by a unique playback id, NOT sound id,
-  // so the same sound can overlap if triggered rapidly.
-  const sfxAudioRef      = useRef<Record<string, HTMLAudioElement>>({})
+  // Concurrent SFX playbacks — keyed by a unique playback id. Each entry
+  // tags the soundId so we can find + stop all in-flight playbacks for a
+  // given sound (e.g. when the DM taps the pad a second time).
+  const sfxAudioRef      = useRef<Record<string, { audio: HTMLAudioElement; soundId: string }>>({})
+  // Counts of active playbacks per sound id — drives the pad "playing" UI.
+  // Only used for state-driven re-render; the ref above is the source of truth.
+  const [sfxActiveCounts, setSfxActiveCounts] = useState<Record<string, number>>({})
 
   const playSfxLocal = useCallback((sound: CampaignSound) => {
     const src = sound.signed_url
@@ -233,31 +238,106 @@ export default function Stage({
     a.muted = muted
     a.volume = sound.volume ?? SFX_DEFAULT_VOL
     const playbackId = `${sound.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    sfxAudioRef.current[playbackId] = a
+    sfxAudioRef.current[playbackId] = { audio: a, soundId: sound.id }
+    setSfxActiveCounts(p => ({ ...p, [sound.id]: (p[sound.id] || 0) + 1 }))
     const cleanup = () => {
+      if (!sfxAudioRef.current[playbackId]) return
       delete sfxAudioRef.current[playbackId]
       a.removeEventListener('ended', cleanup)
       a.removeEventListener('error', cleanup)
+      setSfxActiveCounts(p => {
+        const next = { ...p }
+        const v = (next[sound.id] || 1) - 1
+        if (v <= 0) delete next[sound.id]
+        else next[sound.id] = v
+        return next
+      })
     }
     a.addEventListener('ended', cleanup)
     a.addEventListener('error', cleanup)
     a.play().catch(() => cleanup())
-    // Animate the pad briefly
     setSbRecentlyPlayed(prev => ({ ...prev, [sound.id]: Date.now() }))
   }, [muted])
 
+  // Stop every in-flight playback for this sound.
+  const stopSfxLocal = useCallback((soundId: string) => {
+    Object.entries(sfxAudioRef.current).forEach(([key, { audio, soundId: sid }]) => {
+      if (sid !== soundId) return
+      try { audio.pause(); audio.src = '' } catch {}
+      delete sfxAudioRef.current[key]
+    })
+    setSfxActiveCounts(p => {
+      if (!(soundId in p)) return p
+      const next = { ...p }; delete next[soundId]; return next
+    })
+  }, [])
+
+  // Tap-toggle: if any playback for this sound is in flight, stop it; otherwise play.
   const playSfx = useCallback((sound: CampaignSound) => {
-    playSfxLocal(sound)
-    onPlaySfx?.(sound)   // broadcast to viewer when live
-  }, [playSfxLocal, onPlaySfx])
+    const isPlaying = Object.values(sfxAudioRef.current).some(x => x.soundId === sound.id)
+    if (isPlaying) {
+      stopSfxLocal(sound.id)
+      onStopSfx?.(sound.id)
+    } else {
+      playSfxLocal(sound)
+      onPlaySfx?.(sound)
+    }
+  }, [playSfxLocal, stopSfxLocal, onPlaySfx, onStopSfx])
 
   function openQuickEdit(soundId: string, e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
+    openQuickEditAt(soundId, e.clientX, e.clientY)
+  }
+
+  function openQuickEditAt(soundId: string, x: number, y: number) {
     const popW = 280, popH = 110, margin = 12
-    const x = Math.max(margin, Math.min(e.clientX, window.innerWidth - popW - margin))
-    const y = Math.max(margin, Math.min(e.clientY, window.innerHeight - popH - margin))
-    setSbQuickEdit({ soundId, x, y })
+    const cx = Math.max(margin, Math.min(x, window.innerWidth - popW - margin))
+    const cy = Math.max(margin, Math.min(y, window.innerHeight - popH - margin))
+    setSbQuickEdit({ soundId, x: cx, y: cy })
+  }
+
+  // ── Pad long-press (touch / pen) → quick edit ────────────────
+  // Mouse uses onContextMenu (right-click). Touch/pen uses a 500ms hold,
+  // cancelled if the pointer moves >10px or releases early.
+  const padLongPressedRef = useRef(false)
+  const padTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const padStartPosRef    = useRef<{ x: number; y: number } | null>(null)
+
+  function handlePadPointerDown(soundId: string, e: React.PointerEvent) {
+    if (e.pointerType === 'mouse') return
+    padLongPressedRef.current = false
+    const x = e.clientX, y = e.clientY
+    padStartPosRef.current = { x, y }
+    if (padTimerRef.current) clearTimeout(padTimerRef.current)
+    padTimerRef.current = setTimeout(() => {
+      padTimerRef.current = null
+      padLongPressedRef.current = true
+      openQuickEditAt(soundId, x, y)
+    }, 500)
+  }
+
+  function handlePadPointerMove(e: React.PointerEvent) {
+    if (!padStartPosRef.current || !padTimerRef.current) return
+    const dx = e.clientX - padStartPosRef.current.x
+    const dy = e.clientY - padStartPosRef.current.y
+    if (dx * dx + dy * dy > 100) {
+      clearTimeout(padTimerRef.current)
+      padTimerRef.current = null
+    }
+  }
+
+  function handlePadPointerUp() {
+    if (padTimerRef.current) { clearTimeout(padTimerRef.current); padTimerRef.current = null }
+    padStartPosRef.current = null
+  }
+
+  function handlePadClick(s: CampaignSound) {
+    if (padLongPressedRef.current) {
+      padLongPressedRef.current = false
+      return
+    }
+    playSfx(s)
   }
 
   // Esc / outside click dismiss for the quick-edit popover
@@ -485,7 +565,7 @@ export default function Stage({
       audioHandlers.current = {}
       outgoingRefs.current = {}
       outgoingHandlers.current = {}
-      Object.values(sfxAudioRef.current).forEach(a => { try { a.pause(); a.src = '' } catch {} })
+      Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
       sfxAudioRef.current = {}
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -565,14 +645,16 @@ export default function Stage({
   function stopAll() {
     Object.values(audioRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
     Object.values(outgoingRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
-    Object.values(sfxAudioRef.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
+    Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
+    sfxAudioRef.current = {}
+    setSfxActiveCounts({})
     spotify.stopAll()
   }
   function handleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
     Object.values(outgoingRefs.current).forEach(a => (a.muted = next))
-    Object.values(sfxAudioRef.current).forEach(a => (a.muted = next))
+    Object.values(sfxAudioRef.current).forEach(({ audio }) => (audio.muted = next))
     spotify.mute(next)
   }
 
@@ -1082,32 +1164,49 @@ export default function Stage({
                     </button>
                   </div>
                 ) : (
-                  // ── View mode: 4-col grid for fast firing ──
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                  // ── View mode: responsive grid for fast firing ──
+                  // 4 cols on the standard 320px panel; auto-fills down to ~64px
+                  // pads on narrower viewports so phones get 3 columns instead.
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '8px' }}>
                     {(sounds ?? []).map(s => {
                       const recentlyPlayed = sbRecentlyPlayed[s.id]
-                      const isHot = recentlyPlayed && Date.now() - recentlyPlayed < 600
+                      const isHot     = recentlyPlayed && Date.now() - recentlyPlayed < 600
+                      const isPlaying = (sfxActiveCounts[s.id] ?? 0) > 0
+                      const accent    = isPlaying || isHot
                       return (
                         <button
                           key={s.id}
-                          onClick={() => playSfx(s)}
+                          onClick={() => handlePadClick(s)}
                           onContextMenu={e => openQuickEdit(s.id, e)}
-                          title={`${s.name} — right-click to edit`}
+                          onPointerDown={e => handlePadPointerDown(s.id, e)}
+                          onPointerMove={handlePadPointerMove}
+                          onPointerUp={handlePadPointerUp}
+                          onPointerCancel={handlePadPointerUp}
+                          onPointerLeave={handlePadPointerUp}
+                          title={`${s.name} — ${isPlaying ? 'tap to stop' : 'tap to play'} · right-click or long-press to edit`}
                           style={{
                             width: '100%', aspectRatio: '1 / 1',
-                            background: isHot ? 'rgba(201,168,76,0.22)' : 'rgba(255,255,255,0.04)',
-                            border: `1px solid ${isHot ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
+                            background: isPlaying ? 'rgba(201,168,76,0.28)' : isHot ? 'rgba(201,168,76,0.22)' : 'rgba(255,255,255,0.04)',
+                            border: `1px solid ${accent ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
                             borderRadius: '8px',
-                            color: isHot ? 'var(--accent)' : 'rgba(255,255,255,0.78)',
+                            color: accent ? 'var(--accent)' : 'rgba(255,255,255,0.78)',
                             cursor: 'pointer',
                             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                            padding: '4px', overflow: 'hidden', transition: 'background 0.15s ease, border-color 0.15s ease',
+                            padding: '4px', overflow: 'hidden',
+                            transition: 'background 0.15s ease, border-color 0.15s ease',
                             fontSize: '9px', fontWeight: 600, letterSpacing: '0.3px', textAlign: 'center',
+                            touchAction: 'manipulation',
+                            WebkitTouchCallout: 'none',
+                            WebkitUserSelect: 'none',
+                            userSelect: 'none',
+                            animation: isPlaying ? 'sfxPadPulse 1.4s ease-in-out infinite' : undefined,
                           }}
-                          onMouseEnter={e => { if (!isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
-                          onMouseLeave={e => { if (!isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                          onMouseEnter={e => { if (!accent) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                          onMouseLeave={e => { if (!accent) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                         >
-                          <span style={{ fontSize: '16px', marginBottom: '4px', opacity: 0.7 }}>🔊</span>
+                          <span style={{ fontSize: '16px', marginBottom: '4px', opacity: isPlaying ? 1 : 0.7 }}>
+                            {isPlaying ? '⏹' : '🔊'}
+                          </span>
                           <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{s.name}</span>
                         </button>
                       )
@@ -1124,6 +1223,7 @@ export default function Stage({
                         color: 'rgba(255,255,255,0.4)', cursor: sbUploading ? 'wait' : 'pointer',
                         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                         fontSize: '20px', transition: 'border-color 0.15s ease, color 0.15s ease',
+                        touchAction: 'manipulation',
                       }}
                       onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
@@ -1530,6 +1630,7 @@ export default function Stage({
         @keyframes audioBar3{from{height:5px}to{height:14px}}
         @keyframes audioBar4{from{height:11px}to{height:4px}}
         @keyframes sceneFadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes sfxPadPulse{0%,100%{box-shadow:0 0 0 0 rgba(201,168,76,0)}50%{box-shadow:0 0 0 3px rgba(201,168,76,0.25)}}
       `}</style>
     </div>
   )

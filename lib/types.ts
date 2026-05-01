@@ -117,6 +117,7 @@ export interface SfxEvent {
   sound_id:  string
   played_at: number   // ms epoch
   volume?:   number   // override of sound's stored volume
+  stop?:     boolean  // true = stop any active playbacks of sound_id on the receiver
 }
 
 // ── Characters ────────────────────────────────────────────────

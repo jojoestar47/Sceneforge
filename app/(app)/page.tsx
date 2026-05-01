@@ -359,6 +359,17 @@ export default function AppPage() {
     await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
   }
 
+  async function handleStopSfx(soundId: string) {
+    if (!sessionId || !isLive) return
+    const ev: SfxEvent = {
+      id: `${soundId}-stop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sound_id: soundId,
+      played_at: Date.now(),
+      stop: true,
+    }
+    await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
+  }
+
   function handleOverlayStateChange(id: string, state: OverlayLiveState) {
     const next = { ...activeOverlays, [id]: state }
     setActiveOverlays(next)
@@ -915,6 +926,7 @@ export default function AppPage() {
               userId={userId}
               onSoundsChange={setCampaignSounds}
               onPlaySfx={handlePlaySfx}
+              onStopSfx={handleStopSfx}
             />
             {/* ── COLLAPSIBLE SCENE SIDEBAR ── */}
             <div style={{
