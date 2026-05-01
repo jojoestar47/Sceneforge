@@ -127,7 +127,7 @@ export default function AppPage() {
     sceneRosterChars, characterScales, characterDisplayDefaults,
     setCampaigns, setScenes, setFolders, setCampaignCharacters, setCampaignTags, setCampaignSounds,
     setSessionId, setJoinCode, setIsLive, setActiveCharacters,
-    setCharacterScales, setCharacterDisplayDefaults,
+    setSceneRosterChars, setCharacterScales, setCharacterDisplayDefaults,
     loadSceneRoster,
   } = data
 
@@ -138,7 +138,14 @@ export default function AppPage() {
     setSlotScales({ left: 1, center: 1, right: 1 })
     setSlotDisplayProps({ left: DEFAULT_SLOT_DISPLAY, center: DEFAULT_SLOT_DISPLAY, right: DEFAULT_SLOT_DISPLAY })
     setActiveHandout(null)
-    if (!activeSceneId) { setActiveOverlays({}); return }
+    if (!activeSceneId) {
+      // Drop the previous scene's roster/framing so they don't leak into
+      // the next view (e.g. switching campaigns leaves activeSceneId='' for
+      // a moment).
+      setSceneRosterChars([]); setCharacterScales({}); setCharacterDisplayDefaults({})
+      setActiveOverlays({})
+      return
+    }
     // Initialize overlay live state from the scene's authored defaults
     const scene = scenes.find(s => s.id === activeSceneId)
     const overlayInit: Record<string, OverlayLiveState> = {}

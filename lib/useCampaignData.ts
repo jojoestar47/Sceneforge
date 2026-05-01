@@ -87,6 +87,7 @@ export interface UseCampaignData {
   setJoinCode:                 React.Dispatch<React.SetStateAction<string | null>>
   setIsLive:                   React.Dispatch<React.SetStateAction<boolean>>
   setActiveCharacters:         React.Dispatch<React.SetStateAction<ActiveCharacters>>
+  setSceneRosterChars:         React.Dispatch<React.SetStateAction<Character[]>>
   setCharacterScales:          React.Dispatch<React.SetStateAction<Record<string, number>>>
   setCharacterDisplayDefaults: React.Dispatch<React.SetStateAction<Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }>>>
 
@@ -228,6 +229,11 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
       .eq('campaign_id', campId).eq('is_live', true).maybeSingle()
     if (data) {
       setSessionId(data.id); setJoinCode(data.join_code); setIsLive(true)
+      // Initial-load scene jump: the Realtime subscription only fires on
+      // session UPDATEs, so without this the DM returning to a campaign with
+      // a live session wouldn't auto-jump to the saved active scene until
+      // someone updated the session row from another tab.
+      if (data.active_scene_id) onActiveSceneIdChangeRef.current?.(data.active_scene_id)
       // Clear stale character state in DB — characters are placed manually each session.
       // Without this, the viewer shows leftover characters from before a page refresh.
       const cs: CharacterState = {
@@ -239,9 +245,6 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', data.id)
-      // Note: we deliberately don't return active_scene_id here; the page sets
-      // its own activeSceneId when it sees the session row update via Realtime
-      // or via its own selection effect. This keeps the hook free of UI state.
     } else {
       setSessionId(null); setJoinCode(null); setIsLive(false)
     }
@@ -295,7 +298,7 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
     sceneRosterChars, characterScales, characterDisplayDefaults,
     setCampaigns, setScenes, setFolders, setCampaignCharacters, setCampaignTags, setCampaignSounds,
     setSessionId, setJoinCode, setIsLive, setActiveCharacters,
-    setCharacterScales, setCharacterDisplayDefaults,
+    setSceneRosterChars, setCharacterScales, setCharacterDisplayDefaults,
     loadScenes, loadSceneRoster,
   }
 }
