@@ -105,6 +105,15 @@ export default function AppPage() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   useEffect(() => () => toastTimersRef.current.forEach(clearTimeout), [])
+
+  // Redirect to /login when the session expires or the user signs out from
+  // another tab. Without this the page silently continues showing stale data.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') window.location.href = '/login'
+    })
+    return () => subscription.unsubscribe()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   function showError(message: string) {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev, { id, message }])

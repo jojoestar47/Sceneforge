@@ -27,7 +27,28 @@ export async function getSpotifyToken(
   return refreshSpotifyToken(supabase, userId, data.refresh_token)
 }
 
+// Module-level dedup map — if a refresh is already in-flight for a userId,
+// return the same promise instead of kicking off a second concurrent refresh
+// that could clobber the newly-rotated refresh_token in the DB.
+const refreshInFlight = new Map<string, Promise<string | null>>()
+
 async function refreshSpotifyToken(
+  supabase: SupabaseClient,
+  userId: string,
+  refreshToken: string
+): Promise<string | null> {
+  if (refreshInFlight.has(userId)) return refreshInFlight.get(userId)!
+
+  const p = doRefreshSpotifyToken(supabase, userId, refreshToken)
+  refreshInFlight.set(userId, p)
+  try {
+    return await p
+  } finally {
+    refreshInFlight.delete(userId)
+  }
+}
+
+async function doRefreshSpotifyToken(
   supabase: SupabaseClient,
   userId: string,
   refreshToken: string

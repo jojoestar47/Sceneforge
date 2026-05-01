@@ -104,6 +104,20 @@ export default function ViewerPage() {
   }, [])
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
+  // Pause and discard all active <audio> elements when the viewer unmounts
+  // (e.g. the user navigates away). Without this the browser keeps the audio
+  // objects alive and the sounds continue playing in the background.
+  useEffect(() => {
+    return () => {
+      Object.values(audioRefs.current).forEach(a => {
+        a.pause()
+        a.src = ''
+      })
+      audioRefs.current    = {}
+      audioHandlers.current = {}
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Handout sync ─────────────────────────────────────────────
   // activeHandoutId is set by the DM via session realtime; resolved against
   // scene.handouts so it always reflects the latest scene data.

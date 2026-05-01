@@ -92,6 +92,9 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
   const volumeRef      = useRef<Record<string, number>>({})
   const mutedRef       = useRef(false)
   const prevSceneIdRef = useRef<string | null>(null)
+  // If play is requested before the device is ready, we queue the track here
+  // and flush it as soon as the 'ready' event fires.
+  const pendingPlayRef = useRef<Track | null>(null)
 
   const [connected,   setConnected]   = useState(false)
   const [states,      setStates]      = useState<Record<string, SpotifyTrackState>>({})
@@ -186,6 +189,12 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
       player.addListener('ready', ({ device_id }: { device_id: string }) => {
         deviceIdRef.current = device_id
         setConnected(true)
+        // Flush any play that was requested before the device was ready
+        if (pendingPlayRef.current) {
+          const queued = pendingPlayRef.current
+          pendingPlayRef.current = null
+          setTimeout(() => playTrack(queued).catch(() => {}), 350)
+        }
       })
 
       player.addListener('not_ready', () => {
@@ -236,7 +245,13 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
 
   // ── Playback helpers ──────────────────────────────────────────
   async function playTrack(t: Track) {
-    if (!deviceIdRef.current || !t.spotify_uri || !playerRef.current) return
+    if (!t.spotify_uri) return
+    // Device not ready yet — queue the track and return. The 'ready' listener
+    // will flush it once the virtual device has a device_id.
+    if (!deviceIdRef.current || !playerRef.current) {
+      pendingPlayRef.current = t
+      return
+    }
 
     const sceneIdAtStart = prevSceneIdRef.current
 

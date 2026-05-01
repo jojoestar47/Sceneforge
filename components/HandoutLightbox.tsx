@@ -32,6 +32,14 @@ export default function HandoutLightbox({ handout, onClose }: Props) {
 
   useEffect(() => { if (!isZoomed) setPan({ x: 0, y: 0 }) }, [isZoomed])
 
+  // Lock body scroll while the lightbox is open so the background page
+  // doesn't scroll behind the overlay on desktop and mobile.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   // ── Drag ─────────────────────────────────────────────────────
   function startDrag(x: number, y: number) {
     dragging.current  = true

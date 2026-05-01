@@ -202,10 +202,15 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
 
   async function handleSave() {
     setSaving(true); setError('')
+    // Track every storage path uploaded in this save attempt so we can roll
+    // them back if the subsequent DB writes fail (otherwise the files become
+    // orphaned in the bucket with no referencing row).
+    const newlyUploaded: string[] = []
     try {
       let bg = draft.bg
       if (draft._bgFile) {
         const path = await uploadMedia(supabase, userId, draft._bgFile)
+        newlyUploaded.push(path)
         bg = { type: draft._bgFile.type.startsWith('video') ? 'video' : 'image', storage_path: path, file_name: draft._bgFile.name }
       }
 
@@ -236,7 +241,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       }
       const allTrackRows = (await Promise.all(draft.tracks.map(async (t, i) => {
         let storagePath = t.storage_path, fileName = t.file_name, url = t.url || null
-        if (t._file) { storagePath = await uploadMedia(supabase, userId, t._file); fileName = t._file.name; url = null }
+        if (t._file) { storagePath = await uploadMedia(supabase, userId, t._file); newlyUploaded.push(storagePath); fileName = t._file.name; url = null }
         // Skip tracks that have no playable source and no Spotify URI
         if (!storagePath && !url && !t.spotify_uri) return null
         return { id: t.id, scene_id: sceneId!, kind: t.kind, name: t.name, url, storage_path: storagePath || null, file_name: fileName || null, spotify_uri: t.spotify_uri || null, spotify_type: t.spotify_type || null, loop: t.loop, volume: t.volume, order_index: i }
@@ -273,6 +278,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
           : null
         if (h._file) {
           const path = await uploadMedia(supabase, userId, h._file)
+          newlyUploaded.push(path)
           media = { type: 'image', storage_path: path, file_name: h._file.name }
         }
         return { id: h.id, scene_id: sceneId!, name: h.name, media: media || null, order_index: i }
@@ -298,7 +304,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       }
       const allOverlayRows = (await Promise.all(draft.overlays.map(async (o, i) => {
         let storagePath = o.storage_path, fileName = o.file_name, url = o.url || null
-        if (o._file) { storagePath = await uploadMedia(supabase, userId, o._file); fileName = o._file.name; url = null }
+        if (o._file) { storagePath = await uploadMedia(supabase, userId, o._file); newlyUploaded.push(storagePath); fileName = o._file.name; url = null }
         if (!storagePath && !url) return null
         return {
           id: o.id, scene_id: sceneId!, name: o.name, source: o.source,
@@ -319,6 +325,9 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       onSave({ ...savedSceneTyped, overlays: savedSceneTyped.scene_overlays ?? [] }, createdCharsRef.current)
       createdCharsRef.current = []
     } catch (e: unknown) {
+      // Roll back any files we already uploaded — the DB write failed so
+      // these paths would otherwise be permanently orphaned in the bucket.
+      if (newlyUploaded.length) deleteMediaBatch(supabase, newlyUploaded).catch(() => {})
       setError(e instanceof Error ? e.message : 'Failed to save scene')
     } finally {
       setSaving(false)
@@ -829,7 +838,8 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
   const [results,  setResults]  = useState<SpotifyResult[]>([])
   const [searching, setSearching] = useState(false)
   const [noConn,   setNoConn]   = useState(false)
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchSeqRef    = useRef(0)   // increments each search; stale responses are discarded
 
   function submitFile() {
     const n = name || file?.name?.replace(/\.[^.]+$/, '') || 'Track'
@@ -842,10 +852,12 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
     setQuery(q)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     if (!q.trim()) { setResults([]); return }
+    const seq = ++searchSeqRef.current
     searchTimerRef.current = setTimeout(async () => {
       setSearching(true)
       try {
         const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`)
+        if (searchSeqRef.current !== seq) return  // stale — a newer search superseded this one
         if (res.status === 403 || res.status === 404) { setNoConn(true); return }
         if (!res.ok) return
         const data = await res.json()
@@ -854,7 +866,7 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
         setResults([...tracks, ...playlists])
         setNoConn(false)
       } finally {
-        setSearching(false)
+        if (searchSeqRef.current === seq) setSearching(false)
       }
     }, 400)
   }
