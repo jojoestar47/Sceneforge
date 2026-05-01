@@ -6,6 +6,7 @@ import type { Scene, Track, MediaRef, Character, Handout, SceneOverlay } from '@
 import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import { mediaUrl, characterImageUrl } from '@/lib/media'
+import type { SpotifySearchResponse } from '@/lib/spotify'
 import UploadZone from './UploadZone'
 
 interface Props {
@@ -871,9 +872,9 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
         if (searchSeqRef.current !== seq) return  // stale — a newer search superseded this one
         if (res.status === 403 || res.status === 404) { setNoConn(true); return }
         if (!res.ok) return
-        const data = await res.json()
-        const tracks:    SpotifyResult[] = data.tracks.map((t: any)    => ({ ...t, type: 'track'    as const }))
-        const playlists: SpotifyResult[] = data.playlists.map((p: any) => ({ ...p, type: 'playlist' as const }))
+        const data = await res.json() as SpotifySearchResponse
+        const tracks:    SpotifyResult[] = data.tracks.map(t    => ({ ...t, type: 'track'    as const }))
+        const playlists: SpotifyResult[] = data.playlists.map(p => ({ ...p, type: 'playlist' as const }))
         setResults([...tracks, ...playlists])
         setNoConn(false)
       } finally {

@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Track, Scene } from '@/lib/types'
+import type {
+  SpotifySdkGlobal,
+  SpotifySdkPlayer,
+  SpotifySdkPlayerState,
+} from '@/lib/spotify'
 
 export interface SpotifyTrackState {
   playing: boolean
@@ -34,7 +39,7 @@ export interface SpotifyPlayerApi {
 
 declare global {
   interface Window {
-    Spotify: any
+    Spotify: SpotifySdkGlobal
     onSpotifyWebPlaybackSDKReady: () => void
   }
 }
@@ -85,7 +90,7 @@ async function applyRepeatMode(
 }
 
 export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false } = {}): SpotifyPlayerApi {
-  const playerRef      = useRef<any>(null)
+  const playerRef      = useRef<SpotifySdkPlayer | null>(null)
   const deviceIdRef    = useRef<string | null>(null)
   const activeTrackRef = useRef<Track | null>(null)
   const loopRef        = useRef<Record<string, boolean>>({})
@@ -202,7 +207,7 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
         setConnected(false)
       })
 
-      player.addListener('player_state_changed', (state: any) => {
+      player.addListener('player_state_changed', (state: SpotifySdkPlayerState | null) => {
         if (!state || !activeTrackRef.current) return
         const t = activeTrackRef.current
 
