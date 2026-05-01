@@ -56,6 +56,19 @@ export default function SceneList({
   const [newFolderName,  setNewFolderName]  = useState('')
   const newFolderInputRef = useRef<HTMLInputElement>(null)
 
+  // ── Folder ⋯ menu (single-open invariant) ──
+  // Lifted up here so opening folder B's menu auto-closes folder A's, and
+  // so a single outside-click listener handles dismissal across all rows.
+  const [menuOpenFolderId, setMenuOpenFolderId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!menuOpenFolderId) return
+    const close = (e: globalThis.MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('[data-folder-menu]')) setMenuOpenFolderId(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [menuOpenFolderId])
+
   const isTouchDevice = useIsTouchDevice()
 
   // Auto-open only newly *created* folders, not the initial campaign load
@@ -245,6 +258,8 @@ export default function SceneList({
             isTouchDevice={isTouchDevice}
             canDrag={canDrag}
             hasActiveDrag={!!dragId}
+            menuOpenFolderId={menuOpenFolderId}
+            setMenuOpenFolderId={setMenuOpenFolderId}
             onToggleOpen={toggleFolder}
             onHoverChange={setHoveredFolderId}
             onFolderRename={onFolderRename}
@@ -253,7 +268,7 @@ export default function SceneList({
             onFolderReorder={onFolderReorder}
             onMoveToFolder={onMoveToFolder}
             onAdd={onAdd}
-            onFolderDragOverChange={setFolderDragOver}
+            setFolderDragOver={setFolderDragOver}
             activeSceneId={activeSceneId}
             onSelect={onSelect}
             onDelete={onDelete}

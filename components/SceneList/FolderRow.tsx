@@ -18,6 +18,14 @@ interface Props {
   canDrag:       boolean
   /** True when something is currently being dragged (so onDrop drag-over highlights work). */
   hasActiveDrag: boolean
+  /**
+   * Single-folder-menu invariant: the orchestrator owns "which folder's
+   * ⋯ menu is open" so opening folder B's menu auto-closes folder A's.
+   * Lifting this avoids the case where two FolderRow's outside-click
+   * listeners both treat the other folder's menu as "inside a menu".
+   */
+  menuOpenFolderId:    string | null
+  setMenuOpenFolderId: (id: string | null) => void
 
   /** Toggle open/closed via the chevron / icon / name click. */
   onToggleOpen:    (id: string) => void
@@ -31,8 +39,15 @@ interface Props {
   onMoveToFolder?: (sceneId: string, folderId: string | null) => void
   onAdd:           (folderId?: string | null) => void
 
-  // Drop target lifecycle for the folder header
-  onFolderDragOverChange: (id: string | null) => void
+  /**
+   * Folder-level drag-over state setter (Dispatch from the orchestrator's
+   * useState). Typed as a Dispatch so FolderRow can pass an updater
+   * function — `setFolderDragOver(p => p === folder.id ? null : p)` —
+   * which is what makes adjacent-folder drag-leave events safe. Replacing
+   * with `(null)` would clobber the highlight on the folder you just
+   * entered when leaving the previous one.
+   */
+  setFolderDragOver: React.Dispatch<React.SetStateAction<string | 'unfiled' | null>>
 
   // Per-scene props (we forward these to SceneCard)
   activeSceneId: string | null
@@ -59,32 +74,24 @@ export default function FolderRow({
   folder, folderScenes, folderIndex, folders,
   isOpen, isDragTarget, isHovFolder, isTouchDevice,
   canDrag, hasActiveDrag,
+  menuOpenFolderId, setMenuOpenFolderId,
   onToggleOpen, onHoverChange,
   onFolderRename, onFolderDelete, onFolderColor, onFolderReorder, onMoveToFolder,
-  onAdd, onFolderDragOverChange,
+  onAdd, setFolderDragOver,
   activeSceneId,
   onSelect, onDelete, onEdit, onReorder,
   hoveredId, setHoveredId, dragId, dragOverId, canReorder,
   onSceneDragStart, onSceneDragOver, onSceneDragLeave, onSceneDrop, onSceneDragEnd,
   allScenes,
 }: Props) {
-  const [renaming,   setRenaming]   = useState(false)
-  const [renameVal,  setRenameVal]  = useState('')
-  const [menuOpen,   setMenuOpen]   = useState(false)
+  const [renaming,  setRenaming]  = useState(false)
+  const [renameVal, setRenameVal] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+
+  const menuOpen = menuOpenFolderId === folder.id
 
   // Auto-focus the rename input when entering rename mode
   useEffect(() => { if (renaming) renameInputRef.current?.focus() }, [renaming])
-
-  // Close folder menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return
-    const close = (e: globalThis.MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('[data-folder-menu]')) setMenuOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [menuOpen])
 
   function startRename() {
     setRenameVal(folder.name)
@@ -114,12 +121,12 @@ export default function FolderRow({
       <div
         onMouseEnter={() => !isTouchDevice && onHoverChange(folder.id)}
         onMouseLeave={() => !isTouchDevice && onHoverChange(null)}
-        onDragOver={canDrag && hasActiveDrag ? e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onFolderDragOverChange(folder.id) } : undefined}
-        onDragLeave={canDrag ? () => onFolderDragOverChange(null) : undefined}
+        onDragOver={canDrag && hasActiveDrag ? e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setFolderDragOver(folder.id) } : undefined}
+        onDragLeave={canDrag ? () => setFolderDragOver(p => p === folder.id ? null : p) : undefined}
         onDrop={canDrag && hasActiveDrag ? e => {
           e.preventDefault()
           if (dragId && onMoveToFolder) onMoveToFolder(dragId, folder.id)
-          onFolderDragOverChange(null)
+          setFolderDragOver(null)
         } : undefined}
         style={{
           display: 'flex', alignItems: 'center', gap: '6px',
@@ -228,7 +235,7 @@ export default function FolderRow({
         {!renaming && (
           <button
             data-folder-menu="true"
-            onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
+            onClick={e => { e.stopPropagation(); setMenuOpenFolderId(menuOpen ? null : folder.id) }}
             style={{
               width: '22px', height: '22px', borderRadius: '5px', flexShrink: 0,
               background: menuOpen ? 'var(--bg-hover)' : 'transparent',
@@ -277,7 +284,7 @@ export default function FolderRow({
 
           {/* New scene in folder */}
           <button
-            onClick={() => { setMenuOpen(false); onAdd(folder.id) }}
+            onClick={() => { setMenuOpenFolderId(null); onAdd(folder.id) }}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
               padding: '6px 10px', borderRadius: '6px', border: 'none',
@@ -296,7 +303,7 @@ export default function FolderRow({
 
           {/* Rename */}
           <button
-            onClick={() => { setMenuOpen(false); startRename() }}
+            onClick={() => { setMenuOpenFolderId(null); startRename() }}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
               padding: '6px 10px', borderRadius: '6px', border: 'none',
@@ -318,7 +325,7 @@ export default function FolderRow({
           {/* Delete */}
           {onFolderDelete && (
             <button
-              onClick={() => { setMenuOpen(false); onFolderDelete(folder.id) }}
+              onClick={() => { setMenuOpenFolderId(null); onFolderDelete(folder.id) }}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
                 padding: '6px 10px', borderRadius: '6px', border: 'none',
