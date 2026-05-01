@@ -161,7 +161,6 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
   const [savingName,      setSavingName]      = useState(false)
   const [savingDesc,      setSavingDesc]      = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
-  const [deleting,      setDeleting]      = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -201,10 +200,10 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
     try { await onUpdateCover(settingsId, file) } finally { setUploadingCover(false) }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!settingsId) return
-    setDeleting(true)
-    try { await onDelete(settingsId); closeSettings() } finally { setDeleting(false) }
+    onDelete(settingsId)
+    closeSettings()
   }
 
   return (
@@ -457,14 +456,13 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                   </button>
                   <button
                     onClick={handleDelete}
-                    disabled={deleting}
                     style={{
                       flex: 1, background: 'rgba(229,53,53,0.15)', border: '1px solid rgba(229,53,53,0.5)',
-                      borderRadius: '7px', padding: '7px', cursor: deleting ? 'wait' : 'pointer',
+                      borderRadius: '7px', padding: '7px', cursor: 'pointer',
                       color: '#e53535', fontSize: '12px', fontWeight: 700,
                     }}
                   >
-                    {deleting ? 'Deleting…' : 'Confirm Delete'}
+                    Confirm Delete
                   </button>
                 </div>
               </div>

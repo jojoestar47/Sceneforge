@@ -103,10 +103,13 @@ export default function AppPage() {
   // ── Error toasts ──────────────────────────────────────────────
   interface Toast { id: string; message: string }
   const [toasts, setToasts] = useState<Toast[]>([])
+  const toastTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  useEffect(() => () => toastTimersRef.current.forEach(clearTimeout), [])
   function showError(message: string) {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev, { id, message }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
+    const t = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
+    toastTimersRef.current.push(t)
   }
 
   // ── Session / Live Presenting ──────────────────────────────────
@@ -354,7 +357,7 @@ export default function AppPage() {
         leftPanY: 100, centerPanY: 100, rightPanY: 100,
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
       }
-      await supabase.from('sessions').update({ active_scene_id: id, character_state: cs, active_music_track_id: null }).eq('id', sessionId)
+      await supabase.from('sessions').update({ active_scene_id: id, character_state: cs, active_music_track_id: null, active_handout_id: null, active_overlays: null }).eq('id', sessionId)
     }
   }
 
@@ -555,9 +558,13 @@ export default function AppPage() {
 
   async function deleteCampaignTag(tagId: string) {
     const affected = campaignCharacters.filter(c => c.tags?.includes(tagId))
-    await Promise.all(affected.map(c =>
-      supabase.from('characters').update({ tags: c.tags.filter(t => t !== tagId) }).eq('id', c.id)
-    ))
+    // Batch-update all affected characters in one round-trip via upsert
+    if (affected.length) {
+      await supabase.from('characters').upsert(
+        affected.map(c => ({ id: c.id, tags: c.tags.filter(t => t !== tagId) })),
+        { onConflict: 'id' }
+      )
+    }
     await supabase.from('campaign_tags').delete().eq('id', tagId)
     setCampaignTags(prev => prev.filter(t => t.id !== tagId))
     setCampaignCharacters(prev => prev.map(c => ({ ...c, tags: (c.tags ?? []).filter(t => t !== tagId) })))
