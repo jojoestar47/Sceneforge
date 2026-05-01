@@ -130,6 +130,9 @@ export default function AppPage() {
   // ── Overlay live state ─────────────────────────────────────────
   const [activeOverlays, setActiveOverlays] = useState<Record<string, OverlayLiveState>>({})
   const overlayDbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Clear the overlay debounce timer on unmount so it doesn't fire a stale DB
+  // write after the user signs out or navigates away.
+  useEffect(() => () => { if (overlayDbTimerRef.current) clearTimeout(overlayDbTimerRef.current) }, [])
 
   // ── Auth ──────────────────────────────────────────────────────
   useEffect(() => {

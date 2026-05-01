@@ -72,7 +72,7 @@ function blankDraft(scene: Scene | null): Draft {
   return {
     name: scene?.name || '', location: scene?.location || '',
     bg: scene?.bg || null,
-    tracks: [...existing('music'), ...existing('ambience')],
+    tracks: [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
     characterPool: [],
     handouts: (scene?.handouts || []).map(h => ({ id: h.id, name: h.name, media: h.media })),
     overlays: (scene?.overlays || []).map(o => ({
@@ -251,14 +251,23 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       if (tracksToUpsert.length) await supabase.from('tracks').upsert(tracksToUpsert, { onConflict: 'id' })
       if (tracksToInsert.length) await supabase.from('tracks').insert(tracksToInsert)
 
-      // Scene characters — delete existing, re-insert pool (no position)
-      await supabase.from('scene_characters').delete().eq('scene_id', sceneId!)
-      const charInserts = draft.characterPool.map(e => ({
-        scene_id:     sceneId!,
-        character_id: e.character.id,
-        scale:        e.scale,
-      }))
-      if (charInserts.length) await supabase.from('scene_characters').insert(charInserts)
+      // Scene characters — selective delete + upsert so transient failures
+      // never wipe the whole pool. The table has UNIQUE(scene_id, character_id)
+      // so upsert safely handles both insert-new and update-scale-for-existing.
+      {
+        const draftCharIds = new Set(draft.characterPool.map(e => e.character.id))
+        const { data: existingChars } = await supabase
+          .from('scene_characters').select('id, character_id').eq('scene_id', sceneId!)
+        const charIdsToRemove = (existingChars ?? [])
+          .filter(c => !draftCharIds.has(c.character_id)).map(c => c.id)
+        if (charIdsToRemove.length)
+          await supabase.from('scene_characters').delete().in('id', charIdsToRemove)
+        const charUpserts = draft.characterPool.map(e => ({
+          scene_id: sceneId!, character_id: e.character.id, scale: e.scale,
+        }))
+        if (charUpserts.length)
+          await supabase.from('scene_characters').upsert(charUpserts, { onConflict: 'scene_id,character_id' })
+      }
 
       // Handouts — preserve IDs so active_handout_id in sessions stays valid
       const draftHandoutIds = new Set(draft.handouts.filter(h => h.id).map(h => h.id!))
@@ -840,6 +849,8 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
   const [noConn,   setNoConn]   = useState(false)
   const searchTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeqRef    = useRef(0)   // increments each search; stale responses are discarded
+  // Clear pending timer on unmount so setState is never called on a dead component
+  useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }, [])
 
   function submitFile() {
     const n = name || file?.name?.replace(/\.[^.]+$/, '') || 'Track'

@@ -95,6 +95,8 @@ export default function ViewerPage() {
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [playing, setPlaying] = useState<Record<string, boolean>>({})
   const [muted,   setMuted]   = useState(false)
+  const mutedRef = useRef(false)
+  useEffect(() => { mutedRef.current = muted }, [muted])
   const [mixerOpen, setMixerOpen] = useState(false)
   const [needsTap,  setNeedsTap]  = useState(false)
   const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
@@ -163,7 +165,7 @@ export default function ViewerPage() {
     if (!audioRefs.current[t.id]) {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
       const a   = new Audio(src)
-      a.loop = t.loop; a.muted = muted
+      a.loop = t.loop; a.muted = mutedRef.current
       let vol = t.volume
       if (scene?.id) {
         try {

@@ -85,10 +85,13 @@ export default function Stage({
   const [layerB, setLayerB] = useState<BgLayer>(() => ({ scene: null, opacity: 0 }))
   const frontLayerRef  = useRef<'a' | 'b'>('a')
   const prevSceneIdRef = useRef<string | null>(scene?.id ?? null)
+  const prevSceneRef   = useRef<Scene | null>(scene ?? null)
 
-  // Derived-state swap: runs during render so both layers commit together
+  // Derived-state swap: runs during render so both layers commit together.
   if (scene?.id !== prevSceneIdRef.current) {
+    // Scene ID changed — full crossfade to the new scene.
     prevSceneIdRef.current = scene?.id ?? null
+    prevSceneRef.current   = scene ?? null
     if (scene) {
       if (frontLayerRef.current === 'a') {
         setLayerB({ scene, opacity: 1 })
@@ -99,6 +102,16 @@ export default function Stage({
         setLayerB(prev => ({ ...prev, opacity: 0 }))
         frontLayerRef.current = 'a'
       }
+    }
+  } else if (scene && scene !== prevSceneRef.current) {
+    // Same scene ID but the scene object was replaced (e.g. after editing and
+    // saving the scene). Update the front layer's scene reference in-place so
+    // the background and track list reflect the new content without a crossfade.
+    prevSceneRef.current = scene
+    if (frontLayerRef.current === 'a') {
+      setLayerA(prev => ({ ...prev, scene }))
+    } else {
+      setLayerB(prev => ({ ...prev, scene }))
     }
   }
 
@@ -167,6 +180,8 @@ export default function Stage({
   const [activeSlot,    setActiveSlot]    = useState<'left' | 'center' | 'right' | null>(null)
   const [panelMode,     setPanelMode]     = useState<'adjust' | 'pick'>('pick')
   const [savedConfirm,  setSavedConfirm]  = useState(false)
+  const savedConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (savedConfirmTimerRef.current) clearTimeout(savedConfirmTimerRef.current) }, [])
   const [charSearch, setCharSearch]   = useState('')
   // Track whether this device has touch so we can disable autoFocus (which
   // opens the keyboard on Android and resizes the stage, hiding the popup).
@@ -847,7 +862,8 @@ export default function Stage({
                   onClick={async () => {
                     await onSaveSlotDisplay(slot)
                     setSavedConfirm(true)
-                    setTimeout(() => setSavedConfirm(false), 1800)
+                    if (savedConfirmTimerRef.current) clearTimeout(savedConfirmTimerRef.current)
+                    savedConfirmTimerRef.current = setTimeout(() => setSavedConfirm(false), 1800)
                   }}
                   style={{
                     width: '100%', minHeight: '40px', borderRadius: '7px', cursor: 'pointer',
