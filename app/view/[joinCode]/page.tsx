@@ -100,8 +100,10 @@ export default function ViewerPage() {
   const outgoingDisposeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Active volume ramps
   const rampClearersRef       = useRef<Map<HTMLAudioElement, () => void>>(new Map())
-  // SFX one-shot playbacks (keyed by unique event id so identical sounds overlap)
-  const sfxAudioRef           = useRef<Record<string, HTMLAudioElement>>({})
+  // SFX one-shot playbacks (keyed by unique event id). Each entry carries
+  // the soundId so a "stop" event from the DM can pause every in-flight
+  // playback for that sound.
+  const sfxAudioRef           = useRef<Record<string, { audio: HTMLAudioElement; soundId: string }>>({})
   const hasInteracted         = useRef(false)
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [playing, setPlaying] = useState<Record<string, boolean>>({})
@@ -182,7 +184,7 @@ export default function ViewerPage() {
       audioHandlers.current = {}
       outgoingRefs.current = {}
       outgoingHandlers.current = {}
-      Object.values(sfxAudioRef.current).forEach(a => { try { a.pause(); a.src = '' } catch {} })
+      Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
       sfxAudioRef.current = {}
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,6 +194,15 @@ export default function ViewerPage() {
   // stays stable — otherwise the realtime session subscription would tear
   // down and resubscribe on every mute toggle.
   const playSfxEvent = useCallback((ev: SfxEvent, soundsList: CampaignSound[]) => {
+    // Stop event: pause any in-flight playbacks of this sound
+    if (ev.stop) {
+      Object.entries(sfxAudioRef.current).forEach(([key, { audio, soundId }]) => {
+        if (soundId !== ev.sound_id) return
+        try { audio.pause(); audio.src = '' } catch {}
+        delete sfxAudioRef.current[key]
+      })
+      return
+    }
     if (!hasInteracted.current) return // browser audio not yet unlocked
     const sound = soundsList.find(s => s.id === ev.sound_id)
     if (!sound) return
@@ -203,8 +214,9 @@ export default function ViewerPage() {
     a.muted = mutedRef.current
     a.volume = ev.volume ?? sound.volume ?? 1
     const playbackKey = ev.id
-    sfxAudioRef.current[playbackKey] = a
+    sfxAudioRef.current[playbackKey] = { audio: a, soundId: ev.sound_id }
     const cleanup = () => {
+      if (!sfxAudioRef.current[playbackKey]) return
       delete sfxAudioRef.current[playbackKey]
       a.removeEventListener('ended', cleanup)
       a.removeEventListener('error', cleanup)
@@ -302,14 +314,15 @@ export default function ViewerPage() {
   function stopAll() {
     Object.values(audioRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
     Object.values(outgoingRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
-    Object.values(sfxAudioRef.current).forEach(a => { try { a.pause(); a.currentTime = 0 } catch {} })
+    Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
+    sfxAudioRef.current = {}
     spotify.stopAll()
   }
   function toggleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
     Object.values(outgoingRefs.current).forEach(a => (a.muted = next))
-    Object.values(sfxAudioRef.current).forEach(a => (a.muted = next))
+    Object.values(sfxAudioRef.current).forEach(({ audio }) => (audio.muted = next))
     spotify.mute(next)
   }
 

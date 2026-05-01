@@ -62,6 +62,7 @@ interface Props {
   userId?: string
   onSoundsChange?: (next: CampaignSound[]) => void
   onPlaySfx?: (sound: CampaignSound) => void
+  onStopSfx?: (soundId: string) => void
 }
 
 const SFX_DEFAULT_VOL    = 1
@@ -85,7 +86,7 @@ export default function Stage({
   characters, slotScales, slotDisplayProps, campaignCharacters,
   onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
   activeOverlays, onOverlayStateChange,
-  sounds, campaignId, userId, onSoundsChange, onPlaySfx,
+  sounds, campaignId, userId, onSoundsChange, onPlaySfx, onStopSfx,
 }: Props) {
   const supabase = createClient()
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -217,10 +218,21 @@ export default function Stage({
   const [sbSettingsOpen, setSbSettingsOpen] = useState(false)
   const [sbUploading,    setSbUploading]    = useState(false)
   const [sbRecentlyPlayed, setSbRecentlyPlayed] = useState<Record<string, number>>({})
+  // Right-click quick-edit popover anchored at cursor position
+  const [sbQuickEdit, setSbQuickEdit] = useState<{ soundId: string; x: number; y: number } | null>(null)
+  // Timestamp the popover was opened. Used by the backdrop to ignore the
+  // trailing pointerup/click from the long-press gesture that opened it —
+  // without this, on touch devices the popover dismisses immediately because
+  // the user's finger is still down when it appears.
+  const sbQuickEditOpenedAtRef = useRef(0)
   const sbFileInputRef   = useRef<HTMLInputElement>(null)
-  // Concurrent SFX playbacks — keyed by a unique playback id, NOT sound id,
-  // so the same sound can overlap if triggered rapidly.
-  const sfxAudioRef      = useRef<Record<string, HTMLAudioElement>>({})
+  // Concurrent SFX playbacks — keyed by a unique playback id. Each entry
+  // tags the soundId so we can find + stop all in-flight playbacks for a
+  // given sound (e.g. when the DM taps the pad a second time).
+  const sfxAudioRef      = useRef<Record<string, { audio: HTMLAudioElement; soundId: string }>>({})
+  // Counts of active playbacks per sound id — drives the pad "playing" UI.
+  // Only used for state-driven re-render; the ref above is the source of truth.
+  const [sfxActiveCounts, setSfxActiveCounts] = useState<Record<string, number>>({})
 
   const playSfxLocal = useCallback((sound: CampaignSound) => {
     const src = sound.signed_url
@@ -231,23 +243,125 @@ export default function Stage({
     a.muted = muted
     a.volume = sound.volume ?? SFX_DEFAULT_VOL
     const playbackId = `${sound.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    sfxAudioRef.current[playbackId] = a
+    sfxAudioRef.current[playbackId] = { audio: a, soundId: sound.id }
+    setSfxActiveCounts(p => ({ ...p, [sound.id]: (p[sound.id] || 0) + 1 }))
     const cleanup = () => {
+      if (!sfxAudioRef.current[playbackId]) return
       delete sfxAudioRef.current[playbackId]
       a.removeEventListener('ended', cleanup)
       a.removeEventListener('error', cleanup)
+      setSfxActiveCounts(p => {
+        const next = { ...p }
+        const v = (next[sound.id] || 1) - 1
+        if (v <= 0) delete next[sound.id]
+        else next[sound.id] = v
+        return next
+      })
     }
     a.addEventListener('ended', cleanup)
     a.addEventListener('error', cleanup)
     a.play().catch(() => cleanup())
-    // Animate the pad briefly
     setSbRecentlyPlayed(prev => ({ ...prev, [sound.id]: Date.now() }))
   }, [muted])
 
+  // Stop every in-flight playback for this sound.
+  const stopSfxLocal = useCallback((soundId: string) => {
+    Object.entries(sfxAudioRef.current).forEach(([key, { audio, soundId: sid }]) => {
+      if (sid !== soundId) return
+      try { audio.pause(); audio.src = '' } catch {}
+      delete sfxAudioRef.current[key]
+    })
+    setSfxActiveCounts(p => {
+      if (!(soundId in p)) return p
+      const next = { ...p }; delete next[soundId]; return next
+    })
+  }, [])
+
+  // Tap-toggle: if any playback for this sound is in flight, stop it; otherwise play.
   const playSfx = useCallback((sound: CampaignSound) => {
-    playSfxLocal(sound)
-    onPlaySfx?.(sound)   // broadcast to viewer when live
-  }, [playSfxLocal, onPlaySfx])
+    const isPlaying = Object.values(sfxAudioRef.current).some(x => x.soundId === sound.id)
+    if (isPlaying) {
+      stopSfxLocal(sound.id)
+      onStopSfx?.(sound.id)
+    } else {
+      playSfxLocal(sound)
+      onPlaySfx?.(sound)
+    }
+  }, [playSfxLocal, stopSfxLocal, onPlaySfx, onStopSfx])
+
+  function openQuickEdit(soundId: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    openQuickEditAt(soundId, e.clientX, e.clientY)
+  }
+
+  function openQuickEditAt(soundId: string, x: number, y: number) {
+    const popW = 280, popH = 130, margin = 12
+    // On touch the user's finger covers the cursor point; nudge the popover
+    // up so it appears above the finger when there's room.
+    const adjustedY = y - popH - 16 >= margin ? y - popH - 16 : y + 16
+    const cx = Math.max(margin, Math.min(x - popW / 2, window.innerWidth - popW - margin))
+    const cy = Math.max(margin, Math.min(adjustedY, window.innerHeight - popH - margin))
+    sbQuickEditOpenedAtRef.current = Date.now()
+    setSbQuickEdit({ soundId, x: cx, y: cy })
+  }
+
+  // ── Pad long-press (touch / pen) → quick edit ────────────────
+  // Mouse uses onContextMenu (right-click). Touch/pen uses a 500ms hold,
+  // cancelled if the pointer moves >10px or releases early.
+  const padLongPressedRef = useRef(false)
+  const padTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const padStartPosRef    = useRef<{ x: number; y: number } | null>(null)
+
+  function handlePadPointerDown(soundId: string, e: React.PointerEvent) {
+    if (e.pointerType === 'mouse') return
+    padLongPressedRef.current = false
+    const x = e.clientX, y = e.clientY
+    padStartPosRef.current = { x, y }
+    if (padTimerRef.current) clearTimeout(padTimerRef.current)
+    padTimerRef.current = setTimeout(() => {
+      padTimerRef.current = null
+      padLongPressedRef.current = true
+      openQuickEditAt(soundId, x, y)
+    }, 500)
+  }
+
+  function handlePadPointerMove(e: React.PointerEvent) {
+    if (!padStartPosRef.current || !padTimerRef.current) return
+    const dx = e.clientX - padStartPosRef.current.x
+    const dy = e.clientY - padStartPosRef.current.y
+    if (dx * dx + dy * dy > 100) {
+      clearTimeout(padTimerRef.current)
+      padTimerRef.current = null
+    }
+  }
+
+  function handlePadPointerUp() {
+    if (padTimerRef.current) { clearTimeout(padTimerRef.current); padTimerRef.current = null }
+    padStartPosRef.current = null
+  }
+
+  function handlePadClick(s: CampaignSound) {
+    if (padLongPressedRef.current) {
+      padLongPressedRef.current = false
+      return
+    }
+    playSfx(s)
+  }
+
+  // Esc / outside click dismiss for the quick-edit popover
+  useEffect(() => {
+    if (!sbQuickEdit) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setSbQuickEdit(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sbQuickEdit])
+
+  // Closing the soundboard panel should also dismiss any open popover.
+  // Otherwise it hovers in the void with no anchor visible.
+  useEffect(() => {
+    if (!soundboardOpen) setSbQuickEdit(null)
+  }, [soundboardOpen])
 
   function showHandout(h: Handout | null) {
     setActiveHandout(h)
@@ -466,8 +580,12 @@ export default function Stage({
       audioHandlers.current = {}
       outgoingRefs.current = {}
       outgoingHandlers.current = {}
-      Object.values(sfxAudioRef.current).forEach(a => { try { a.pause(); a.src = '' } catch {} })
+      Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
       sfxAudioRef.current = {}
+      // Cancel pending volume save debouncers and the long-press timer.
+      Object.values(sbVolumeTimersRef.current).forEach(t => clearTimeout(t))
+      sbVolumeTimersRef.current = {}
+      if (padTimerRef.current) { clearTimeout(padTimerRef.current); padTimerRef.current = null }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -546,14 +664,16 @@ export default function Stage({
   function stopAll() {
     Object.values(audioRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
     Object.values(outgoingRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
-    Object.values(sfxAudioRef.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
+    Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
+    sfxAudioRef.current = {}
+    setSfxActiveCounts({})
     spotify.stopAll()
   }
   function handleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
     Object.values(outgoingRefs.current).forEach(a => (a.muted = next))
-    Object.values(sfxAudioRef.current).forEach(a => (a.muted = next))
+    Object.values(sfxAudioRef.current).forEach(({ audio }) => (audio.muted = next))
     spotify.mute(next)
   }
 
@@ -591,22 +711,39 @@ export default function Stage({
     const trimmed = name.trim()
     if (!trimmed || trimmed === s.name) return
     onSoundsChange((sounds ?? []).map(x => x.id === s.id ? { ...x, name: trimmed } : x))
-    await supabase.from('campaign_sounds').update({ name: trimmed }).eq('id', s.id)
+    const { error } = await supabase.from('campaign_sounds').update({ name: trimmed }).eq('id', s.id)
+    if (error) console.error('[soundboard] rename failed:', error)
   }
 
-  async function handleSbVolume(s: CampaignSound, vol: number) {
+  // Debounce per-sound volume writes — slider drags fire onChange ~60×/sec.
+  const sbVolumeTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  function handleSbVolume(s: CampaignSound, vol: number) {
     if (!onSoundsChange) return
     const v = Math.max(0, Math.min(1, vol))
     onSoundsChange((sounds ?? []).map(x => x.id === s.id ? { ...x, volume: v } : x))
-    await supabase.from('campaign_sounds').update({ volume: v }).eq('id', s.id)
+    // Live-update any in-flight playback of this sound so dragging the slider
+    // changes loudness immediately during preview.
+    Object.values(sfxAudioRef.current).forEach(({ audio, soundId }) => {
+      if (soundId === s.id) audio.volume = v
+    })
+    const existing = sbVolumeTimersRef.current[s.id]
+    if (existing) clearTimeout(existing)
+    sbVolumeTimersRef.current[s.id] = setTimeout(async () => {
+      delete sbVolumeTimersRef.current[s.id]
+      const { error } = await supabase.from('campaign_sounds').update({ volume: v }).eq('id', s.id)
+      if (error) console.error('[soundboard] volume save failed:', error)
+    }, 200)
   }
 
   async function handleSbDelete(s: CampaignSound) {
     if (!onSoundsChange) return
     onSoundsChange((sounds ?? []).filter(x => x.id !== s.id))
-    await supabase.from('campaign_sounds').delete().eq('id', s.id)
+    const { error } = await supabase.from('campaign_sounds').delete().eq('id', s.id)
+    if (error) console.error('[soundboard] delete failed:', error)
     if (s.storage_path) {
-      try { await deleteMedia(supabase, s.storage_path) } catch {}
+      try { await deleteMedia(supabase, s.storage_path) } catch (e) {
+        console.error('[soundboard] storage delete failed:', e)
+      }
     }
   }
 
@@ -1019,79 +1156,199 @@ export default function Stage({
                 </div>
               )}
 
-              {(sounds && sounds.length > 0) || sbEditMode ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                  {(sounds ?? []).map(s => {
-                    const recentlyPlayed = sbRecentlyPlayed[s.id]
-                    const isHot = recentlyPlayed && Date.now() - recentlyPlayed < 600
-                    return (
-                      <div key={s.id} style={{ position: 'relative' }}>
+              {(sounds && sounds.length > 0) ? (
+                sbEditMode ? (
+                  // ── Edit mode: list of rows with rename + volume + delete ──
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {(sounds ?? []).map(s => (
+                      <SfxEditRow
+                        key={s.id}
+                        sound={s}
+                        isPlaying={(sfxActiveCounts[s.id] ?? 0) > 0}
+                        onPlay={() => playSfx(s)}
+                        onRename={(name) => handleSbRename(s, name)}
+                        onVolume={(v) => handleSbVolume(s, v)}
+                        onDelete={() => handleSbDelete(s)}
+                      />
+                    ))}
+                    {/* Add-sound row */}
+                    <button
+                      onClick={() => sbFileInputRef.current?.click()}
+                      disabled={sbUploading}
+                      style={{
+                        width: '100%', height: '40px',
+                        background: 'transparent',
+                        border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
+                        color: 'rgba(255,255,255,0.45)', cursor: sbUploading ? 'wait' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                        fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px',
+                        transition: 'border-color 0.15s ease, color 0.15s ease',
+                      }}
+                      onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
+                    >
+                      <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
+                      <span>{sbUploading ? 'Uploading…' : 'Add sound'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  // ── View mode: responsive grid for fast firing ──
+                  // 4 cols on the standard 320px panel; auto-fills down to ~64px
+                  // pads on narrower viewports so phones get 3 columns instead.
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '8px' }}>
+                    {(sounds ?? []).map(s => {
+                      const recentlyPlayed = sbRecentlyPlayed[s.id]
+                      const isHot     = recentlyPlayed && Date.now() - recentlyPlayed < 600
+                      const isPlaying = (sfxActiveCounts[s.id] ?? 0) > 0
+                      const accent    = isPlaying || isHot
+                      return (
                         <button
-                          onClick={() => !sbEditMode && playSfx(s)}
-                          title={s.name}
+                          key={s.id}
+                          onClick={() => handlePadClick(s)}
+                          onContextMenu={e => openQuickEdit(s.id, e)}
+                          onPointerDown={e => handlePadPointerDown(s.id, e)}
+                          onPointerMove={handlePadPointerMove}
+                          onPointerUp={handlePadPointerUp}
+                          onPointerCancel={handlePadPointerUp}
+                          onPointerLeave={handlePadPointerUp}
+                          title={`${s.name} — ${isPlaying ? 'tap to stop' : 'tap to play'} · right-click or long-press to edit`}
                           style={{
                             width: '100%', aspectRatio: '1 / 1',
-                            background: isHot ? 'rgba(201,168,76,0.22)' : 'rgba(255,255,255,0.04)',
-                            border: `1px solid ${isHot ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
+                            background: isPlaying ? 'rgba(201,168,76,0.28)' : isHot ? 'rgba(201,168,76,0.22)' : 'rgba(255,255,255,0.04)',
+                            border: `1px solid ${accent ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
                             borderRadius: '8px',
-                            color: isHot ? 'var(--accent)' : 'rgba(255,255,255,0.78)',
-                            cursor: sbEditMode ? 'default' : 'pointer',
+                            color: accent ? 'var(--accent)' : 'rgba(255,255,255,0.78)',
+                            cursor: 'pointer',
                             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                            padding: '4px', overflow: 'hidden', transition: 'background 0.15s ease, border-color 0.15s ease',
+                            padding: '4px', overflow: 'hidden',
+                            transition: 'background 0.15s ease, border-color 0.15s ease',
                             fontSize: '9px', fontWeight: 600, letterSpacing: '0.3px', textAlign: 'center',
+                            touchAction: 'manipulation',
+                            WebkitTouchCallout: 'none',
+                            WebkitUserSelect: 'none',
+                            userSelect: 'none',
+                            animation: isPlaying ? 'sfxPadPulse 1.4s ease-in-out infinite' : undefined,
                           }}
-                          onMouseEnter={e => { if (!sbEditMode && !isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
-                          onMouseLeave={e => { if (!sbEditMode && !isHot) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                          onMouseEnter={e => { if (!accent) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                          onMouseLeave={e => { if (!accent) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                         >
-                          <span style={{ fontSize: '16px', marginBottom: '4px', opacity: 0.7 }}>🔊</span>
+                          <span style={{ fontSize: '16px', marginBottom: '4px', opacity: isPlaying ? 1 : 0.7 }}>
+                            {isPlaying ? '⏹' : '🔊'}
+                          </span>
                           <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{s.name}</span>
                         </button>
-                        {sbEditMode && (
-                          <>
-                            <button
-                              onClick={() => {
-                                const name = prompt('Rename sound', s.name)
-                                if (name !== null) handleSbRename(s, name)
-                              }}
-                              title="Rename"
-                              style={{ position: 'absolute', top: '-6px', left: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: 'rgba(13,14,22,0.95)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                            >✎</button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Delete "${s.name}"?`)) handleSbDelete(s)
-                              }}
-                              title="Delete"
-                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: '#e53535', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                            >✕</button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                  {/* Upload pad */}
-                  <button
-                    onClick={() => sbFileInputRef.current?.click()}
-                    disabled={sbUploading}
-                    title="Upload sound"
-                    style={{
-                      width: '100%', aspectRatio: '1 / 1',
-                      background: 'transparent',
-                      border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
-                      color: 'rgba(255,255,255,0.4)', cursor: sbUploading ? 'wait' : 'pointer',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '20px', transition: 'border-color 0.15s ease, color 0.15s ease',
-                    }}
-                    onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
-                  >
-                    {sbUploading ? <span style={{ fontSize: '10px', fontWeight: 600 }}>…</span> : '+'}
-                  </button>
-                </div>
+                      )
+                    })}
+                    {/* Upload pad */}
+                    <button
+                      onClick={() => sbFileInputRef.current?.click()}
+                      disabled={sbUploading}
+                      title="Upload sound"
+                      style={{
+                        width: '100%', aspectRatio: '1 / 1',
+                        background: 'transparent',
+                        border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
+                        color: 'rgba(255,255,255,0.4)', cursor: sbUploading ? 'wait' : 'pointer',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '20px', transition: 'border-color 0.15s ease, color 0.15s ease',
+                        touchAction: 'manipulation',
+                      }}
+                      onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+                    >
+                      {sbUploading ? <span style={{ fontSize: '10px', fontWeight: 600 }}>…</span> : '+'}
+                    </button>
+                  </div>
+                )
               ) : null}
             </div>
           </div>
         )}
       </div>
+
+      {/* ── Soundboard quick-edit popover (right-click / long-press on a pad) ── */}
+      {sbQuickEdit && (() => {
+        const s = (sounds ?? []).find(x => x.id === sbQuickEdit.soundId)
+        if (!s) return null
+        const isSfxPlaying = (sfxActiveCounts[s.id] ?? 0) > 0
+        // Backdrop ignores dismiss attempts within the grace window so the
+        // trailing pointerup/click from the gesture that opened the popover
+        // doesn't immediately close it.
+        const tryDismiss = () => {
+          if (Date.now() - sbQuickEditOpenedAtRef.current < 350) return
+          setSbQuickEdit(null)
+        }
+        return (
+          <>
+            {/* Backdrop catches outside clicks */}
+            <div
+              onPointerDown={tryDismiss}
+              onContextMenu={e => { e.preventDefault(); tryDismiss() }}
+              style={{ position: 'fixed', inset: 0, zIndex: 60 }}
+            />
+            <div
+              onClick={e => e.stopPropagation()}
+              onPointerDown={e => e.stopPropagation()}
+              style={{
+                position: 'fixed',
+                top: sbQuickEdit.y, left: sbQuickEdit.x,
+                width: '280px', zIndex: 61,
+                background: 'rgba(18,20,30,0.99)',
+                border: '1px solid rgba(255,255,255,0.16)',
+                borderRadius: '10px', padding: '12px',
+                boxShadow: '0 16px 48px rgba(0,0,0,0.7)',
+                display: 'flex', flexDirection: 'column', gap: '10px',
+              }}
+            >
+              {/* Top row: preview · name input · close */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => playSfx(s)}
+                  title={isSfxPlaying ? 'Stop' : 'Preview'}
+                  style={{
+                    width: '36px', height: '36px', flexShrink: 0, borderRadius: '6px',
+                    border: `1px solid ${isSfxPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
+                    background: isSfxPlaying ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.05)',
+                    color: isSfxPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.75)',
+                    fontSize: '12px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    touchAction: 'manipulation',
+                  }}
+                >{isSfxPlaying ? '⏹' : '▶'}</button>
+                <input
+                  type="text"
+                  defaultValue={s.name}
+                  spellCheck={false}
+                  onBlur={e => handleSbRename(s, e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+                    else if (e.key === 'Escape') setSbQuickEdit(null)
+                  }}
+                  style={{ flex: 1, minWidth: 0, height: '36px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '13px', fontFamily: 'inherit', outline: 'none' }}
+                />
+                <button
+                  onClick={() => setSbQuickEdit(null)}
+                  title="Close"
+                  style={{ width: '36px', height: '36px', flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.55)', cursor: 'pointer', fontSize: '14px', touchAction: 'manipulation' }}
+                >✕</button>
+              </div>
+              {/* Bottom row: volume — taller slider for easier touch drag */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
+                <input
+                  type="range" min={0} max={1} step={0.01} value={s.volume ?? 1}
+                  onChange={e => handleSbVolume(s, Number(e.target.value))}
+                  onClick={e => e.stopPropagation()}
+                  onPointerDown={e => e.stopPropagation()}
+                  onTouchStart={e => e.stopPropagation()}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '32px', touchAction: 'none' }}
+                />
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', width: '36px', textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{Math.round((s.volume ?? 1) * 100)}%</span>
+              </div>
+            </div>
+          </>
+        )
+      })()}
 
       {/* ── Handout lightbox ── */}
       {activeHandout && (
@@ -1418,12 +1675,125 @@ export default function Stage({
         @keyframes audioBar3{from{height:5px}to{height:14px}}
         @keyframes audioBar4{from{height:11px}to{height:4px}}
         @keyframes sceneFadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes sfxPadPulse{0%,100%{box-shadow:0 0 0 0 rgba(201,168,76,0)}50%{box-shadow:0 0 0 3px rgba(201,168,76,0.25)}}
       `}</style>
     </div>
   )
 }
 
 import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
+
+// ── Soundboard edit row ────────────────────────────────────────
+// Renders one sound in edit mode: preview play, name input (saves on
+// blur/Enter), volume slider, and a 2-stage delete (one click arms a
+// red confirm; second click within 4s confirms; click anywhere else
+// or wait → cancels).
+
+interface SfxEditRowProps {
+  sound:     CampaignSound
+  isPlaying: boolean
+  onPlay:    () => void
+  onRename:  (name: string) => void
+  onVolume:  (v: number) => void
+  onDelete:  () => void
+}
+
+function SfxEditRow({ sound, isPlaying, onPlay, onRename, onVolume, onDelete }: SfxEditRowProps) {
+  const [draftName, setDraftName] = useState(sound.name)
+  const [confirming, setConfirming] = useState(false)
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep input in sync if the sound is renamed elsewhere (e.g. realtime).
+  useEffect(() => { setDraftName(sound.name) }, [sound.name])
+
+  useEffect(() => () => {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+  }, [])
+
+  function commitName() {
+    const trimmed = draftName.trim()
+    if (!trimmed) { setDraftName(sound.name); return }
+    if (trimmed !== sound.name) onRename(trimmed)
+  }
+
+  function armDelete() {
+    setConfirming(true)
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+    confirmTimerRef.current = setTimeout(() => setConfirming(false), 4000)
+  }
+
+  function cancelDelete() {
+    setConfirming(false)
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+  }
+
+  const vol = sound.volume ?? 1
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      {/* Top row: play, name, delete */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          onClick={onPlay}
+          title={isPlaying ? 'Stop' : 'Preview'}
+          style={{
+            width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px',
+            border: `1px solid ${isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
+            background: isPlaying ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.05)',
+            color: isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.7)',
+            fontSize: '11px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            touchAction: 'manipulation',
+          }}
+        >{isPlaying ? '⏹' : '▶'}</button>
+        <input
+          type="text"
+          value={draftName}
+          onChange={e => setDraftName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.currentTarget.blur() }
+            else if (e.key === 'Escape') { setDraftName(sound.name); e.currentTarget.blur() }
+          }}
+          spellCheck={false}
+          style={{ flex: 1, minWidth: 0, height: '32px', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '12px', fontFamily: 'inherit', outline: 'none' }}
+        />
+        {!confirming ? (
+          <button
+            onClick={armDelete}
+            title="Delete"
+            style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.55)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >✕</button>
+        ) : (
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+            <button
+              onClick={cancelDelete}
+              title="Cancel"
+              style={{ height: '32px', padding: '0 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
+            >Cancel</button>
+            <button
+              onClick={() => { cancelDelete(); onDelete() }}
+              title="Confirm delete"
+              style={{ height: '32px', padding: '0 10px', borderRadius: '6px', border: '1px solid rgba(229,53,53,0.5)', background: 'rgba(229,53,53,0.18)', color: '#ff7a7a', fontSize: '10px', fontWeight: 700, letterSpacing: '0.4px', cursor: 'pointer' }}
+            >Delete</button>
+          </div>
+        )}
+      </div>
+      {/* Bottom row: volume slider */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
+        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
+        <input
+          type="range" min={0} max={1} step={0.01} value={vol}
+          onChange={e => onVolume(Number(e.target.value))}
+          onClick={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()}
+          style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
+        />
+        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '32px', textAlign: 'right', flexShrink: 0 }}>{Math.round(vol * 100)}%</span>
+      </div>
+    </div>
+  )
+}
 
 interface MiniTrackRowProps {
   t:          Track
