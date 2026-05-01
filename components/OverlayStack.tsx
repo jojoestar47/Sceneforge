@@ -77,19 +77,11 @@ function OverlayVideo({ src, blendMode, opacity, scale, panX, panY, playbackRate
 
   // Pause the video while it's faded out — no point decoding every frame
   // when the overlay is invisible. Resume playback as soon as it becomes visible.
-  //
-  // IMPORTANT: don't pause immediately when opacity hits 0. The wrapper has a
-  // 600ms CSS opacity transition, so pausing synchronously freezes the video on
-  // its current frame for the entire fade-out — it looks like the overlay
-  // "paused on stage". Defer the pause until after the transition completes.
-  // The cleanup cancels the timer if the overlay is re-enabled mid-fade so the
-  // video keeps playing seamlessly.
   useEffect(() => {
     const v = vidRef.current
     if (!v) return
     if (opacity === 0) {
-      const timer = setTimeout(() => { v.pause() }, 650) // 600ms transition + 50ms buffer
-      return () => clearTimeout(timer)
+      v.pause()
     } else if (v.paused) {
       v.play().catch(() => {})
     }
