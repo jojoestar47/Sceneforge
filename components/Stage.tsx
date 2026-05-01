@@ -220,6 +220,11 @@ export default function Stage({
   const [sbRecentlyPlayed, setSbRecentlyPlayed] = useState<Record<string, number>>({})
   // Right-click quick-edit popover anchored at cursor position
   const [sbQuickEdit, setSbQuickEdit] = useState<{ soundId: string; x: number; y: number } | null>(null)
+  // Timestamp the popover was opened. Used by the backdrop to ignore the
+  // trailing pointerup/click from the long-press gesture that opened it —
+  // without this, on touch devices the popover dismisses immediately because
+  // the user's finger is still down when it appears.
+  const sbQuickEditOpenedAtRef = useRef(0)
   const sbFileInputRef   = useRef<HTMLInputElement>(null)
   // Concurrent SFX playbacks — keyed by a unique playback id. Each entry
   // tags the soundId so we can find + stop all in-flight playbacks for a
@@ -291,9 +296,13 @@ export default function Stage({
   }
 
   function openQuickEditAt(soundId: string, x: number, y: number) {
-    const popW = 280, popH = 110, margin = 12
-    const cx = Math.max(margin, Math.min(x, window.innerWidth - popW - margin))
-    const cy = Math.max(margin, Math.min(y, window.innerHeight - popH - margin))
+    const popW = 280, popH = 130, margin = 12
+    // On touch the user's finger covers the cursor point; nudge the popover
+    // up so it appears above the finger when there's room.
+    const adjustedY = y - popH - 16 >= margin ? y - popH - 16 : y + 16
+    const cx = Math.max(margin, Math.min(x - popW / 2, window.innerWidth - popW - margin))
+    const cy = Math.max(margin, Math.min(adjustedY, window.innerHeight - popH - margin))
+    sbQuickEditOpenedAtRef.current = Date.now()
     setSbQuickEdit({ soundId, x: cx, y: cy })
   }
 
@@ -1238,29 +1247,37 @@ export default function Stage({
         )}
       </div>
 
-      {/* ── Soundboard quick-edit popover (right-click on a pad) ── */}
+      {/* ── Soundboard quick-edit popover (right-click / long-press on a pad) ── */}
       {sbQuickEdit && (() => {
         const s = (sounds ?? []).find(x => x.id === sbQuickEdit.soundId)
         if (!s) return null
+        // Backdrop ignores dismiss attempts within the grace window so the
+        // trailing pointerup/click from the gesture that opened the popover
+        // doesn't immediately close it.
+        const tryDismiss = () => {
+          if (Date.now() - sbQuickEditOpenedAtRef.current < 350) return
+          setSbQuickEdit(null)
+        }
         return (
           <>
             {/* Backdrop catches outside clicks */}
             <div
-              onClick={() => setSbQuickEdit(null)}
-              onContextMenu={e => { e.preventDefault(); setSbQuickEdit(null) }}
+              onPointerDown={tryDismiss}
+              onContextMenu={e => { e.preventDefault(); tryDismiss() }}
               style={{ position: 'fixed', inset: 0, zIndex: 60 }}
             />
             <div
               onClick={e => e.stopPropagation()}
+              onPointerDown={e => e.stopPropagation()}
               style={{
                 position: 'fixed',
                 top: sbQuickEdit.y, left: sbQuickEdit.x,
                 width: '280px', zIndex: 61,
                 background: 'rgba(18,20,30,0.99)',
                 border: '1px solid rgba(255,255,255,0.16)',
-                borderRadius: '10px', padding: '10px',
+                borderRadius: '10px', padding: '12px',
                 boxShadow: '0 16px 48px rgba(0,0,0,0.7)',
-                display: 'flex', flexDirection: 'column', gap: '8px',
+                display: 'flex', flexDirection: 'column', gap: '10px',
               }}
             >
               {/* Top row: preview · name input · close */}
@@ -1268,37 +1285,37 @@ export default function Stage({
                 <button
                   onClick={() => playSfx(s)}
                   title="Preview"
-                  style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ width: '36px', height: '36px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.75)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
                 >▶</button>
                 <input
                   type="text"
                   defaultValue={s.name}
-                  autoFocus
                   spellCheck={false}
                   onBlur={e => handleSbRename(s, e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
                     else if (e.key === 'Escape') setSbQuickEdit(null)
                   }}
-                  style={{ flex: 1, minWidth: 0, height: '32px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '12px', fontFamily: 'inherit', outline: 'none' }}
+                  style={{ flex: 1, minWidth: 0, height: '36px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '13px', fontFamily: 'inherit', outline: 'none' }}
                 />
                 <button
                   onClick={() => setSbQuickEdit(null)}
                   title="Close"
-                  style={{ width: '28px', height: '32px', flexShrink: 0, background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px' }}
+                  style={{ width: '36px', height: '36px', flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.55)', cursor: 'pointer', fontSize: '14px', touchAction: 'manipulation' }}
                 >✕</button>
               </div>
-              {/* Bottom row: volume */}
+              {/* Bottom row: volume — taller slider for easier touch drag */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
                 <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
                 <input
                   type="range" min={0} max={1} step={0.01} value={s.volume ?? 1}
                   onChange={e => handleSbVolume(s, Number(e.target.value))}
                   onClick={e => e.stopPropagation()}
+                  onPointerDown={e => e.stopPropagation()}
                   onTouchStart={e => e.stopPropagation()}
-                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '32px', touchAction: 'none' }}
                 />
-                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '32px', textAlign: 'right', flexShrink: 0 }}>{Math.round((s.volume ?? 1) * 100)}%</span>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', width: '36px', textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{Math.round((s.volume ?? 1) * 100)}%</span>
               </div>
             </div>
           </>
