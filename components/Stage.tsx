@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { Scene, Track, Character, Handout, SceneOverlay, OverlayLiveState, CampaignSound } from '@/lib/types'
 import { uploadMedia, deleteMedia, publicStorageUrl } from '@/lib/supabase/storage'
 import { createClient } from '@/lib/supabase/client'
-import CharacterDisplay, { characterImageUrl } from '@/components/CharacterDisplay'
+import CharacterDisplay from '@/components/CharacterDisplay'
+import { mediaUrl, characterImageUrl } from '@/lib/media'
 import AppIcon from '@/components/AppIcon'
 import HandoutLightbox from '@/components/HandoutLightbox'
 import OverlayStack from '@/components/OverlayStack'
@@ -70,11 +71,6 @@ const CROSSFADE_DEFAULT  = 1500
 const CROSSFADE_MAX      = 5000
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
-
-function mediaUrl(m: Scene['bg']): string | null {
-  if (!m) return null
-  return m.signed_url || m.url || null
-}
 
 interface BgLayer { scene: Scene | null; opacity: number }
 
@@ -1027,7 +1023,7 @@ export default function Stage({
             </div>
             <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '6px 8px' }}>
               {handouts.map(h => {
-                const imgUrl = h.media?.signed_url || h.media?.url || null
+                const imgUrl = mediaUrl(h.media)
                 return (
                   <button
                     key={h.id}
