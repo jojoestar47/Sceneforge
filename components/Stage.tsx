@@ -217,6 +217,8 @@ export default function Stage({
   const [sbSettingsOpen, setSbSettingsOpen] = useState(false)
   const [sbUploading,    setSbUploading]    = useState(false)
   const [sbRecentlyPlayed, setSbRecentlyPlayed] = useState<Record<string, number>>({})
+  // Right-click quick-edit popover anchored at cursor position
+  const [sbQuickEdit, setSbQuickEdit] = useState<{ soundId: string; x: number; y: number } | null>(null)
   const sbFileInputRef   = useRef<HTMLInputElement>(null)
   // Concurrent SFX playbacks — keyed by a unique playback id, NOT sound id,
   // so the same sound can overlap if triggered rapidly.
@@ -248,6 +250,23 @@ export default function Stage({
     playSfxLocal(sound)
     onPlaySfx?.(sound)   // broadcast to viewer when live
   }, [playSfxLocal, onPlaySfx])
+
+  function openQuickEdit(soundId: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const popW = 280, popH = 110, margin = 12
+    const x = Math.max(margin, Math.min(e.clientX, window.innerWidth - popW - margin))
+    const y = Math.max(margin, Math.min(e.clientY, window.innerHeight - popH - margin))
+    setSbQuickEdit({ soundId, x, y })
+  }
+
+  // Esc / outside click dismiss for the quick-edit popover
+  useEffect(() => {
+    if (!sbQuickEdit) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setSbQuickEdit(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sbQuickEdit])
 
   function showHandout(h: Handout | null) {
     setActiveHandout(h)
@@ -591,7 +610,8 @@ export default function Stage({
     const trimmed = name.trim()
     if (!trimmed || trimmed === s.name) return
     onSoundsChange((sounds ?? []).map(x => x.id === s.id ? { ...x, name: trimmed } : x))
-    await supabase.from('campaign_sounds').update({ name: trimmed }).eq('id', s.id)
+    const { error } = await supabase.from('campaign_sounds').update({ name: trimmed }).eq('id', s.id)
+    if (error) console.error('[soundboard] rename failed:', error)
   }
 
   // Debounce per-sound volume writes — slider drags fire onChange ~60×/sec.
@@ -604,7 +624,8 @@ export default function Stage({
     if (existing) clearTimeout(existing)
     sbVolumeTimersRef.current[s.id] = setTimeout(async () => {
       delete sbVolumeTimersRef.current[s.id]
-      await supabase.from('campaign_sounds').update({ volume: v }).eq('id', s.id)
+      const { error } = await supabase.from('campaign_sounds').update({ volume: v }).eq('id', s.id)
+      if (error) console.error('[soundboard] volume save failed:', error)
     }, 200)
   }
 
@@ -1070,7 +1091,8 @@ export default function Stage({
                         <button
                           key={s.id}
                           onClick={() => playSfx(s)}
-                          title={s.name}
+                          onContextMenu={e => openQuickEdit(s.id, e)}
+                          title={`${s.name} — right-click to edit`}
                           style={{
                             width: '100%', aspectRatio: '1 / 1',
                             background: isHot ? 'rgba(201,168,76,0.22)' : 'rgba(255,255,255,0.04)',
@@ -1115,6 +1137,73 @@ export default function Stage({
           </div>
         )}
       </div>
+
+      {/* ── Soundboard quick-edit popover (right-click on a pad) ── */}
+      {sbQuickEdit && (() => {
+        const s = (sounds ?? []).find(x => x.id === sbQuickEdit.soundId)
+        if (!s) return null
+        return (
+          <>
+            {/* Backdrop catches outside clicks */}
+            <div
+              onClick={() => setSbQuickEdit(null)}
+              onContextMenu={e => { e.preventDefault(); setSbQuickEdit(null) }}
+              style={{ position: 'fixed', inset: 0, zIndex: 60 }}
+            />
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                position: 'fixed',
+                top: sbQuickEdit.y, left: sbQuickEdit.x,
+                width: '280px', zIndex: 61,
+                background: 'rgba(18,20,30,0.99)',
+                border: '1px solid rgba(255,255,255,0.16)',
+                borderRadius: '10px', padding: '10px',
+                boxShadow: '0 16px 48px rgba(0,0,0,0.7)',
+                display: 'flex', flexDirection: 'column', gap: '8px',
+              }}
+            >
+              {/* Top row: preview · name input · close */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => playSfx(s)}
+                  title="Preview"
+                  style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >▶</button>
+                <input
+                  type="text"
+                  defaultValue={s.name}
+                  autoFocus
+                  spellCheck={false}
+                  onBlur={e => handleSbRename(s, e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+                    else if (e.key === 'Escape') setSbQuickEdit(null)
+                  }}
+                  style={{ flex: 1, minWidth: 0, height: '32px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '12px', fontFamily: 'inherit', outline: 'none' }}
+                />
+                <button
+                  onClick={() => setSbQuickEdit(null)}
+                  title="Close"
+                  style={{ width: '28px', height: '32px', flexShrink: 0, background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px' }}
+                >✕</button>
+              </div>
+              {/* Bottom row: volume */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
+                <input
+                  type="range" min={0} max={1} step={0.01} value={s.volume ?? 1}
+                  onChange={e => handleSbVolume(s, Number(e.target.value))}
+                  onClick={e => e.stopPropagation()}
+                  onTouchStart={e => e.stopPropagation()}
+                  style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
+                />
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '32px', textAlign: 'right', flexShrink: 0 }}>{Math.round((s.volume ?? 1) * 100)}%</span>
+              </div>
+            </div>
+          </>
+        )
+      })()}
 
       {/* ── Handout lightbox ── */}
       {activeHandout && (
