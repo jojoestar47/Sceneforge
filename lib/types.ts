@@ -96,6 +96,29 @@ export interface Track {
   created_at: string
 }
 
+// ── Soundboard ────────────────────────────────────────────────
+
+export interface CampaignSound {
+  id: string
+  campaign_id: string
+  name: string
+  url?: string | null
+  storage_path?: string | null
+  signed_url?: string        // resolved client-side, not stored in DB
+  file_name?: string | null
+  volume: number
+  order_index: number
+  created_at: string
+}
+
+/** Live SFX event written to sessions.active_sfx_event to trigger viewer playback. */
+export interface SfxEvent {
+  id:        string   // unique per trigger (so identical sound re-plays still register)
+  sound_id:  string
+  played_at: number   // ms epoch
+  volume?:   number   // override of sound's stored volume
+}
+
 // ── Characters ────────────────────────────────────────────────
 
 export interface CampaignTag {

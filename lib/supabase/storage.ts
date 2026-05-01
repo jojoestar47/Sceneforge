@@ -1,4 +1,4 @@
-import type { Campaign, Character, Handout, MediaRef, Scene, Track } from '@/lib/types'
+import type { Campaign, CampaignSound, Character, Handout, MediaRef, Scene, Track } from '@/lib/types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const BUCKET = 'scene-media'
@@ -71,6 +71,13 @@ export function resolveCampaignCovers(campaigns: Campaign[]): Campaign[] {
 export function resolveCharacterUrls(characters: Character[]): Character[] {
   return characters.map(c =>
     c.storage_path ? { ...c, signed_url: publicStorageUrl(c.storage_path) } : c
+  )
+}
+
+/** Stamp public URLs onto a soundboard array. Synchronous. */
+export function resolveSoundUrls(sounds: CampaignSound[]): CampaignSound[] {
+  return sounds.map(s =>
+    s.storage_path ? { ...s, signed_url: publicStorageUrl(s.storage_path) } : s
   )
 }
 
