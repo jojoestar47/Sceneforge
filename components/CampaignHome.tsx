@@ -4,6 +4,7 @@ import { memo, useCallback, useRef, useState } from 'react'
 import Image from 'next/image'
 import type { Campaign } from '@/lib/types'
 import { formatDate } from '@/lib/format'
+import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import AppIcon from '@/components/AppIcon'
 
 interface Props {
@@ -147,9 +148,7 @@ const CampaignCard = memo(function CampaignCard({
 export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover, onUpdateName, onUpdateDescription, onDelete }: Props) {
   const [hoveredId,  setHoveredId]  = useState<string | null>(null)
   const [hoveredNew, setHoveredNew] = useState(false)
-  const [isTouchDevice] = useState(() =>
-    typeof window !== 'undefined' && navigator.maxTouchPoints > 0
-  )
+  const isTouchDevice = useIsTouchDevice()
 
   // Settings modal state
   const [settingsId,    setSettingsId]    = useState<string | null>(null)
