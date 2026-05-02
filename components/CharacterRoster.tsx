@@ -275,6 +275,7 @@ const CharacterCard = memo(function CharacterCard({
             {/* Flip back button */}
             <button
               onClick={e => { e.stopPropagation(); onFlip(c.id) }}
+              className="corner-icon-btn"
               style={{
                 position: 'absolute', top: '8px', right: '8px',
                 width: '22px', height: '22px', borderRadius: '50%', padding: 0,
@@ -290,6 +291,7 @@ const CharacterCard = memo(function CharacterCard({
               <button
                 onClick={e => { e.stopPropagation(); onStartPositioning(c) }}
                 title="Reposition image"
+                className="corner-icon-btn"
                 style={{
                   position: 'absolute', top: '8px', left: '8px',
                   width: '22px', height: '22px', borderRadius: '50%', padding: 0,

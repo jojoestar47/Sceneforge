@@ -359,9 +359,12 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
             onClick={e => e.stopPropagation()}
             style={{
               background: 'var(--bg-panel)', border: '1px solid var(--border)',
-              borderRadius: '16px', width: '360px', padding: '28px',
+              borderRadius: '16px',
+              width: 'min(360px, calc(100vw - 24px))',
+              maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
+              padding: 'clamp(18px, 4vw, 28px)',
               boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
-              display: 'flex', flexDirection: 'column', gap: '20px',
+              display: 'flex', flexDirection: 'column', gap: '18px',
             }}
           >
             {/* Header */}
@@ -457,27 +460,27 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 )
               )}
               {positioningCover ? (
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     onClick={() => setPositioningCover(false)}
                     disabled={savingCoverPos}
                     className="btn btn-ghost btn-sm"
-                    style={{ flex: 1 }}
+                    style={{ flex: '1 1 120px' }}
                   >Cancel</button>
                   <button
                     onClick={saveCoverPosition}
                     disabled={savingCoverPos}
                     className="btn btn-outline btn-sm"
-                    style={{ flex: 1 }}
+                    style={{ flex: '1 1 120px' }}
                   >{savingCoverPos ? 'Saving…' : 'Save Position'}</button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploadingCover}
                     className="btn btn-outline btn-sm"
-                    style={{ flex: 1 }}
+                    style={{ flex: '1 1 120px' }}
                   >
                     {uploadingCover ? 'Uploading…' : settingsCamp.cover_signed_url ? 'Change Cover' : 'Add Cover'}
                   </button>
@@ -485,7 +488,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                     <button
                       onClick={startCoverPositioning}
                       className="btn btn-outline btn-sm"
-                      style={{ flex: 1 }}
+                      style={{ flex: '1 1 120px' }}
                     >
                       Reposition
                     </button>

@@ -83,6 +83,8 @@ html, body {
 @media (pointer: coarse) {
   .btn { min-height: 40px; }
   .btn-sm { min-height: 36px; padding: 6px 12px; }
+  /* Small icon-only corner buttons (e.g. flip-back, reposition on cards) */
+  .corner-icon-btn { width: 32px !important; height: 32px !important; font-size: 13px !important; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
 
