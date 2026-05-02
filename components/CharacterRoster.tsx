@@ -4,27 +4,10 @@ import { memo, useCallback, useMemo, useState } from 'react'
 import type { Character, CampaignTag } from '@/lib/types'
 import { formatDate } from '@/lib/format'
 import { characterImageUrl } from '@/lib/media'
+import { tagColor as getColor } from '@/lib/tagColor'
 import AppIcon from '@/components/AppIcon'
 import UploadZone from '@/components/UploadZone'
 import ImagePositioner from '@/components/ImagePositioner'
-
-// Legacy named colours kept for any existing DB rows
-const LEGACY_COLORS: Record<string, string> = {
-  gold: '#c9a84c', blue: '#64a0ff', purple: '#a064f0',
-  green: '#50c882', red: '#f06464', orange: '#f0a03c',
-}
-
-function getColor(color: string) {
-  const hex = color.startsWith('#') ? color : (LEGACY_COLORS[color] ?? '#c9a84c')
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return {
-    bg:     `rgba(${r},${g},${b},0.15)`,
-    border: `rgba(${r},${g},${b},0.4)`,
-    text:   hex,
-  }
-}
 
 function EditIcon({ size = 13 }: { size?: number }) {
   return (
@@ -110,10 +93,15 @@ const CharacterCard = memo(function CharacterCard({
   onStartEditName, onChangeEditName, onCancelEditName, onSaveName, onToggleTag,
   onStartPositioning, onChangePosition, onSavePosition, onCancelPosition,
 }: CharacterCardProps) {
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
+
   const imgUrl = characterImageUrl(c)
   const cardTags   = c.tags ?? []
   const imageX = c.image_x ?? 50
   const imageY = c.image_y ?? 50
+
+  const assignedTags   = campaignTags.filter(t => cardTags.includes(t.id))
+  const availableTags  = campaignTags.filter(t => !cardTags.includes(t.id))
 
   // While repositioning, suppress the flip transform and tilt so the user
   // can drag a stable surface — the back face stays hidden and the front
@@ -368,23 +356,75 @@ const CharacterCard = memo(function CharacterCard({
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                  {campaignTags.map(tag => {
-                    const col      = getColor(tag.color)
-                    const assigned = cardTags.includes(tag.id)
+                  {/* Assigned tags — click × to remove */}
+                  {assignedTags.map(tag => {
+                    const col = getColor(tag.color)
+                    return (
+                      <span
+                        key={tag.id}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                          padding: '3px 4px 3px 10px', borderRadius: '12px',
+                          fontSize: '10px', fontWeight: 600,
+                          background: col.bg, border: `1px solid ${col.border}`, color: col.text,
+                        }}
+                      >
+                        {tag.name}
+                        <button
+                          onClick={e => { e.stopPropagation(); onToggleTag(c, tag.id) }}
+                          title="Remove tag"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: '14px', height: '14px', padding: 0, borderRadius: '50%',
+                            background: 'rgba(0,0,0,0.25)', border: 'none', cursor: 'pointer',
+                            color: 'inherit', fontSize: '11px', lineHeight: 1, opacity: 0.7,
+                          }}
+                        >×</button>
+                      </span>
+                    )
+                  })}
+
+                  {/* Add-tag button (only if there are unassigned tags) */}
+                  {availableTags.length > 0 && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setTagPickerOpen(o => !o) }}
+                      style={{
+                        padding: '3px 9px', borderRadius: '12px', cursor: 'pointer',
+                        fontSize: '10px', fontWeight: 600,
+                        background:  tagPickerOpen ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)',
+                        border:      `1px dashed ${tagPickerOpen ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.18)'}`,
+                        color:       'var(--text-2)',
+                        transition:  'all 0.15s',
+                      }}
+                    >
+                      {tagPickerOpen ? '× Close' : `+ Add tag (${availableTags.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Available tags reveal — click to assign */}
+              {tagPickerOpen && availableTags.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border)' }}>
+                  {availableTags.map(tag => {
+                    const col = getColor(tag.color)
                     return (
                       <button
                         key={tag.id}
                         onClick={e => { e.stopPropagation(); onToggleTag(c, tag.id) }}
                         style={{
-                          padding: '4px 10px', borderRadius: '12px', cursor: 'pointer',
+                          padding: '3px 9px', borderRadius: '12px', cursor: 'pointer',
                           fontSize: '10px', fontWeight: 600,
-                          background:  assigned ? col.bg  : 'rgba(255,255,255,0.03)',
-                          border:      assigned ? `1px solid ${col.border}` : '1px solid rgba(255,255,255,0.1)',
-                          color:       assigned ? col.text : 'var(--text-3)',
-                          transition:  'all 0.15s',
+                          background: 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${col.border}`,
+                          color: col.text,
+                          opacity: 0.85,
+                          transition: 'all 0.15s',
                         }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = col.bg }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.85'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
                       >
-                        {assigned ? '✓ ' : ''}{tag.name}
+                        + {tag.name}
                       </button>
                     )
                   })}
