@@ -1001,7 +1001,7 @@ export default function Stage({
       )}
 
       {/* ── Scene name ── */}
-      <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '14px', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
+      <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: 'calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 14px calc(14px + env(safe-area-inset-left))', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
         {scene.name}
       </div>
 
@@ -1015,7 +1015,7 @@ export default function Stage({
       )}
 
       {/* ── Top corner: Edit + Handouts + Fullscreen (opposite corner from mixer) ── */}
-      <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'right' : 'left']: '14px', zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
+      <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'right' : 'left']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'right' : 'left'}))`, zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
         {/* Button row */}
         <div style={{ display: 'flex', gap: '8px' }}>
           {handouts.length > 0 && (
@@ -1764,7 +1764,7 @@ export default function Stage({
 
       {/* ── Audio Mixer ── */}
       {hasTracks && (
-        <div style={{ position: 'absolute', top: '14px', [mixerPos === 'top-left' ? 'left' : 'right']: '14px', zIndex: 20, width: '240px' }}>
+        <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'left' : 'right']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'left' : 'right'}))`, zIndex: 20, width: '240px' }}>
           <div onClick={() => setExpanded(e => !e)}
             style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: expanded ? '10px 10px 0 0' : '10px', padding: '0 10px', height: '44px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>

@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { isIosWebkit } from '@/lib/platform'
 
 export default function SpotifyConnect() {
   const [connected,    setConnected]    = useState<boolean | null>(null) // null = loading
   const [disconnecting, setDisconnecting] = useState(false)
+  const [unsupported]  = useState(() => isIosWebkit())
 
   useEffect(() => {
     fetch('/api/spotify/token')
@@ -30,6 +32,32 @@ export default function SpotifyConnect() {
   }
 
   if (connected === null) return null
+
+  if (unsupported) {
+    return (
+      <span
+        title="Spotify Web Playback isn’t supported on iPhone or iPad. Use a desktop browser to stream tracks."
+        className="btn-sm"
+        style={{
+          display:     'flex',
+          alignItems:  'center',
+          gap:         '6px',
+          background:  'rgba(255,255,255,0.04)',
+          border:      '1px solid var(--border)',
+          borderRadius: '6px',
+          padding:     '4px 10px',
+          color:       'var(--text-3)',
+          fontSize:    '11px',
+          fontWeight:  600,
+          whiteSpace:  'nowrap',
+          cursor:      'help',
+        }}
+      >
+        <SpotifyIcon size={13} color="currentColor" />
+        <span className="topbar-label">Not on iOS</span>
+      </span>
+    )
+  }
 
   if (connected) {
     return (

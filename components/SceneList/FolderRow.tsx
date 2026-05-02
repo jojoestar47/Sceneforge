@@ -193,42 +193,77 @@ export default function FolderRow({
           }}>{folderScenes.length}</span>
         )}
 
-        {/* Folder reorder arrows */}
+        {/* Folder reorder arrows — desktop fades in on hover, touch always shows them */}
         {!renaming && onFolderReorder && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0 }}>
-            <button
-              onClick={e => { e.stopPropagation(); if (canMoveUp) onFolderReorder(folder.id, folders[folderIndex - 1].id) }}
-              style={{
-                width: '14px', height: '13px', border: 'none', background: 'none', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: canMoveUp ? 'pointer' : 'default',
-                opacity: isHovFolder && canMoveUp ? 0.7 : 0,
-                transition: 'opacity 0.14s ease', color: 'var(--text-2)',
-              }}
-              onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.opacity = '1' }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = isHovFolder && canMoveUp ? '0.7' : '0' }}
-            >
-              <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-                <path d="M1 5l3-4 3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); if (canMoveDown) onFolderReorder(folder.id, folders[folderIndex + 1].id) }}
-              style={{
-                width: '14px', height: '13px', border: 'none', background: 'none', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: canMoveDown ? 'pointer' : 'default',
-                opacity: isHovFolder && canMoveDown ? 0.7 : 0,
-                transition: 'opacity 0.14s ease', color: 'var(--text-2)',
-              }}
-              onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.opacity = '1' }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = isHovFolder && canMoveDown ? '0.7' : '0' }}
-            >
-              <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-                <path d="M1 1l3 4 3-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
+          isTouchDevice ? (
+            <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+              <button
+                onClick={e => { e.stopPropagation(); if (canMoveUp) onFolderReorder(folder.id, folders[folderIndex - 1].id) }}
+                style={{
+                  width: '28px', height: '28px', border: 'none', borderRadius: '6px', padding: 0,
+                  background: canMoveUp ? 'var(--bg-hover)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: canMoveUp ? 'pointer' : 'default',
+                  color: canMoveUp ? 'var(--text-2)' : 'var(--text-3)',
+                  opacity: canMoveUp ? 1 : 0.25, touchAction: 'manipulation',
+                }}
+              >
+                <svg width="10" height="7" viewBox="0 0 10 7" fill="none">
+                  <path d="M1 6l4-5 4 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); if (canMoveDown) onFolderReorder(folder.id, folders[folderIndex + 1].id) }}
+                style={{
+                  width: '28px', height: '28px', border: 'none', borderRadius: '6px', padding: 0,
+                  background: canMoveDown ? 'var(--bg-hover)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: canMoveDown ? 'pointer' : 'default',
+                  color: canMoveDown ? 'var(--text-2)' : 'var(--text-3)',
+                  opacity: canMoveDown ? 1 : 0.25, touchAction: 'manipulation',
+                }}
+              >
+                <svg width="10" height="7" viewBox="0 0 10 7" fill="none">
+                  <path d="M1 1l4 5 4-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0 }}>
+              <button
+                onClick={e => { e.stopPropagation(); if (canMoveUp) onFolderReorder(folder.id, folders[folderIndex - 1].id) }}
+                style={{
+                  width: '14px', height: '13px', border: 'none', background: 'none', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: canMoveUp ? 'pointer' : 'default',
+                  opacity: isHovFolder && canMoveUp ? 0.7 : 0,
+                  transition: 'opacity 0.14s ease', color: 'var(--text-2)',
+                }}
+                onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = isHovFolder && canMoveUp ? '0.7' : '0' }}
+              >
+                <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                  <path d="M1 5l3-4 3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); if (canMoveDown) onFolderReorder(folder.id, folders[folderIndex + 1].id) }}
+                style={{
+                  width: '14px', height: '13px', border: 'none', background: 'none', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: canMoveDown ? 'pointer' : 'default',
+                  opacity: isHovFolder && canMoveDown ? 0.7 : 0,
+                  transition: 'opacity 0.14s ease', color: 'var(--text-2)',
+                }}
+                onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = isHovFolder && canMoveDown ? '0.7' : '0' }}
+              >
+                <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                  <path d="M1 1l3 4 3-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          )
         )}
 
         {/* Ellipsis menu button */}

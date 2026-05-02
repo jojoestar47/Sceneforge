@@ -23,12 +23,33 @@
 
 html, body {
   height: 100%;
+  /* Safari/iOS: stable viewport height that ignores the collapsing toolbar.
+     Falls back to 100% on browsers that don't support dvh. */
+  min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  /* Prevent iOS landscape from auto-inflating text. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ── Safe-area utilities (iPhone notch / Dynamic Island / home indicator) ──
+   `viewportFit: 'cover'` is set in app/layout.tsx, so on notched devices the
+   canvas extends edge-to-edge. Fixed/absolute UI in the corners must add the
+   safe-area inset on top of its own offset, e.g.:
+     top: calc(14px + env(safe-area-inset-top));
+   The `.safe-pad-*` classes below apply that offset as padding for full-bleed
+   containers; `.safe-inset-*` apply it as a CSS variable consumers can use
+   inline. */
+.safe-inset {
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
 }
 
 /* Scrollbars */

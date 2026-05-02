@@ -7,6 +7,7 @@ import type {
   SpotifySdkPlayer,
   SpotifySdkPlayerState,
 } from '@/lib/spotify'
+import { isIosWebkit } from '@/lib/platform'
 
 export interface SpotifyTrackState {
   playing: boolean
@@ -23,6 +24,12 @@ export interface SpotifyNowPlaying {
 export interface SpotifyPlayerApi {
   states:     Record<string, SpotifyTrackState>
   connected:  boolean
+  /**
+   * True when the runtime is iOS/iPadOS WebKit, where the Spotify Web
+   * Playback SDK silently fails to initialize. Consumers should display a
+   * "use a desktop browser" message instead of a Connect button.
+   */
+  unsupported: boolean
   // Now-playing metadata, updated from the SDK's player_state_changed event
   nowPlaying: SpotifyNowPlaying | null
   // Playback position (0–1) and total duration (ms), polled every 500ms
@@ -106,6 +113,10 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
   const [nowPlaying,  setNowPlaying]  = useState<SpotifyNowPlaying | null>(null)
   const [progress,    setProgress]    = useState(0)
   const [duration,    setDuration]    = useState(0)
+  // One-shot platform check. The SDK's `connect()` resolves successfully on
+  // iOS but no `ready` event ever fires, so we'd otherwise spin forever
+  // showing "Connecting…". Detect up-front and skip SDK load entirely.
+  const [unsupported] = useState(() => isIosWebkit())
 
   const spotifyTracks = (scene?.tracks ?? []).filter(t => !!t.spotify_uri)
 
@@ -164,6 +175,10 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
 
   // ── Load SDK on mount ─────────────────────────────────────────
   useEffect(() => {
+    // iOS/iPadOS WebKit: SDK is non-functional. Skip the script load and the
+    // pointless network call so consumers can render an "unsupported" state
+    // immediately.
+    if (unsupported) return
     fetch('/api/spotify/token').then(r => {
       if (r.ok) loadSDK()
     }).catch(() => {})
@@ -371,5 +386,5 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     else                      playerRef.current.previousTrack().catch(() => {})
   }
 
-  return { states, connected, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip }
+  return { states, connected, unsupported, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip }
 }
