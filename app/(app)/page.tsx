@@ -990,7 +990,7 @@ export default function AppPage() {
 
       {/* ── SCENE EDITOR ── */}
       {editorOpen && activeCampId && (
-        <SceneEditor scene={editorScene} campaignId={activeCampId} userId={userId} onSave={handleSceneSaved} onClose={() => setEditorOpen(false)} />
+        <SceneEditor scene={editorScene} campaignId={activeCampId} userId={userId} campaignTags={campaignTags} onSave={handleSceneSaved} onClose={() => setEditorOpen(false)} />
       )}
 
       {/* ── SHARE / LIVE MODAL ── */}
