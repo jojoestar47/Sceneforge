@@ -6,7 +6,7 @@
 // nothing about how each tab renders — it just hands the draft down.
 
 import { useEffect, useRef, useState } from 'react'
-import type { Character, MediaRef, Scene, SceneOverlay } from '@/lib/types'
+import type { CampaignTag, Character, MediaRef, Scene, SceneOverlay } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import SceneTab     from './SceneTab'
@@ -15,14 +15,15 @@ import OverlaysTab  from './OverlaysTab'
 import { blankDraft, type Draft, type TabKey } from './types'
 
 interface Props {
-  scene:      Scene | null
-  campaignId: string
-  userId:     string
-  onSave:     (scene: Scene, newCharacters?: Character[]) => void
-  onClose:    () => void
+  scene:        Scene | null
+  campaignId:   string
+  userId:       string
+  campaignTags: CampaignTag[]
+  onSave:       (scene: Scene, newCharacters?: Character[]) => void
+  onClose:      () => void
 }
 
-export default function SceneEditor({ scene, campaignId, userId, onSave, onClose }: Props) {
+export default function SceneEditor({ scene, campaignId, userId, campaignTags, onSave, onClose }: Props) {
   const supabase = createClient()
   const [tab,    setTab]    = useState<TabKey>('scene')
   const [draft,  setDraft]  = useState<Draft>(blankDraft(scene))
@@ -115,6 +116,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       const scenePayload = {
         campaign_id: campaignId, name: draft.name || 'Untitled Scene',
         location: draft.location || null,
+        hide_title: draft.hide_title,
         dynamic_music: false,
         bg: bg ? { type: bg.type, url: bg.url, storage_path: bg.storage_path, file_name: bg.file_name } : null,
         order_index: scene?.order_index ?? 0,
@@ -271,6 +273,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
                 draft={draft}
                 setDraft={setDraft}
                 campaignChars={campaignChars}
+                campaignTags={campaignTags}
                 charsLoading={charsLoading}
                 createCharacter={createCharacter}
               />

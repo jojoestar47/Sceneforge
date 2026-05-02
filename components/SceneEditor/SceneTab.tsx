@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import Image from 'next/image'
-import type { Character, MediaRef } from '@/lib/types'
+import type { CampaignTag, Character, MediaRef } from '@/lib/types'
 import type { SpotifySearchResponse } from '@/lib/spotify'
 import { characterImageUrl } from '@/lib/media'
+import { tagColor } from '@/lib/tagColor'
 import UploadZone from '@/components/UploadZone'
 import { Section, PropRow } from './parts'
 import type { Draft, Kind, TrackDraft } from './types'
@@ -13,12 +14,13 @@ interface Props {
   draft:           Draft
   setDraft:        Dispatch<SetStateAction<Draft>>
   campaignChars:   Character[]
+  campaignTags:    CampaignTag[]
   charsLoading:    boolean
   /** Returns the created Character on success so the tab can close its form. */
   createCharacter: (input: { name: string; file: File | null; url: string }) => Promise<Character | null>
 }
 
-export default function SceneTab({ draft, setDraft, campaignChars, charsLoading, createCharacter }: Props) {
+export default function SceneTab({ draft, setDraft, campaignChars, campaignTags, charsLoading, createCharacter }: Props) {
   // ── Character picker / new-character form state ──────────────
   const [charSearch,     setCharSearch]     = useState('')
   const [charPickerOpen, setCharPickerOpen] = useState(false)
@@ -27,12 +29,15 @@ export default function SceneTab({ draft, setDraft, campaignChars, charsLoading,
   const [newCharFile,    setNewCharFile]    = useState<File | null>(null)
   const [newCharUrl,     setNewCharUrl]     = useState('')
   const [newCharSaving,  setNewCharSaving]  = useState(false)
+  const [filterTags,     setFilterTags]     = useState<Set<string>>(new Set())
 
   const poolIds       = new Set(draft.characterPool.map(e => e.character.id))
-  const filteredChars = campaignChars.filter(c =>
-    !poolIds.has(c.id) &&
-    (!charSearch || c.name.toLowerCase().includes(charSearch.toLowerCase()))
-  )
+  const filteredChars = campaignChars.filter(c => {
+    if (poolIds.has(c.id)) return false
+    if (charSearch && !c.name.toLowerCase().includes(charSearch.toLowerCase())) return false
+    if (filterTags.size > 0 && !(c.tags ?? []).some(t => filterTags.has(t))) return false
+    return true
+  })
 
   const tracksOf = (kind: Kind) => draft.tracks.filter(t => t.kind === kind)
   const addTrack = (kind: Kind, t: Omit<TrackDraft, 'kind'>) =>
@@ -68,6 +73,17 @@ export default function SceneTab({ draft, setDraft, campaignChars, charsLoading,
             onChange={e => setDraft(d => ({ ...d, location: e.target.value }))} />
         </div>
       </div>
+
+      {/* Hide title from viewers */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-2)', userSelect: 'none' }}>
+        <input
+          type="checkbox"
+          className="fcheckbox"
+          checked={draft.hide_title}
+          onChange={e => setDraft(d => ({ ...d, hide_title: e.target.checked }))}
+        />
+        Hide stage name from viewers
+      </label>
 
       {/* VISUAL */}
       <Section title="Visual">
@@ -137,8 +153,52 @@ export default function SceneTab({ draft, setDraft, campaignChars, charsLoading,
               placeholder="Search characters…"
               value={charSearch}
               onChange={e => setCharSearch(e.target.value)}
-              style={{ fontSize: '12px', padding: '7px 10px', marginBottom: '10px' }}
+              style={{ fontSize: '12px', padding: '7px 10px', marginBottom: campaignTags.length > 0 ? '8px' : '10px' }}
             />
+
+            {/* Tag filter chips */}
+            {campaignTags.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: 'var(--text-3)', letterSpacing: '0.5px', textTransform: 'uppercase', marginRight: '2px' }}>
+                  <svg viewBox="0 0 104 104" xmlns="http://www.w3.org/2000/svg" width="11" height="11" style={{ flexShrink: 0 }}>
+                    <path d="M12 12 L12 52 L52 92 Q56 96 60 92 L92 60 Q96 56 92 52 L52 12 Z" fill="none" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" strokeLinecap="round"/>
+                    <circle cx="32" cy="32" r="6" fill="currentColor"/>
+                  </svg>
+                  Filter
+                </span>
+                {campaignTags.map(tag => {
+                  const col    = tagColor(tag.color)
+                  const active = filterTags.has(tag.id)
+                  return (
+                    <button
+                      key={tag.id}
+                      onClick={() => setFilterTags(prev => {
+                        const n = new Set(prev)
+                        if (active) n.delete(tag.id); else n.add(tag.id)
+                        return n
+                      })}
+                      style={{
+                        padding: '3px 9px', borderRadius: '20px', cursor: 'pointer',
+                        fontSize: '10px', fontWeight: 600, letterSpacing: '0.4px',
+                        background: active ? col.bg  : 'rgba(255,255,255,0.04)',
+                        border:     active ? `1px solid ${col.border}` : '1px solid rgba(255,255,255,0.1)',
+                        color:      active ? col.text : 'var(--text-2)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {tag.name}
+                    </button>
+                  )
+                })}
+                {filterTags.size > 0 && (
+                  <button
+                    onClick={() => setFilterTags(new Set())}
+                    style={{ padding: '3px 8px', borderRadius: '20px', cursor: 'pointer', fontSize: '10px', color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }}
+                  >clear</button>
+                )}
+              </div>
+            )}
+
             <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {charsLoading && (
                 <div style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-3)' }}>
@@ -151,6 +211,8 @@ export default function SceneTab({ draft, setDraft, campaignChars, charsLoading,
                     ? 'No characters yet — create one below'
                     : campaignChars.length === draft.characterPool.length
                     ? 'All characters already added'
+                    : filterTags.size > 0 || charSearch
+                    ? 'No matches for current filters'
                     : 'No matches'}
                 </div>
               )}

@@ -4,26 +4,10 @@ import { memo, useCallback, useMemo, useState } from 'react'
 import type { Character, CampaignTag } from '@/lib/types'
 import { formatDate } from '@/lib/format'
 import { characterImageUrl } from '@/lib/media'
+import { tagColor as getColor } from '@/lib/tagColor'
 import AppIcon from '@/components/AppIcon'
 import UploadZone from '@/components/UploadZone'
-
-// Legacy named colours kept for any existing DB rows
-const LEGACY_COLORS: Record<string, string> = {
-  gold: '#c9a84c', blue: '#64a0ff', purple: '#a064f0',
-  green: '#50c882', red: '#f06464', orange: '#f0a03c',
-}
-
-function getColor(color: string) {
-  const hex = color.startsWith('#') ? color : (LEGACY_COLORS[color] ?? '#c9a84c')
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return {
-    bg:     `rgba(${r},${g},${b},0.15)`,
-    border: `rgba(${r},${g},${b},0.4)`,
-    text:   hex,
-  }
-}
+import ImagePositioner from '@/components/ImagePositioner'
 
 function EditIcon({ size = 13 }: { size?: number }) {
   return (
@@ -49,6 +33,7 @@ interface Props {
   onAdd:        (name: string, file: File | null, url: string) => Promise<void>
   onUpdateTags: (id: string, tagIds: string[]) => Promise<void>
   onUpdateName: (id: string, name: string) => Promise<void>
+  onUpdateImagePosition: (id: string, x: number, y: number) => Promise<void>
   onCreateTag:  (name: string, color: string) => Promise<void>
   onDeleteTag:  (id: string) => Promise<void>
 }
@@ -61,6 +46,10 @@ interface CharacterCardProps {
   isConfirm:     boolean
   isDeleting:    boolean
   isEditingName: boolean
+  isPositioning: boolean
+  pendingX:      number
+  pendingY:      number
+  positionSaving: boolean
   editingNameVal: string
   nameSaving:    boolean
   onFlip:        (id: string) => void
@@ -71,6 +60,10 @@ interface CharacterCardProps {
   onCancelEditName: () => void
   onSaveName:    (c: Character) => void
   onToggleTag:   (c: Character, tagId: string) => void
+  onStartPositioning: (c: Character) => void
+  onChangePosition:   (x: number, y: number) => void
+  onSavePosition:     (c: Character) => void
+  onCancelPosition:   () => void
 }
 
 function onMouseMove(e: React.MouseEvent<HTMLDivElement>, isFlipped: boolean) {
@@ -94,24 +87,38 @@ function onCardMouseLeave(e: React.MouseEvent<HTMLDivElement>) {
 const CharacterCard = memo(function CharacterCard({
   c, campaignTags, tagMap,
   isFlipped, isConfirm, isDeleting, isEditingName,
+  isPositioning, pendingX, pendingY, positionSaving,
   editingNameVal, nameSaving,
   onFlip, onSetConfirm, onDelete,
   onStartEditName, onChangeEditName, onCancelEditName, onSaveName, onToggleTag,
+  onStartPositioning, onChangePosition, onSavePosition, onCancelPosition,
 }: CharacterCardProps) {
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
+
   const imgUrl = characterImageUrl(c)
   const cardTags   = c.tags ?? []
+  const imageX = c.image_x ?? 50
+  const imageY = c.image_y ?? 50
+
+  const assignedTags   = campaignTags.filter(t => cardTags.includes(t.id))
+  const availableTags  = campaignTags.filter(t => !cardTags.includes(t.id))
+
+  // While repositioning, suppress the flip transform and tilt so the user
+  // can drag a stable surface — the back face stays hidden and the front
+  // face acts as the editor.
+  const suppressTilt = isFlipped || isPositioning
 
   return (
     <div
       className="rf-card"
       style={{ height: 'clamp(220px, 35vw, 310px)', perspective: '800px' }}
-      onMouseMove={e => onMouseMove(e, isFlipped)}
+      onMouseMove={e => onMouseMove(e, suppressTilt)}
       onMouseLeave={onCardMouseLeave}
     >
-      {/* When flipped: override tilt/scale so back-face text renders crisply */}
-      <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative', ...(isFlipped && { transform: 'none' }) }}>
+      {/* When flipped or repositioning: override tilt/scale so the surface stays stable. */}
+      <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative', ...(suppressTilt && { transform: 'none' }) }}>
         <div
-          className={`rf-inner${isFlipped ? ' rf-flipped' : ''}`}
+          className={`rf-inner${isFlipped && !isPositioning ? ' rf-flipped' : ''}`}
           style={{ width: '100%', height: '100%', position: 'relative' }}
         >
 
@@ -122,11 +129,27 @@ const CharacterCard = memo(function CharacterCard({
               position: 'absolute', inset: 0, borderRadius: '12px', overflow: 'hidden',
               background: imgUrl ? 'var(--bg-raised)' : 'var(--bg-panel)',
               border: '1px solid var(--border)', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-              pointerEvents: isFlipped ? 'none' : 'auto',
+              pointerEvents: (isFlipped && !isPositioning) ? 'none' : 'auto',
             }}
           >
             {imgUrl ? (
-              <img src={imgUrl} alt={c.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              isPositioning ? (
+                <ImagePositioner
+                  src={imgUrl}
+                  x={pendingX}
+                  y={pendingY}
+                  onChange={onChangePosition}
+                  borderRadius={0}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              ) : (
+                <img
+                  src={imgUrl}
+                  alt={c.name}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${imageX}% ${imageY}%`, display: 'block' }}
+                />
+              )
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-raised) 100%)' }}>
                 <AppIcon size={48} opacity={0.18} />
@@ -134,7 +157,7 @@ const CharacterCard = memo(function CharacterCard({
             )}
 
             {/* Tag pills — top left */}
-            {cardTags.length > 0 && (
+            {cardTags.length > 0 && !isPositioning && (
               <div style={{ position: 'absolute', top: '8px', left: '8px', display: 'flex', flexWrap: 'wrap', gap: '3px', maxWidth: 'calc(100% - 40px)' }}>
                 {cardTags.slice(0, 3).map(tagId => {
                   const tag = tagMap.get(tagId)
@@ -160,31 +183,69 @@ const CharacterCard = memo(function CharacterCard({
             )}
 
             {/* Name overlay */}
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 12px 12px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)' }}>
-              <div style={{ fontFamily: "'Cinzel', serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase', color: '#fff', textAlign: 'center', textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>
-                {c.name}
+            {!isPositioning && (
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 12px 12px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)', pointerEvents: 'none' }}>
+                <div style={{ fontFamily: "'Cinzel', serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase', color: '#fff', textAlign: 'center', textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>
+                  {c.name}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Manage button — only way to flip */}
-            <button
-              onClick={e => { e.stopPropagation(); onFlip(c.id) }}
-              title="Manage character"
-              style={{
-                position: 'absolute', top: '8px', right: '8px',
-                padding: '4px 9px', borderRadius: '20px', cursor: 'pointer',
-                background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
-                border: '1px solid rgba(255,255,255,0.22)',
-                fontSize: '10px', fontWeight: 600, letterSpacing: '0.5px',
-                color: 'rgba(255,255,255,0.8)',
-                display: 'flex', alignItems: 'center', gap: '4px',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.7)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.5)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)' }}
-            >
-              ↺ Edit
-            </button>
+            {!isPositioning && (
+              <button
+                onClick={e => { e.stopPropagation(); onFlip(c.id) }}
+                title="Manage character"
+                style={{
+                  position: 'absolute', top: '8px', right: '8px',
+                  padding: '4px 9px', borderRadius: '20px', cursor: 'pointer',
+                  background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
+                  border: '1px solid rgba(255,255,255,0.22)',
+                  fontSize: '10px', fontWeight: 600, letterSpacing: '0.5px',
+                  color: 'rgba(255,255,255,0.8)',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.7)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.5)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)' }}
+              >
+                ↺ Edit
+              </button>
+            )}
+
+            {/* Save / Cancel toolbar while repositioning */}
+            {isPositioning && (
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  position: 'absolute', top: '8px', left: '8px', right: '8px',
+                  display: 'flex', justifyContent: 'space-between', gap: '8px', zIndex: 5,
+                }}
+              >
+                <button
+                  onClick={onCancelPosition}
+                  disabled={positionSaving}
+                  style={{
+                    padding: '5px 12px', borderRadius: '6px', cursor: 'pointer',
+                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+                    color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase',
+                  }}
+                >Cancel</button>
+                <button
+                  onClick={() => onSavePosition(c)}
+                  disabled={positionSaving}
+                  style={{
+                    padding: '5px 12px', borderRadius: '6px', cursor: 'pointer',
+                    background: 'rgba(201,168,76,0.85)',
+                    border: '1px solid rgba(201,168,76,1)',
+                    fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+                    color: '#000', textTransform: 'uppercase',
+                  }}
+                >{positionSaving ? '…' : 'Save'}</button>
+              </div>
+            )}
           </div>
 
           {/* ── BACK ── */}
@@ -202,6 +263,7 @@ const CharacterCard = memo(function CharacterCard({
             {/* Flip back button */}
             <button
               onClick={e => { e.stopPropagation(); onFlip(c.id) }}
+              className="corner-icon-btn"
               style={{
                 position: 'absolute', top: '8px', right: '8px',
                 width: '22px', height: '22px', borderRadius: '50%', padding: 0,
@@ -212,9 +274,28 @@ const CharacterCard = memo(function CharacterCard({
               title="Flip back"
             >↺</button>
 
+            {/* Reposition image — mirrors the flip-back button on the left */}
+            {imgUrl && (
+              <button
+                onClick={e => { e.stopPropagation(); onStartPositioning(c) }}
+                title="Reposition image"
+                className="corner-icon-btn"
+                style={{
+                  position: 'absolute', top: '8px', left: '8px',
+                  width: '22px', height: '22px', borderRadius: '50%', padding: 0,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '11px', color: 'var(--text-3)', cursor: 'pointer',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+              >✥</button>
+            )}
+
             {/* Portrait */}
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {imgUrl ? <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <AppIcon size={22} opacity={0.3} />}
+              {imgUrl ? <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${imageX}% ${imageY}%` }} /> : <AppIcon size={22} opacity={0.3} />}
             </div>
 
             {/* Name + rename */}
@@ -275,23 +356,75 @@ const CharacterCard = memo(function CharacterCard({
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                  {campaignTags.map(tag => {
-                    const col      = getColor(tag.color)
-                    const assigned = cardTags.includes(tag.id)
+                  {/* Assigned tags — click × to remove */}
+                  {assignedTags.map(tag => {
+                    const col = getColor(tag.color)
+                    return (
+                      <span
+                        key={tag.id}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                          padding: '3px 4px 3px 10px', borderRadius: '12px',
+                          fontSize: '10px', fontWeight: 600,
+                          background: col.bg, border: `1px solid ${col.border}`, color: col.text,
+                        }}
+                      >
+                        {tag.name}
+                        <button
+                          onClick={e => { e.stopPropagation(); onToggleTag(c, tag.id) }}
+                          title="Remove tag"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: '14px', height: '14px', padding: 0, borderRadius: '50%',
+                            background: 'rgba(0,0,0,0.25)', border: 'none', cursor: 'pointer',
+                            color: 'inherit', fontSize: '11px', lineHeight: 1, opacity: 0.7,
+                          }}
+                        >×</button>
+                      </span>
+                    )
+                  })}
+
+                  {/* Add-tag button (only if there are unassigned tags) */}
+                  {availableTags.length > 0 && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setTagPickerOpen(o => !o) }}
+                      style={{
+                        padding: '3px 9px', borderRadius: '12px', cursor: 'pointer',
+                        fontSize: '10px', fontWeight: 600,
+                        background:  tagPickerOpen ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)',
+                        border:      `1px dashed ${tagPickerOpen ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.18)'}`,
+                        color:       'var(--text-2)',
+                        transition:  'all 0.15s',
+                      }}
+                    >
+                      {tagPickerOpen ? '× Close' : `+ Add tag (${availableTags.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Available tags reveal — click to assign */}
+              {tagPickerOpen && availableTags.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border)' }}>
+                  {availableTags.map(tag => {
+                    const col = getColor(tag.color)
                     return (
                       <button
                         key={tag.id}
                         onClick={e => { e.stopPropagation(); onToggleTag(c, tag.id) }}
                         style={{
-                          padding: '4px 10px', borderRadius: '12px', cursor: 'pointer',
+                          padding: '3px 9px', borderRadius: '12px', cursor: 'pointer',
                           fontSize: '10px', fontWeight: 600,
-                          background:  assigned ? col.bg  : 'rgba(255,255,255,0.03)',
-                          border:      assigned ? `1px solid ${col.border}` : '1px solid rgba(255,255,255,0.1)',
-                          color:       assigned ? col.text : 'var(--text-3)',
-                          transition:  'all 0.15s',
+                          background: 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${col.border}`,
+                          color: col.text,
+                          opacity: 0.85,
+                          transition: 'all 0.15s',
                         }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = col.bg }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.85'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
                       >
-                        {assigned ? '✓ ' : ''}{tag.name}
+                        + {tag.name}
                       </button>
                     )
                   })}
@@ -328,12 +461,18 @@ const CharacterCard = memo(function CharacterCard({
 
 export default function CharacterRoster({
   characters, campaignTags,
-  onDelete, onAdd, onUpdateTags, onUpdateName, onCreateTag, onDeleteTag,
+  onDelete, onAdd, onUpdateTags, onUpdateName, onUpdateImagePosition, onCreateTag, onDeleteTag,
 }: Props) {
   // Card state
   const [flippedId,  setFlippedId]  = useState<string | null>(null)
   const [confirmId,  setConfirmId]  = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Image-position editing state — only one card at a time.
+  const [positioningId, setPositioningId] = useState<string | null>(null)
+  const [pendingX,      setPendingX]      = useState(50)
+  const [pendingY,      setPendingY]      = useState(50)
+  const [positionSaving, setPositionSaving] = useState(false)
 
   // New character form
   const [addOpen,   setAddOpen]   = useState(false)
@@ -442,6 +581,33 @@ export default function CharacterRoster({
   }, [])
 
   const cancelEditName = useCallback(() => setEditingNameId(null), [])
+
+  // ── Reposition-image flow ────────────────────────────────────
+  const startPositioning = useCallback((c: Character) => {
+    setPositioningId(c.id)
+    setPendingX(c.image_x ?? 50)
+    setPendingY(c.image_y ?? 50)
+    // Flip back to the front face so the image is visible.
+    setFlippedId(null)
+  }, [])
+
+  const changePosition = useCallback((x: number, y: number) => {
+    setPendingX(x); setPendingY(y)
+  }, [])
+
+  const cancelPositioning = useCallback(() => {
+    setPositioningId(null)
+  }, [])
+
+  const savePosition = useCallback(async (c: Character) => {
+    setPositionSaving(true)
+    try {
+      await onUpdateImagePosition(c.id, pendingX, pendingY)
+      setPositioningId(null)
+    } finally {
+      setPositionSaving(false)
+    }
+  }, [onUpdateImagePosition, pendingX, pendingY])
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)', position: 'relative' }}>
@@ -646,7 +812,8 @@ export default function CharacterRoster({
         {visible.length > 0 && (
           <div className="cr-grid">
             {visible.map(c => {
-              const isEditingThis = editingNameId === c.id
+              const isEditingThis = editingNameId  === c.id
+              const isPositioningThis = positioningId === c.id
               return (
                 <CharacterCard
                   key={c.id}
@@ -657,6 +824,10 @@ export default function CharacterRoster({
                   isConfirm={confirmId === c.id}
                   isDeleting={deletingId === c.id}
                   isEditingName={isEditingThis}
+                  isPositioning={isPositioningThis}
+                  pendingX={isPositioningThis ? pendingX : (c.image_x ?? 50)}
+                  pendingY={isPositioningThis ? pendingY : (c.image_y ?? 50)}
+                  positionSaving={isPositioningThis && positionSaving}
                   editingNameVal={isEditingThis ? editingNameVal : ''}
                   nameSaving={isEditingThis && nameSaving}
                   onFlip={flipCard}
@@ -667,6 +838,10 @@ export default function CharacterRoster({
                   onCancelEditName={cancelEditName}
                   onSaveName={saveName}
                   onToggleTag={toggleCharacterTag}
+                  onStartPositioning={startPositioning}
+                  onChangePosition={changePosition}
+                  onSavePosition={savePosition}
+                  onCancelPosition={cancelPositioning}
                 />
               )
             })}

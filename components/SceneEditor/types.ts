@@ -54,6 +54,7 @@ export interface CharPoolEntry {
 export interface Draft {
   name:           string
   location:       string
+  hide_title:     boolean
   bg:             MediaRef | null
   _bgFile?:       File
   tracks:         TrackDraft[]
@@ -77,9 +78,10 @@ export function blankDraft(scene: Scene | null): Draft {
       volume:       t.volume,
     }))
   return {
-    name:     scene?.name     || '',
-    location: scene?.location || '',
-    bg:       scene?.bg       || null,
+    name:       scene?.name       || '',
+    location:   scene?.location   || '',
+    hide_title: scene?.hide_title ?? false,
+    bg:         scene?.bg         || null,
     tracks:   [...existing('music'), ...existing('ml2'), ...existing('ml3'), ...existing('ambience')],
     characterPool: [],
     handouts: (scene?.handouts || []).map(h => ({ id: h.id, name: h.name, media: h.media })),
