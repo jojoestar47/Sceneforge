@@ -85,7 +85,8 @@ export default function CharacterDisplay({
         </div>
       )}
 
-      {/* Name label — sits at the feet of the character */}
+      {/* Name label — sits at the feet of the character.
+          Wraps onto multiple lines for long names rather than truncating. */}
       <div
         style={{
           position: 'absolute',
@@ -99,10 +100,10 @@ export default function CharacterDisplay({
           letterSpacing: '2px',
           color: 'rgba(255,255,255,0.92)',
           textShadow: '0 1px 6px rgba(0,0,0,0.9)',
-          whiteSpace: 'nowrap',
-          maxWidth: '160px',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
+          textAlign: 'center',
+          maxWidth: 'min(260px, 92%)',
+          lineHeight: 1.25,
+          wordBreak: 'break-word',
           backdropFilter: 'blur(4px)',
           WebkitBackdropFilter: 'blur(4px)',
         }}

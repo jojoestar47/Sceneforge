@@ -654,6 +654,22 @@ export default function ViewerPage() {
     return () => { supabase.removeChannel(ch) }
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Realtime: active scene's own UPDATEs (name, hide_title, bg, location) ──
+  // The session-row subscription already triggers a full re-fetch when
+  // active_scene_id changes. This handles in-place edits of the *current*
+  // scene's metadata so toggles like hide_title flip live.
+  useEffect(() => {
+    if (!scene?.id) return
+    const ch = supabase.channel('viewer-scene-' + scene.id)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scenes', filter: `id=eq.${scene.id}` },
+        (payload) => {
+          const next = payload.new as Partial<Scene>
+          setScene(prev => prev ? { ...prev, ...next } : prev)
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Realtime: handout inserts/updates/deletes for active scene ──
   useEffect(() => {
     if (!scene?.id) return
@@ -825,7 +841,7 @@ export default function ViewerPage() {
       )}
 
       {/* Scene name */}
-      {scene && (
+      {scene && !scene.hide_title && (
         <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: '18px', fontFamily: "'Cormorant Garamond',serif", fontSize: '16px', letterSpacing: '6px', fontWeight: 500, color: 'rgba(255,255,255,.8)', textShadow: '0 1px 16px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
           {scene.name}
         </div>

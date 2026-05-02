@@ -6,6 +6,7 @@ import { formatDate } from '@/lib/format'
 import { characterImageUrl } from '@/lib/media'
 import AppIcon from '@/components/AppIcon'
 import UploadZone from '@/components/UploadZone'
+import ImagePositioner from '@/components/ImagePositioner'
 
 // Legacy named colours kept for any existing DB rows
 const LEGACY_COLORS: Record<string, string> = {
@@ -49,6 +50,7 @@ interface Props {
   onAdd:        (name: string, file: File | null, url: string) => Promise<void>
   onUpdateTags: (id: string, tagIds: string[]) => Promise<void>
   onUpdateName: (id: string, name: string) => Promise<void>
+  onUpdateImagePosition: (id: string, x: number, y: number) => Promise<void>
   onCreateTag:  (name: string, color: string) => Promise<void>
   onDeleteTag:  (id: string) => Promise<void>
 }
@@ -61,6 +63,10 @@ interface CharacterCardProps {
   isConfirm:     boolean
   isDeleting:    boolean
   isEditingName: boolean
+  isPositioning: boolean
+  pendingX:      number
+  pendingY:      number
+  positionSaving: boolean
   editingNameVal: string
   nameSaving:    boolean
   onFlip:        (id: string) => void
@@ -71,6 +77,10 @@ interface CharacterCardProps {
   onCancelEditName: () => void
   onSaveName:    (c: Character) => void
   onToggleTag:   (c: Character, tagId: string) => void
+  onStartPositioning: (c: Character) => void
+  onChangePosition:   (x: number, y: number) => void
+  onSavePosition:     (c: Character) => void
+  onCancelPosition:   () => void
 }
 
 function onMouseMove(e: React.MouseEvent<HTMLDivElement>, isFlipped: boolean) {
@@ -94,24 +104,33 @@ function onCardMouseLeave(e: React.MouseEvent<HTMLDivElement>) {
 const CharacterCard = memo(function CharacterCard({
   c, campaignTags, tagMap,
   isFlipped, isConfirm, isDeleting, isEditingName,
+  isPositioning, pendingX, pendingY, positionSaving,
   editingNameVal, nameSaving,
   onFlip, onSetConfirm, onDelete,
   onStartEditName, onChangeEditName, onCancelEditName, onSaveName, onToggleTag,
+  onStartPositioning, onChangePosition, onSavePosition, onCancelPosition,
 }: CharacterCardProps) {
   const imgUrl = characterImageUrl(c)
   const cardTags   = c.tags ?? []
+  const imageX = c.image_x ?? 50
+  const imageY = c.image_y ?? 50
+
+  // While repositioning, suppress the flip transform and tilt so the user
+  // can drag a stable surface — the back face stays hidden and the front
+  // face acts as the editor.
+  const suppressTilt = isFlipped || isPositioning
 
   return (
     <div
       className="rf-card"
       style={{ height: 'clamp(220px, 35vw, 310px)', perspective: '800px' }}
-      onMouseMove={e => onMouseMove(e, isFlipped)}
+      onMouseMove={e => onMouseMove(e, suppressTilt)}
       onMouseLeave={onCardMouseLeave}
     >
-      {/* When flipped: override tilt/scale so back-face text renders crisply */}
-      <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative', ...(isFlipped && { transform: 'none' }) }}>
+      {/* When flipped or repositioning: override tilt/scale so the surface stays stable. */}
+      <div className="rf-tilt" style={{ width: '100%', height: '100%', position: 'relative', ...(suppressTilt && { transform: 'none' }) }}>
         <div
-          className={`rf-inner${isFlipped ? ' rf-flipped' : ''}`}
+          className={`rf-inner${isFlipped && !isPositioning ? ' rf-flipped' : ''}`}
           style={{ width: '100%', height: '100%', position: 'relative' }}
         >
 
@@ -122,11 +141,27 @@ const CharacterCard = memo(function CharacterCard({
               position: 'absolute', inset: 0, borderRadius: '12px', overflow: 'hidden',
               background: imgUrl ? 'var(--bg-raised)' : 'var(--bg-panel)',
               border: '1px solid var(--border)', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-              pointerEvents: isFlipped ? 'none' : 'auto',
+              pointerEvents: (isFlipped && !isPositioning) ? 'none' : 'auto',
             }}
           >
             {imgUrl ? (
-              <img src={imgUrl} alt={c.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              isPositioning ? (
+                <ImagePositioner
+                  src={imgUrl}
+                  x={pendingX}
+                  y={pendingY}
+                  onChange={onChangePosition}
+                  borderRadius={0}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              ) : (
+                <img
+                  src={imgUrl}
+                  alt={c.name}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${imageX}% ${imageY}%`, display: 'block' }}
+                />
+              )
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-raised) 100%)' }}>
                 <AppIcon size={48} opacity={0.18} />
@@ -134,7 +169,7 @@ const CharacterCard = memo(function CharacterCard({
             )}
 
             {/* Tag pills — top left */}
-            {cardTags.length > 0 && (
+            {cardTags.length > 0 && !isPositioning && (
               <div style={{ position: 'absolute', top: '8px', left: '8px', display: 'flex', flexWrap: 'wrap', gap: '3px', maxWidth: 'calc(100% - 40px)' }}>
                 {cardTags.slice(0, 3).map(tagId => {
                   const tag = tagMap.get(tagId)
@@ -160,31 +195,69 @@ const CharacterCard = memo(function CharacterCard({
             )}
 
             {/* Name overlay */}
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 12px 12px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)' }}>
-              <div style={{ fontFamily: "'Cinzel', serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase', color: '#fff', textAlign: 'center', textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>
-                {c.name}
+            {!isPositioning && (
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 12px 12px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)', pointerEvents: 'none' }}>
+                <div style={{ fontFamily: "'Cinzel', serif", fontSize: '11px', fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase', color: '#fff', textAlign: 'center', textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>
+                  {c.name}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Manage button — only way to flip */}
-            <button
-              onClick={e => { e.stopPropagation(); onFlip(c.id) }}
-              title="Manage character"
-              style={{
-                position: 'absolute', top: '8px', right: '8px',
-                padding: '4px 9px', borderRadius: '20px', cursor: 'pointer',
-                background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
-                border: '1px solid rgba(255,255,255,0.22)',
-                fontSize: '10px', fontWeight: 600, letterSpacing: '0.5px',
-                color: 'rgba(255,255,255,0.8)',
-                display: 'flex', alignItems: 'center', gap: '4px',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.7)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.5)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)' }}
-            >
-              ↺ Edit
-            </button>
+            {!isPositioning && (
+              <button
+                onClick={e => { e.stopPropagation(); onFlip(c.id) }}
+                title="Manage character"
+                style={{
+                  position: 'absolute', top: '8px', right: '8px',
+                  padding: '4px 9px', borderRadius: '20px', cursor: 'pointer',
+                  background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
+                  border: '1px solid rgba(255,255,255,0.22)',
+                  fontSize: '10px', fontWeight: 600, letterSpacing: '0.5px',
+                  color: 'rgba(255,255,255,0.8)',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.7)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.5)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)' }}
+              >
+                ↺ Edit
+              </button>
+            )}
+
+            {/* Save / Cancel toolbar while repositioning */}
+            {isPositioning && (
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  position: 'absolute', top: '8px', left: '8px', right: '8px',
+                  display: 'flex', justifyContent: 'space-between', gap: '8px', zIndex: 5,
+                }}
+              >
+                <button
+                  onClick={onCancelPosition}
+                  disabled={positionSaving}
+                  style={{
+                    padding: '5px 12px', borderRadius: '6px', cursor: 'pointer',
+                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+                    color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase',
+                  }}
+                >Cancel</button>
+                <button
+                  onClick={() => onSavePosition(c)}
+                  disabled={positionSaving}
+                  style={{
+                    padding: '5px 12px', borderRadius: '6px', cursor: 'pointer',
+                    background: 'rgba(201,168,76,0.85)',
+                    border: '1px solid rgba(201,168,76,1)',
+                    fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
+                    color: '#000', textTransform: 'uppercase',
+                  }}
+                >{positionSaving ? '…' : 'Save'}</button>
+              </div>
+            )}
           </div>
 
           {/* ── BACK ── */}
@@ -202,6 +275,7 @@ const CharacterCard = memo(function CharacterCard({
             {/* Flip back button */}
             <button
               onClick={e => { e.stopPropagation(); onFlip(c.id) }}
+              className="corner-icon-btn"
               style={{
                 position: 'absolute', top: '8px', right: '8px',
                 width: '22px', height: '22px', borderRadius: '50%', padding: 0,
@@ -212,9 +286,28 @@ const CharacterCard = memo(function CharacterCard({
               title="Flip back"
             >↺</button>
 
+            {/* Reposition image — mirrors the flip-back button on the left */}
+            {imgUrl && (
+              <button
+                onClick={e => { e.stopPropagation(); onStartPositioning(c) }}
+                title="Reposition image"
+                className="corner-icon-btn"
+                style={{
+                  position: 'absolute', top: '8px', left: '8px',
+                  width: '22px', height: '22px', borderRadius: '50%', padding: 0,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '11px', color: 'var(--text-3)', cursor: 'pointer',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+              >✥</button>
+            )}
+
             {/* Portrait */}
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {imgUrl ? <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <AppIcon size={22} opacity={0.3} />}
+              {imgUrl ? <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${imageX}% ${imageY}%` }} /> : <AppIcon size={22} opacity={0.3} />}
             </div>
 
             {/* Name + rename */}
@@ -328,12 +421,18 @@ const CharacterCard = memo(function CharacterCard({
 
 export default function CharacterRoster({
   characters, campaignTags,
-  onDelete, onAdd, onUpdateTags, onUpdateName, onCreateTag, onDeleteTag,
+  onDelete, onAdd, onUpdateTags, onUpdateName, onUpdateImagePosition, onCreateTag, onDeleteTag,
 }: Props) {
   // Card state
   const [flippedId,  setFlippedId]  = useState<string | null>(null)
   const [confirmId,  setConfirmId]  = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Image-position editing state — only one card at a time.
+  const [positioningId, setPositioningId] = useState<string | null>(null)
+  const [pendingX,      setPendingX]      = useState(50)
+  const [pendingY,      setPendingY]      = useState(50)
+  const [positionSaving, setPositionSaving] = useState(false)
 
   // New character form
   const [addOpen,   setAddOpen]   = useState(false)
@@ -442,6 +541,33 @@ export default function CharacterRoster({
   }, [])
 
   const cancelEditName = useCallback(() => setEditingNameId(null), [])
+
+  // ── Reposition-image flow ────────────────────────────────────
+  const startPositioning = useCallback((c: Character) => {
+    setPositioningId(c.id)
+    setPendingX(c.image_x ?? 50)
+    setPendingY(c.image_y ?? 50)
+    // Flip back to the front face so the image is visible.
+    setFlippedId(null)
+  }, [])
+
+  const changePosition = useCallback((x: number, y: number) => {
+    setPendingX(x); setPendingY(y)
+  }, [])
+
+  const cancelPositioning = useCallback(() => {
+    setPositioningId(null)
+  }, [])
+
+  const savePosition = useCallback(async (c: Character) => {
+    setPositionSaving(true)
+    try {
+      await onUpdateImagePosition(c.id, pendingX, pendingY)
+      setPositioningId(null)
+    } finally {
+      setPositionSaving(false)
+    }
+  }, [onUpdateImagePosition, pendingX, pendingY])
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg)', position: 'relative' }}>
@@ -646,7 +772,8 @@ export default function CharacterRoster({
         {visible.length > 0 && (
           <div className="cr-grid">
             {visible.map(c => {
-              const isEditingThis = editingNameId === c.id
+              const isEditingThis = editingNameId  === c.id
+              const isPositioningThis = positioningId === c.id
               return (
                 <CharacterCard
                   key={c.id}
@@ -657,6 +784,10 @@ export default function CharacterRoster({
                   isConfirm={confirmId === c.id}
                   isDeleting={deletingId === c.id}
                   isEditingName={isEditingThis}
+                  isPositioning={isPositioningThis}
+                  pendingX={isPositioningThis ? pendingX : (c.image_x ?? 50)}
+                  pendingY={isPositioningThis ? pendingY : (c.image_y ?? 50)}
+                  positionSaving={isPositioningThis && positionSaving}
                   editingNameVal={isEditingThis ? editingNameVal : ''}
                   nameSaving={isEditingThis && nameSaving}
                   onFlip={flipCard}
@@ -667,6 +798,10 @@ export default function CharacterRoster({
                   onCancelEditName={cancelEditName}
                   onSaveName={saveName}
                   onToggleTag={toggleCharacterTag}
+                  onStartPositioning={startPositioning}
+                  onChangePosition={changePosition}
+                  onSavePosition={savePosition}
+                  onCancelPosition={cancelPositioning}
                 />
               )
             })}
