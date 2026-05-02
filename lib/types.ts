@@ -6,6 +6,8 @@ export interface Campaign {
   cover_path?:       string | null
   cover_file_name?:  string | null
   cover_signed_url?: string        // resolved client-side, not stored in DB
+  cover_x: number                  // object-position X %, default 50
+  cover_y: number                  // object-position Y %, default 50
   created_at: string
   updated_at: string
 }
@@ -74,6 +76,7 @@ export interface Scene {
   bg?: MediaRef | null
   overlay?: MediaRef | null
   dynamic_music: boolean
+  hide_title: boolean   // when true, viewer hides the scene name overlay
   created_at: string
   updated_at: string
   tracks?: Track[]
@@ -141,6 +144,8 @@ export interface Character {
   signed_url?: string     // resolved signed URL (runtime-only, not in DB)
   file_name?: string
   tags: string[]          // array of CampaignTag IDs
+  image_x: number         // object-position X %, default 50
+  image_y: number         // object-position Y %, default 50
   created_at: string
   updated_at: string
 }

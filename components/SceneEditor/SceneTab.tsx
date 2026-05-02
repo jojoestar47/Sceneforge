@@ -69,6 +69,17 @@ export default function SceneTab({ draft, setDraft, campaignChars, charsLoading,
         </div>
       </div>
 
+      {/* Hide title from viewers */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-2)' }}>
+        <input
+          type="checkbox"
+          checked={draft.hide_title}
+          onChange={e => setDraft(d => ({ ...d, hide_title: e.target.checked }))}
+          style={{ cursor: 'pointer' }}
+        />
+        Hide stage name from viewers
+      </label>
+
       {/* VISUAL */}
       <Section title="Visual">
         <PropRow label="Background" desc="Base image or video.">

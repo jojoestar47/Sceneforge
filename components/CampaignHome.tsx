@@ -6,12 +6,14 @@ import type { Campaign } from '@/lib/types'
 import { formatDate } from '@/lib/format'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import AppIcon from '@/components/AppIcon'
+import ImagePositioner from '@/components/ImagePositioner'
 
 interface Props {
   campaigns:           Campaign[]
   onSelect:            (id: string) => void
   onNew:               () => void
   onUpdateCover:       (campId: string, file: File) => Promise<void>
+  onUpdateCoverPosition: (campId: string, x: number, y: number) => Promise<void>
   onUpdateName:        (campId: string, name: string) => Promise<void>
   onUpdateDescription: (campId: string, description: string) => Promise<void>
   onDelete:            (campId: string) => void
@@ -101,7 +103,12 @@ const CampaignCard = memo(function CampaignCard({
             alt={c.name}
             fill
             sizes="(max-width: 600px) 50vw, (max-width: 1024px) 33vw, 280px"
-            style={{ objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHov ? 'scale(1.04)' : 'scale(1)' }}
+            style={{
+              objectFit: 'cover',
+              objectPosition: `${c.cover_x ?? 50}% ${c.cover_y ?? 50}%`,
+              transition: 'transform 0.3s ease',
+              transform: isHov ? 'scale(1.04)' : 'scale(1)',
+            }}
           />
         ) : (
           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -145,7 +152,7 @@ const CampaignCard = memo(function CampaignCard({
   )
 })
 
-export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover, onUpdateName, onUpdateDescription, onDelete }: Props) {
+export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover, onUpdateCoverPosition, onUpdateName, onUpdateDescription, onDelete }: Props) {
   const [hoveredId,  setHoveredId]  = useState<string | null>(null)
   const [hoveredNew, setHoveredNew] = useState(false)
   const isTouchDevice = useIsTouchDevice()
@@ -159,6 +166,12 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
   const [uploadingCover, setUploadingCover] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // Cover-position editing state
+  const [positioningCover, setPositioningCover] = useState(false)
+  const [pendingCoverX,    setPendingCoverX]    = useState(50)
+  const [pendingCoverY,    setPendingCoverY]    = useState(50)
+  const [savingCoverPos,   setSavingCoverPos]   = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const settingsCamp = settingsId ? campaigns.find(c => c.id === settingsId) ?? null : null
@@ -169,11 +182,31 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
     setEditName(c.name)
     setEditDescription(c.description ?? '')
     setConfirmDelete(false)
+    setPositioningCover(false)
   }, [])
 
   function closeSettings() {
     setSettingsId(null)
     setConfirmDelete(false)
+    setPositioningCover(false)
+  }
+
+  function startCoverPositioning() {
+    if (!settingsCamp) return
+    setPendingCoverX(settingsCamp.cover_x ?? 50)
+    setPendingCoverY(settingsCamp.cover_y ?? 50)
+    setPositioningCover(true)
+  }
+
+  async function saveCoverPosition() {
+    if (!settingsId) return
+    setSavingCoverPos(true)
+    try {
+      await onUpdateCoverPosition(settingsId, pendingCoverX, pendingCoverY)
+      setPositioningCover(false)
+    } finally {
+      setSavingCoverPos(false)
+    }
   }
 
   async function saveName() {
@@ -403,23 +436,62 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 Cover Image
               </label>
               {settingsCamp.cover_signed_url && (
-                <div style={{ position: 'relative', width: '100%', height: '120px', borderRadius: '8px', overflow: 'hidden', marginBottom: '4px' }}>
-                  <Image
+                positioningCover ? (
+                  <ImagePositioner
                     src={settingsCamp.cover_signed_url}
-                    alt=""
-                    fill
-                    sizes="400px"
-                    style={{ objectFit: 'cover' }}
+                    x={pendingCoverX}
+                    y={pendingCoverY}
+                    onChange={(x, y) => { setPendingCoverX(x); setPendingCoverY(y) }}
+                    style={{ width: '100%', height: '160px', marginBottom: '4px' }}
                   />
+                ) : (
+                  <div style={{ position: 'relative', width: '100%', height: '120px', borderRadius: '8px', overflow: 'hidden', marginBottom: '4px' }}>
+                    <Image
+                      src={settingsCamp.cover_signed_url}
+                      alt=""
+                      fill
+                      sizes="400px"
+                      style={{ objectFit: 'cover', objectPosition: `${settingsCamp.cover_x ?? 50}% ${settingsCamp.cover_y ?? 50}%` }}
+                    />
+                  </div>
+                )
+              )}
+              {positioningCover ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => setPositioningCover(false)}
+                    disabled={savingCoverPos}
+                    className="btn btn-ghost btn-sm"
+                    style={{ flex: 1 }}
+                  >Cancel</button>
+                  <button
+                    onClick={saveCoverPosition}
+                    disabled={savingCoverPos}
+                    className="btn btn-outline btn-sm"
+                    style={{ flex: 1 }}
+                  >{savingCoverPos ? 'Saving…' : 'Save Position'}</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingCover}
+                    className="btn btn-outline btn-sm"
+                    style={{ flex: 1 }}
+                  >
+                    {uploadingCover ? 'Uploading…' : settingsCamp.cover_signed_url ? 'Change Cover' : 'Add Cover'}
+                  </button>
+                  {settingsCamp.cover_signed_url && (
+                    <button
+                      onClick={startCoverPositioning}
+                      className="btn btn-outline btn-sm"
+                      style={{ flex: 1 }}
+                    >
+                      Reposition
+                    </button>
+                  )}
                 </div>
               )}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingCover}
-                className="btn btn-outline btn-sm"
-              >
-                {uploadingCover ? 'Uploading…' : settingsCamp.cover_signed_url ? 'Change Cover' : 'Add Cover'}
-              </button>
             </div>
 
             {/* Divider */}

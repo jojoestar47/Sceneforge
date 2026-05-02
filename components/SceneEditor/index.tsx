@@ -115,6 +115,7 @@ export default function SceneEditor({ scene, campaignId, userId, onSave, onClose
       const scenePayload = {
         campaign_id: campaignId, name: draft.name || 'Untitled Scene',
         location: draft.location || null,
+        hide_title: draft.hide_title,
         dynamic_music: false,
         bg: bg ? { type: bg.type, url: bg.url, storage_path: bg.storage_path, file_name: bg.file_name } : null,
         order_index: scene?.order_index ?? 0,

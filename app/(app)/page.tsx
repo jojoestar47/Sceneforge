@@ -487,6 +487,11 @@ export default function AppPage() {
     }))
   }
 
+  async function updateCharacterImagePosition(charId: string, x: number, y: number) {
+    await supabase.from('characters').update({ image_x: x, image_y: y }).eq('id', charId)
+    setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, image_x: x, image_y: y } : c))
+  }
+
   async function deleteCharacter(charId: string) {
     const char = campaignCharacters.find(c => c.id === charId)
     if (!char) return
@@ -510,6 +515,11 @@ export default function AppPage() {
   async function updateCampaignDescription(campId: string, description: string) {
     await supabase.from('campaigns').update({ description }).eq('id', campId)
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, description } : c))
+  }
+
+  async function updateCampaignCoverPosition(campId: string, x: number, y: number) {
+    await supabase.from('campaigns').update({ cover_x: x, cover_y: y }).eq('id', campId)
+    setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, cover_x: x, cover_y: y } : c))
   }
 
   async function signOut() { await supabase.auth.signOut(); window.location.href = '/login' }
@@ -754,6 +764,7 @@ export default function AppPage() {
           onSelect={setActiveCampId}
           onNew={() => setCampModalOpen(true)}
           onUpdateCover={updateCampaignCover}
+          onUpdateCoverPosition={updateCampaignCoverPosition}
           onUpdateName={updateCampaignName}
           onUpdateDescription={updateCampaignDescription}
           onDelete={deleteCampaignById}
@@ -969,6 +980,7 @@ export default function AppPage() {
               onAdd={createCharacter}
               onUpdateTags={updateCharacterTags}
               onUpdateName={updateCharacterName}
+              onUpdateImagePosition={updateCharacterImagePosition}
               onCreateTag={createCampaignTag}
               onDeleteTag={deleteCampaignTag}
             />
