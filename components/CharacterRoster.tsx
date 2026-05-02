@@ -285,6 +285,24 @@ const CharacterCard = memo(function CharacterCard({
               title="Flip back"
             >↺</button>
 
+            {/* Reposition image — mirrors the flip-back button on the left */}
+            {imgUrl && (
+              <button
+                onClick={e => { e.stopPropagation(); onStartPositioning(c) }}
+                title="Reposition image"
+                style={{
+                  position: 'absolute', top: '8px', left: '8px',
+                  width: '22px', height: '22px', borderRadius: '50%', padding: 0,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '11px', color: 'var(--text-3)', cursor: 'pointer',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
+              >✥</button>
+            )}
+
             {/* Portrait */}
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid var(--border-lt)', background: 'var(--bg-raised)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {imgUrl ? <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${imageX}% ${imageY}%` }} /> : <AppIcon size={22} opacity={0.3} />}
@@ -338,27 +356,6 @@ const CharacterCard = memo(function CharacterCard({
             <div style={{ fontSize: '9px', color: 'var(--text-3)', letterSpacing: '0.3px', textAlign: 'center' }}>
               Added {formatDate(c.created_at)}
             </div>
-
-            {/* Reposition image */}
-            {imgUrl && (
-              <button
-                onClick={() => onStartPositioning(c)}
-                style={{
-                  width: '100%', padding: '6px',
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '7px', cursor: 'pointer',
-                  color: 'var(--text-2)', fontSize: '10px', fontWeight: 700, letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
-              >
-                <span style={{ fontSize: '11px' }}>✥</span> Reposition Image
-              </button>
-            )}
 
             {/* ── Tags picker ── */}
             <div style={{ width: '100%', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>

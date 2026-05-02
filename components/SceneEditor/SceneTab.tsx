@@ -70,15 +70,21 @@ export default function SceneTab({ draft, setDraft, campaignChars, charsLoading,
       </div>
 
       {/* Hide title from viewers */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-2)' }}>
-        <input
-          type="checkbox"
-          checked={draft.hide_title}
-          onChange={e => setDraft(d => ({ ...d, hide_title: e.target.checked }))}
-          style={{ cursor: 'pointer' }}
-        />
-        Hide stage name from viewers
-      </label>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '14px', padding: '10px 12px', background: 'var(--editor-row)', border: '1px solid var(--border-lt)', borderRadius: '6px' }}>
+        <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-2)' }}>
+          Hide name from viewers
+        </span>
+        <button
+          onClick={() => setDraft(d => ({ ...d, hide_title: !d.hide_title }))}
+          style={{
+            fontSize: '10px', padding: '5px 12px', borderRadius: '5px', cursor: 'pointer',
+            border: `1px solid ${draft.hide_title ? 'var(--accent)' : 'var(--border)'}`,
+            background: draft.hide_title ? 'var(--accent-bg)' : 'none',
+            color: draft.hide_title ? 'var(--accent)' : 'var(--text-2)',
+            fontWeight: 700, letterSpacing: '0.5px',
+          }}
+        >{draft.hide_title ? 'Yes' : 'No'}</button>
+      </div>
 
       {/* VISUAL */}
       <Section title="Visual">
