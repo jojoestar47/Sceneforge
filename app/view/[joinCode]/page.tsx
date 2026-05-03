@@ -12,6 +12,7 @@ import HandoutLightbox from '@/components/HandoutLightbox'
 import OverlayStack from '@/components/OverlayStack'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 import { isIosWebkit } from '@/lib/platform'
+import { readCrossfadePref } from '@/lib/audioPrefs'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -26,8 +27,6 @@ type Status = 'loading' | 'waiting' | 'live' | 'ended'
 
 const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
-const CROSSFADE_DEFAULT = 1500
-const CROSSFADE_MAX     = 5000
 
 // AudioContext unlock for Android/iOS
 let _audioCtx: AudioContext | null = null
@@ -115,16 +114,13 @@ export default function ViewerPage() {
   const [mixerOpen, setMixerOpen] = useState(false)
   const [needsTap,  setNeedsTap]  = useState(false)
   const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
-  // Crossfade duration (ms) — read from localStorage. Viewer shares the
-  // same setting key as DM so a single device can drive both side's behaviour.
-  const [crossfadeMs, setCrossfadeMs] = useState(CROSSFADE_DEFAULT)
-  const crossfadeMsRef = useRef(CROSSFADE_DEFAULT)
-  useEffect(() => { crossfadeMsRef.current = crossfadeMs }, [crossfadeMs])
+  // Crossfade duration (ms). Refreshed from localStorage at the top of each
+  // scene-change effect (it's read via crossfadeMsRef.current at consume sites)
+  // so changes made on the DM side propagate without requiring a viewer reload.
+  const crossfadeMsRef = useRef(readCrossfadePref())
   useEffect(() => {
     const saved = localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right' | null
     if (saved) setMixerPos(saved)
-    const xf = Number(localStorage.getItem('sf_crossfade_ms'))
-    if (Number.isFinite(xf) && xf >= 0 && xf <= CROSSFADE_MAX) setCrossfadeMs(xf)
   }, [])
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
@@ -364,6 +360,7 @@ export default function ViewerPage() {
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
+    crossfadeMsRef.current = readCrossfadePref()
     const xfade = crossfadeMsRef.current
 
     if (outgoingDisposeTimerRef.current) {

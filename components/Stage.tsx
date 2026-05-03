@@ -12,6 +12,7 @@ import OverlayStack from '@/components/OverlayStack'
 import UploadZone from '@/components/UploadZone'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 import { isIosWebkit } from '@/lib/platform'
+import { readCrossfadePref } from '@/lib/audioPrefs'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -72,8 +73,6 @@ interface Props {
 }
 
 const SFX_DEFAULT_VOL    = 1
-const CROSSFADE_DEFAULT  = 1500
-const CROSSFADE_MAX      = 5000
 
 const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
 
@@ -147,15 +146,14 @@ export default function Stage({
   const [muted,   setMuted]    = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
-  // Crossfade duration (ms) — read from localStorage on mount
-  const [crossfadeMs, setCrossfadeMs] = useState(CROSSFADE_DEFAULT)
-  const crossfadeMsRef = useRef(CROSSFADE_DEFAULT)
-  useEffect(() => { crossfadeMsRef.current = crossfadeMs }, [crossfadeMs])
+  // Crossfade duration (ms). Owned globally via lib/audioPrefs (the slider
+  // lives in the SceneEditor Audio section). The ref is refreshed at the top
+  // of the scene-change effect so edits made in the editor are picked up
+  // without remounting Stage.
+  const crossfadeMsRef = useRef(readCrossfadePref())
   useEffect(() => {
     const saved = localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right' | null
     if (saved) setMixerPos(saved)
-    const xf = Number(localStorage.getItem('sf_crossfade_ms'))
-    if (Number.isFinite(xf) && xf >= 0 && xf <= CROSSFADE_MAX) setCrossfadeMs(xf)
   }, [])
   const prevSceneIdForVolRef = useRef<string | null>(null)
   // Playlist: tracks the currently active base-music track index
@@ -230,7 +228,6 @@ export default function Stage({
   // ── Soundboard panel ─────────────────────────────────────────
   const [soundboardOpen, setSoundboardOpen] = useState(false)
   const [sbEditMode,     setSbEditMode]     = useState(false)
-  const [sbSettingsOpen, setSbSettingsOpen] = useState(false)
   const [sbUploading,    setSbUploading]    = useState(false)
   const [sbRecentlyPlayed, setSbRecentlyPlayed] = useState<Record<string, number>>({})
   // Right-click quick-edit popover anchored at cursor position
@@ -482,6 +479,10 @@ export default function Stage({
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
+    // Pick up the latest crossfade preference (the slider lives in the
+    // SceneEditor and writes to localStorage — this is how that value
+    // reaches the audio engine without remounting Stage).
+    crossfadeMsRef.current = readCrossfadePref()
     const xfade = crossfadeMsRef.current
 
     // If a previous outgoing set is still fading, dispose it now — only one
@@ -815,12 +816,6 @@ export default function Stage({
         console.error('[library] storage delete failed:', e)
       }
     }
-  }
-
-  function setCrossfadePref(ms: number) {
-    const clamped = Math.max(0, Math.min(CROSSFADE_MAX, Math.round(ms)))
-    setCrossfadeMs(clamped)
-    try { localStorage.setItem('sf_crossfade_ms', String(clamped)) } catch {}
   }
 
   function switchMusicTrack(newIdx: number) {
@@ -1286,33 +1281,11 @@ export default function Stage({
             <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Soundboard</span>
               <button
-                onClick={() => setSbSettingsOpen(o => !o)}
-                title="Audio settings"
-                style={{ background: sbSettingsOpen ? 'rgba(201,168,76,0.12)' : 'none', border: 'none', color: sbSettingsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '13px', padding: '2px 6px', borderRadius: '4px' }}
-              >⚙</button>
-              <button
                 onClick={() => setSbEditMode(m => !m)}
                 style={{ background: sbEditMode ? 'rgba(201,168,76,0.12)' : 'none', border: 'none', color: sbEditMode ? 'var(--accent)' : 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', padding: '3px 8px', borderRadius: '4px' }}
               >{sbEditMode ? 'Done' : 'Edit'}</button>
               <button onClick={() => setSoundboardOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
             </div>
-
-            {sbSettingsOpen && (
-              <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '6px', display: 'flex', alignItems: 'center' }}>
-                  <span style={{ flex: 1 }}>Crossfade</span>
-                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)' }}>{(crossfadeMs / 1000).toFixed(1)}s</span>
-                </div>
-                <input
-                  type="range" min={0} max={CROSSFADE_MAX} step={100} value={crossfadeMs}
-                  onChange={e => setCrossfadePref(Number(e.target.value))}
-                  style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
-                />
-                <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>
-                  Time to fade between scenes and tracks. 0 = instant.
-                </div>
-              </div>
-            )}
 
             <input ref={sbFileInputRef} type="file" accept="audio/*" style={{ display: 'none' }}
               onChange={async e => {
