@@ -9,7 +9,6 @@ import { tagColor } from '@/lib/tagColor'
 import UploadZone from '@/components/UploadZone'
 import { Section, PropRow } from './parts'
 import type { Draft, Kind, TrackDraft } from './types'
-import { CROSSFADE_MAX, readCrossfadePref, writeCrossfadePref } from '@/lib/audioPrefs'
 
 interface Props {
   draft:           Draft
@@ -282,44 +281,12 @@ export default function SceneTab({ draft, setDraft, campaignChars, campaignTags,
         {tracksOf('ambience').map((t, i) => (
           <TrackChip key={i} track={t} globalIdx={draft.tracks.indexOf(t)} onRemove={removeTrack} />
         ))}
-        <CrossfadeRow />
       </Section>
     </>
   )
 }
 
 // ── Scene-tab-only sub-components ────────────────────────────────────────────
-
-// Global preference (not per-scene). Lives here so it sits next to the audio
-// content it affects; the value is stored in localStorage via lib/audioPrefs
-// and consumed by Stage at scene-change time + useSpotifyPlayer for fades.
-function CrossfadeRow() {
-  const [ms, setMs] = useState<number | null>(null)
-  useEffect(() => { setMs(readCrossfadePref()) }, [])
-
-  if (ms === null) return null
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid var(--border)', gap: '16px' }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text)', marginBottom: '4px' }}>
-          Crossfade
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
-          Fade between scenes when switching. Applies to all scenes.
-        </div>
-      </div>
-      <div style={{ width: '180px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-        <span style={{ fontSize: '11px', color: 'var(--text-2)' }}>{(ms / 1000).toFixed(1)}s</span>
-        <input
-          type="range" min={0} max={CROSSFADE_MAX} step={100} value={ms}
-          onChange={e => setMs(writeCrossfadePref(Number(e.target.value)))}
-          style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
-        />
-      </div>
-    </div>
-  )
-}
-
 
 interface MediaFieldProps {
   slot: string

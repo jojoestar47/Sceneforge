@@ -8,7 +8,6 @@ import type {
   SpotifySdkPlayerState,
 } from '@/lib/spotify'
 import { isIosWebkit } from '@/lib/platform'
-import { readCrossfadePref } from '@/lib/audioPrefs'
 
 export interface SpotifyTrackState {
   playing: boolean
@@ -81,36 +80,6 @@ async function fetchToken(): Promise<string | null> {
   }
 }
 
-// ── Volume ramp ───────────────────────────────────────────────
-// Spotify's SDK gives us a single `setVolume()` per device. True overlap
-// crossfade isn't possible on one device — best we can do is sequential:
-// fade outgoing track to 0, pause, then fade incoming track up from 0.
-// Returns a cancel fn so a newer ramp can preempt one in flight.
-function rampSpotifyVolume(
-  player:  SpotifySdkPlayer,
-  fromVol: number,
-  toVol:   number,
-  durMs:   number,
-  onDone?: () => void,
-): () => void {
-  if (durMs <= 0) {
-    player.setVolume(toVol).catch(() => {})
-    onDone?.()
-    return () => {}
-  }
-  const startTime = performance.now()
-  const id = window.setInterval(() => {
-    const t = Math.min(1, (performance.now() - startTime) / durMs)
-    const v = Math.max(0, Math.min(1, fromVol + (toVol - fromVol) * t))
-    player.setVolume(v).catch(() => {})
-    if (t >= 1) {
-      window.clearInterval(id)
-      onDone?.()
-    }
-  }, 50)
-  return () => window.clearInterval(id)
-}
-
 // ── Repeat mode helper ────────────────────────────────────────
 async function applyRepeatMode(
   loop:        boolean,
@@ -138,9 +107,6 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
   // If play is requested before the device is ready, we queue the track here
   // and flush it as soon as the 'ready' event fires.
   const pendingPlayRef = useRef<Track | null>(null)
-  // Cancel fn for the active volume ramp (fade-out on scene change, fade-in
-  // on auto-play). A newer scene change preempts an in-flight ramp.
-  const rampCancelRef = useRef<(() => void) | null>(null)
 
   const [connected,   setConnected]   = useState(false)
   const [states,      setStates]      = useState<Record<string, SpotifyTrackState>>({})
@@ -159,23 +125,7 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     if (scene?.id === prevSceneIdRef.current) return
     prevSceneIdRef.current = scene?.id ?? null
 
-    // Cancel any in-flight ramp from a previous scene change.
-    if (rampCancelRef.current) { rampCancelRef.current(); rampCancelRef.current = null }
-
-    if (playerRef.current) {
-      const xfade   = readCrossfadePref()
-      const outgoing = activeTrackRef.current
-      const player   = playerRef.current
-      if (xfade > 0 && outgoing) {
-        const fromVol = mutedRef.current ? 0 : (volumeRef.current[outgoing.id] ?? outgoing.volume)
-        rampCancelRef.current = rampSpotifyVolume(player, fromVol, 0, xfade, () => {
-          rampCancelRef.current = null
-          player.pause().catch(() => {})
-        })
-      } else {
-        player.pause().catch(() => {})
-      }
-    }
+    if (playerRef.current) playerRef.current.pause().catch(() => {})
     activeTrackRef.current = null
     setNowPlaying(null)
     setProgress(0)
@@ -205,14 +155,7 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
     if (!music.length) return
-    // Delay past the outgoing fade-out so we don't interrupt it. (Spotify
-    // can only play one track at a time per device — starting the new track
-    // would otherwise cancel the fade-out.)
-    const xfade = readCrossfadePref()
-    const delay = Math.max(350, xfade + 100)
-    const timer = setTimeout(() => {
-      playTrack(music[0], { fadeInMs: xfade }).catch(() => {})
-    }, delay)
+    const timer = setTimeout(() => { playTrack(music[0]).catch(() => {}) }, 350)
     return () => clearTimeout(timer)
   }, [scene?.id, connected, disableAutoPlay]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -321,7 +264,7 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Playback helpers ──────────────────────────────────────────
-  async function playTrack(t: Track, opts?: { fadeInMs?: number }) {
+  async function playTrack(t: Track) {
     if (!t.spotify_uri) return
     // Device not ready yet — queue the track and return. The 'ready' listener
     // will flush it once the virtual device has a device_id.
@@ -331,7 +274,6 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     }
 
     const sceneIdAtStart = prevSceneIdRef.current
-    const fadeInMs       = opts?.fadeInMs ?? 0
 
     const token = await fetchToken()
     if (!token) return
@@ -340,14 +282,6 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     const body = t.spotify_type === 'playlist'
       ? { context_uri: t.spotify_uri }
       : { uris: [t.spotify_uri] }
-
-    const targetVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
-
-    // If we're fading in, start the player at 0 BEFORE the play call so the
-    // first audio frames aren't audible at full volume.
-    if (fadeInMs > 0) {
-      await playerRef.current.setVolume(0).catch(() => {})
-    }
 
     const playRes = await fetch(
       `https://api.spotify.com/v1/me/player/play?device_id=${deviceIdRef.current}`,
@@ -375,32 +309,18 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     activeTrackRef.current = t
     setProgress(0)
 
-    if (fadeInMs > 0) {
-      if (rampCancelRef.current) { rampCancelRef.current(); rampCancelRef.current = null }
-      rampCancelRef.current = rampSpotifyVolume(playerRef.current, 0, targetVol, fadeInMs, () => {
-        rampCancelRef.current = null
-      })
-    } else {
-      await playerRef.current.setVolume(targetVol).catch(() => {})
-    }
+    const vol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+    await playerRef.current.setVolume(vol).catch(() => {})
 
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: true } }))
   }
 
   // ── Public API ────────────────────────────────────────────────
-  // Manual user actions (toggle, volume, mute, stop) preempt any in-flight
-  // crossfade ramp — otherwise the ramp would keep ticking and override the
-  // user's input.
-  function cancelRamp() {
-    if (rampCancelRef.current) { rampCancelRef.current(); rampCancelRef.current = null }
-  }
-
   function toggle(t: Track) {
     if (!t.spotify_uri || !playerRef.current) return
     const isActive  = activeTrackRef.current?.id === t.id
     const isPlaying = states[t.id]?.playing ?? false
     if (isActive && isPlaying) {
-      cancelRamp()
       playerRef.current.pause().catch(() => {})
       activeTrackRef.current = null
       setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
@@ -417,7 +337,6 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
     volumeRef.current[t.id] = val
     if (scene?.id) saveVolume(scene.id, t.id, val)
     if (activeTrackRef.current?.id === t.id && playerRef.current && !mutedRef.current) {
-      cancelRamp()
       playerRef.current.setVolume(val).catch(() => {})
     }
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], volume: val } }))
@@ -435,7 +354,6 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
   }
 
   function stopAll() {
-    cancelRamp()
     if (playerRef.current) playerRef.current.pause().catch(() => {})
     activeTrackRef.current = null
     setNowPlaying(null)
@@ -448,7 +366,6 @@ export function useSpotifyPlayer(scene: Scene | null, { disableAutoPlay = false 
   function mute(muted: boolean) {
     mutedRef.current = muted
     if (!playerRef.current || !activeTrackRef.current) return
-    cancelRamp()
     const t   = activeTrackRef.current
     const vol = muted ? 0 : (volumeRef.current[t.id] ?? 0.7)
     playerRef.current.setVolume(vol).catch(() => {})

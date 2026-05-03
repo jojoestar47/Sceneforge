@@ -12,7 +12,6 @@ import OverlayStack from '@/components/OverlayStack'
 import UploadZone from '@/components/UploadZone'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 import { isIosWebkit } from '@/lib/platform'
-import { readCrossfadePref } from '@/lib/audioPrefs'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -135,22 +134,11 @@ export default function Stage({
   type Handlers = { play: () => void; pause: () => void; ended?: () => void }
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
   const audioHandlers          = useRef<Record<string, Handlers>>({})
-  // Outgoing scene's audio elements during a crossfade
-  const outgoingRefs           = useRef<Record<string, HTMLAudioElement>>({})
-  const outgoingHandlers       = useRef<Record<string, Handlers>>({})
-  const outgoingDisposeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Active volume ramps (audio element → cancel fn)
-  const rampClearersRef        = useRef<Map<HTMLAudioElement, () => void>>(new Map())
   const [volumes, setVolumes]  = useState<Record<string, number>>({})
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
-  // Crossfade duration (ms). Owned globally via lib/audioPrefs (the slider
-  // lives in the SceneEditor Audio section). The ref is refreshed at the top
-  // of the scene-change effect so edits made in the editor are picked up
-  // without remounting Stage.
-  const crossfadeMsRef = useRef(readCrossfadePref())
   useEffect(() => {
     const saved = localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right' | null
     if (saved) setMixerPos(saved)
@@ -164,37 +152,9 @@ export default function Stage({
   const onMusicTrackChangeRef  = useRef(onMusicTrackChange)
   useEffect(() => { onMusicTrackChangeRef.current = onMusicTrackChange }, [onMusicTrackChange])
 
-  // ── Volume ramp helpers ─────────────────────────────────────
-  // Cancel any in-flight ramp on this element
-  const cancelRamp = useCallback((a: HTMLAudioElement) => {
-    const c = rampClearersRef.current.get(a)
-    if (c) { c(); rampClearersRef.current.delete(a) }
-  }, [])
-
-  // Linear volume ramp from current → target over durMs.
-  // durMs <= 0 sets immediately. onDone fires after the ramp completes.
-  const rampVolume = useCallback((a: HTMLAudioElement, target: number, durMs: number, onDone?: () => void) => {
-    cancelRamp(a)
-    const clamped = Math.max(0, Math.min(1, target))
-    if (durMs <= 0) { a.volume = clamped; onDone?.(); return }
-    const start = a.volume
-    const startTime = performance.now()
-    const id = window.setInterval(() => {
-      const t = Math.min(1, (performance.now() - startTime) / durMs)
-      a.volume = Math.max(0, Math.min(1, start + (clamped - start) * t))
-      if (t >= 1) {
-        window.clearInterval(id)
-        rampClearersRef.current.delete(a)
-        onDone?.()
-      }
-    }, 30)
-    rampClearersRef.current.set(a, () => window.clearInterval(id))
-  }, [cancelRamp])
-
   // Detach listeners + pause + clear src on a refs map
   const disposeRefs = useCallback((refs: Record<string, HTMLAudioElement>, handlers: Record<string, Handlers>) => {
     Object.entries(refs).forEach(([id, a]) => {
-      cancelRamp(a)
       const h = handlers[id]
       if (h) {
         a.removeEventListener('play',  h.play)
@@ -203,7 +163,7 @@ export default function Stage({
       }
       a.pause(); a.src = ''
     })
-  }, [cancelRamp])
+  }, [])
 
   // ── Handouts ─────────────────────────────────────────────────
   const [handoutsOpen,   setHandoutsOpen]   = useState(false)
@@ -227,11 +187,15 @@ export default function Stage({
 
   // ── Soundboard panel ─────────────────────────────────────────
   const [soundboardOpen, setSoundboardOpen] = useState(false)
-  const [sbEditMode,     setSbEditMode]     = useState(false)
   const [sbUploading,    setSbUploading]    = useState(false)
   const [sbRecentlyPlayed, setSbRecentlyPlayed] = useState<Record<string, number>>({})
   // Right-click quick-edit popover anchored at cursor position
   const [sbQuickEdit, setSbQuickEdit] = useState<{ soundId: string; x: number; y: number } | null>(null)
+  // True between the first "Delete" click in the quick-edit popover and the
+  // confirm click (or auto-cancel ~4s later). Cleared whenever the popover
+  // closes or moves to a different sound.
+  const [sbDeleteArmed, setSbDeleteArmed] = useState(false)
+  const sbDeleteArmedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Timestamp the popover was opened. Used by the backdrop to ignore the
   // trailing pointerup/click from the long-press gesture that opened it —
   // without this, on touch devices the popover dismisses immediately because
@@ -375,6 +339,19 @@ export default function Stage({
     if (!soundboardOpen) setSbQuickEdit(null)
   }, [soundboardOpen])
 
+  // Reset the delete-armed state whenever the popover closes or jumps to a
+  // different sound, and clear the auto-cancel timer on unmount.
+  useEffect(() => {
+    setSbDeleteArmed(false)
+    if (sbDeleteArmedTimerRef.current) {
+      clearTimeout(sbDeleteArmedTimerRef.current)
+      sbDeleteArmedTimerRef.current = null
+    }
+  }, [sbQuickEdit?.soundId])
+  useEffect(() => () => {
+    if (sbDeleteArmedTimerRef.current) clearTimeout(sbDeleteArmedTimerRef.current)
+  }, [])
+
   function showHandout(h: Handout | null) {
     setActiveHandout(h)
     onHandoutShow?.(h?.id ?? null)
@@ -465,56 +442,21 @@ export default function Stage({
   // Keep refs in sync for stable event-handler callbacks
   useEffect(() => { musicIdxRef.current = musicIdx }, [musicIdx])
 
-  // ── Audio: scene change → crossfade outgoing → incoming ──────
+  // ── Audio: scene change → swap tracks ────────────────────────
   useEffect(() => {
-    // Save outgoing scene's *target* volumes (pre-fade) so they restore correctly
+    // Save outgoing scene's volumes so they restore correctly on revisit.
     if (prevSceneIdForVolRef.current && Object.keys(audioRefs.current).length > 0) {
       const savedVols: Record<string, number> = {}
       Object.entries(audioRefs.current).forEach(([id, a]) => {
-        // Prefer the user's intended volume from `volumes` state; fall back to
-        // the element's current value (which may be mid-fade).
         savedVols[id] = volumes[id] ?? a.volume
       })
       try { localStorage.setItem(`sf_vol_${prevSceneIdForVolRef.current}`, JSON.stringify(savedVols)) } catch {}
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
-    // Pick up the latest crossfade preference (the slider lives in the
-    // SceneEditor and writes to localStorage — this is how that value
-    // reaches the audio engine without remounting Stage).
-    crossfadeMsRef.current = readCrossfadePref()
-    const xfade = crossfadeMsRef.current
-
-    // If a previous outgoing set is still fading, dispose it now — only one
-    // fade-out at a time. (Three sets in flight = mess.)
-    if (outgoingDisposeTimerRef.current) {
-      clearTimeout(outgoingDisposeTimerRef.current)
-      outgoingDisposeTimerRef.current = null
-    }
-    disposeRefs(outgoingRefs.current, outgoingHandlers.current)
-    outgoingRefs.current = {}
-    outgoingHandlers.current = {}
-
-    // Move current → outgoing (or dispose immediately if crossfade disabled)
-    const hadCurrent = Object.keys(audioRefs.current).length > 0
-    if (hadCurrent && xfade > 0) {
-      outgoingRefs.current = audioRefs.current
-      outgoingHandlers.current = audioHandlers.current
-      const cleanupRefs     = outgoingRefs.current
-      const cleanupHandlers = outgoingHandlers.current
-      Object.values(cleanupRefs).forEach(a => rampVolume(a, 0, xfade))
-      outgoingDisposeTimerRef.current = setTimeout(() => {
-        outgoingDisposeTimerRef.current = null
-        if (outgoingRefs.current === cleanupRefs) {
-          disposeRefs(cleanupRefs, cleanupHandlers)
-          outgoingRefs.current = {}
-          outgoingHandlers.current = {}
-        }
-      }, xfade + 50)
-    } else if (hadCurrent) {
+    if (Object.keys(audioRefs.current).length > 0) {
       disposeRefs(audioRefs.current, audioHandlers.current)
     }
-
     audioRefs.current = {}
     audioHandlers.current = {}
     setVolumes({})
@@ -531,32 +473,19 @@ export default function Stage({
     const amb       = scene.tracks.filter(t => t.kind === 'ambience' && !t.spotify_uri)
     sceneMusicRef.current = scene.tracks.filter(t => t.kind === 'music')
 
-    // Start incoming tracks at vol 0 and fade up. Short delay lets the
-    // outgoing-set ramp kick off first — visually they overlap, audibly
-    // they crossfade.
-    const timer = setTimeout(() => {
-      const fadeIn = (a: HTMLAudioElement) => {
-        // a.volume was set by getOrCreate to the target; capture and ramp from 0.
-        const target = a.volume
-        a.volume = 0
-        a.play().catch(() => {})
-        rampVolume(a, target, xfade)
-      }
-      baseMusic.forEach((t, i) => {
-        const a = getOrCreate(t)
-        if (i === 0 && (t.signed_url || t.url)) fadeIn(a)
+    baseMusic.forEach((t, i) => {
+      const a = getOrCreate(t)
+      if (i === 0 && (t.signed_url || t.url)) a.play().catch(() => {})
+    })
+    layers.forEach(t => {
+      if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
+    })
+    // Ambience: viewer is audio master when live
+    if (!isLive) {
+      amb.forEach(t => {
+        if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
-      layers.forEach(t => {
-        if (t.signed_url || t.url) fadeIn(getOrCreate(t))
-      })
-      // Ambience: viewer is audio master when live
-      if (!isLive) {
-        amb.forEach(t => {
-          if (t.signed_url || t.url) fadeIn(getOrCreate(t))
-        })
-      }
-    }, 50)
-    return () => clearTimeout(timer)
+    }
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop ambience on DM whenever presentation goes live;
@@ -591,16 +520,9 @@ export default function Stage({
   // Stop all audio when Stage unmounts (e.g. navigating back to campaign home)
   useEffect(() => {
     return () => {
-      if (outgoingDisposeTimerRef.current) {
-        clearTimeout(outgoingDisposeTimerRef.current)
-        outgoingDisposeTimerRef.current = null
-      }
       disposeRefs(audioRefs.current, audioHandlers.current)
-      disposeRefs(outgoingRefs.current, outgoingHandlers.current)
       audioRefs.current   = {}
       audioHandlers.current = {}
-      outgoingRefs.current = {}
-      outgoingHandlers.current = {}
       Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
       sfxAudioRef.current = {}
       // Cancel pending volume save debouncers and the long-press timer.
@@ -629,8 +551,6 @@ export default function Stage({
       a.addEventListener('pause', pauseHandler)
 
       // Base music tracks auto-advance to next when they end (if not looping).
-      // Fade the next track in for a smooth transition (the ended track is
-      // already silent — no fade-out needed).
       let endedHandler: (() => void) | undefined
       if (t.kind === 'music') {
         endedHandler = () => {
@@ -641,11 +561,8 @@ export default function Stage({
           if (next && !next.spotify_uri) {
             const nextAudio = audioRefs.current[next.id]
             if (nextAudio) {
-              const target = nextAudio.volume
               nextAudio.currentTime = 0
-              nextAudio.volume = 0
               nextAudio.play().catch(() => {})
-              rampVolume(nextAudio, target, crossfadeMsRef.current)
             }
           }
           setMusicIdx(nextIdx)
@@ -670,7 +587,6 @@ export default function Stage({
   function setVol(t: Track, val: number) {
     if (t.spotify_uri) { spotify.setVolume(t, val); return }
     const a = getOrCreate(t)
-    cancelRamp(a)        // user override beats any in-flight fade
     a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
     if (scene?.id) {
@@ -683,8 +599,7 @@ export default function Stage({
     }
   }
   function stopAll() {
-    Object.values(audioRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
-    Object.values(outgoingRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
     Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
     sfxAudioRef.current = {}
     setSfxActiveCounts({})
@@ -693,7 +608,6 @@ export default function Stage({
   function handleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
-    Object.values(outgoingRefs.current).forEach(a => (a.muted = next))
     Object.values(sfxAudioRef.current).forEach(({ audio }) => (audio.muted = next))
     spotify.mute(next)
   }
@@ -823,36 +737,20 @@ export default function Stage({
     if (newIdx < 0 || newIdx >= baseTracks.length || newIdx === musicIdx) return
     const current = baseTracks[musicIdx]
     const next    = baseTracks[newIdx]
-    const xfade   = crossfadeMsRef.current
-    // Fade current out, then pause
     if (current) {
       if (!current.spotify_uri) {
         const a = audioRefs.current[current.id]
-        if (a) {
-          if (xfade > 0 && !a.paused) {
-            rampVolume(a, 0, xfade, () => { a.pause(); a.currentTime = 0 })
-          } else {
-            cancelRamp(a); a.pause(); a.currentTime = 0
-          }
-        }
+        if (a) { a.pause(); a.currentTime = 0 }
       } else if (!isLive && spotify.states[current.id]?.playing) {
         // When live the viewer is the audio master — don't touch Spotify on DM side
         spotify.toggle(current)
       }
     }
-    // Fade next in
     if (next) {
       if (!next.spotify_uri) {
         const a = getOrCreate(next)
-        const target = volumes[next.id] ?? a.volume
-        if (xfade > 0) {
-          a.volume = 0
-          a.play().catch(() => {})
-          rampVolume(a, target, xfade)
-        } else {
-          a.volume = target
-          a.play().catch(() => {})
-        }
+        a.volume = volumes[next.id] ?? a.volume
+        a.play().catch(() => {})
       } else if (!isLive && !spotify.states[next.id]?.playing) {
         // When live, viewer receives the track ID via active_music_track_id and plays it
         spotify.toggle(next)
@@ -1280,10 +1178,6 @@ export default function Stage({
           >
             <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', flex: 1 }}>Soundboard</span>
-              <button
-                onClick={() => setSbEditMode(m => !m)}
-                style={{ background: sbEditMode ? 'rgba(201,168,76,0.12)' : 'none', border: 'none', color: sbEditMode ? 'var(--accent)' : 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', padding: '3px 8px', borderRadius: '4px' }}
-              >{sbEditMode ? 'Done' : 'Edit'}</button>
               <button onClick={() => setSoundboardOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px' }}>✕</button>
             </div>
 
@@ -1297,7 +1191,7 @@ export default function Stage({
             />
 
             <div style={{ padding: '12px', maxHeight: '380px', overflowY: 'auto' }}>
-              {(!sounds || sounds.length === 0) && !sbEditMode && (
+              {(!sounds || sounds.length === 0) && (
                 <div style={{ textAlign: 'center', padding: '24px 12px', color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>
                   <div style={{ fontSize: '24px', marginBottom: '8px', opacity: 0.4 }}>🔊</div>
                   <div style={{ marginBottom: '12px' }}>No sounds yet.</div>
@@ -1311,46 +1205,11 @@ export default function Stage({
                 </div>
               )}
 
-              {(sounds && sounds.length > 0) ? (
-                sbEditMode ? (
-                  // ── Edit mode: list of rows with rename + volume + delete ──
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {(sounds ?? []).map(s => (
-                      <SfxEditRow
-                        key={s.id}
-                        sound={s}
-                        isPlaying={(sfxActiveCounts[s.id] ?? 0) > 0}
-                        onPlay={() => playSfx(s)}
-                        onRename={(name) => handleSbRename(s, name)}
-                        onVolume={(v) => handleSbVolume(s, v)}
-                        onDelete={() => handleSbDelete(s)}
-                      />
-                    ))}
-                    {/* Add-sound row */}
-                    <button
-                      onClick={() => sbFileInputRef.current?.click()}
-                      disabled={sbUploading}
-                      style={{
-                        width: '100%', height: '40px',
-                        background: 'transparent',
-                        border: '1.5px dashed rgba(255,255,255,0.18)', borderRadius: '8px',
-                        color: 'rgba(255,255,255,0.45)', cursor: sbUploading ? 'wait' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                        fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px',
-                        transition: 'border-color 0.15s ease, color 0.15s ease',
-                      }}
-                      onMouseEnter={e => { if (!sbUploading) { e.currentTarget.style.borderColor = 'rgba(201,168,76,0.5)'; e.currentTarget.style.color = 'var(--accent)' } }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
-                    >
-                      <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
-                      <span>{sbUploading ? 'Uploading…' : 'Add sound'}</span>
-                    </button>
-                  </div>
-                ) : (
-                  // ── View mode: responsive grid for fast firing ──
-                  // 4 cols on the standard 320px panel; auto-fills down to ~64px
-                  // pads on narrower viewports so phones get 3 columns instead.
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '8px' }}>
+              {(sounds && sounds.length > 0) && (
+                // Responsive grid for fast firing.
+                // 4 cols on the standard 320px panel; auto-fills down to ~64px
+                // pads on narrower viewports so phones get 3 columns instead.
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '8px' }}>
                     {(sounds ?? []).map(s => {
                       const recentlyPlayed = sbRecentlyPlayed[s.id]
                       const isHot     = recentlyPlayed && Date.now() - recentlyPlayed < 600
@@ -1414,8 +1273,7 @@ export default function Stage({
                       {sbUploading ? <span style={{ fontSize: '10px', fontWeight: 600 }}>…</span> : '+'}
                     </button>
                   </div>
-                )
-              ) : null}
+              )}
             </div>
           </div>
         )}
@@ -1487,7 +1345,7 @@ export default function Stage({
                   style={{ width: '36px', height: '36px', flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.55)', cursor: 'pointer', fontSize: '14px', touchAction: 'manipulation' }}
                 >✕</button>
               </div>
-              {/* Bottom row: volume — taller slider for easier touch drag */}
+              {/* Volume — taller slider for easier touch drag */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
                 <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
                 <input
@@ -1500,6 +1358,31 @@ export default function Stage({
                 />
                 <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', width: '36px', textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{Math.round((s.volume ?? 1) * 100)}%</span>
               </div>
+              {/* Delete — first click arms (~4s), second click confirms */}
+              <button
+                onClick={() => {
+                  if (sbDeleteArmed) {
+                    if (sbDeleteArmedTimerRef.current) { clearTimeout(sbDeleteArmedTimerRef.current); sbDeleteArmedTimerRef.current = null }
+                    setSbDeleteArmed(false)
+                    setSbQuickEdit(null)
+                    handleSbDelete(s)
+                  } else {
+                    setSbDeleteArmed(true)
+                    if (sbDeleteArmedTimerRef.current) clearTimeout(sbDeleteArmedTimerRef.current)
+                    sbDeleteArmedTimerRef.current = setTimeout(() => setSbDeleteArmed(false), 4000)
+                  }
+                }}
+                title={sbDeleteArmed ? 'Click again to confirm' : 'Delete sound'}
+                style={{
+                  height: '34px', borderRadius: '6px',
+                  border: `1px solid ${sbDeleteArmed ? 'rgba(229,53,53,0.55)' : 'rgba(255,255,255,0.1)'}`,
+                  background: sbDeleteArmed ? 'rgba(229,53,53,0.18)' : 'rgba(255,255,255,0.04)',
+                  color: sbDeleteArmed ? '#ff7a7a' : 'rgba(255,255,255,0.55)',
+                  fontSize: '10px', fontWeight: 700, letterSpacing: '0.6px',
+                  textTransform: 'uppercase', cursor: 'pointer',
+                  touchAction: 'manipulation',
+                }}
+              >{sbDeleteArmed ? 'Click to confirm delete' : 'Delete'}</button>
             </div>
           </>
         )
@@ -1848,112 +1731,6 @@ import type { SpotifyNowPlaying } from '@/lib/useSpotifyPlayer'
 // blur/Enter), volume slider, and a 2-stage delete (one click arms a
 // red confirm; second click within 4s confirms; click anywhere else
 // or wait → cancels).
-
-interface SfxEditRowProps {
-  sound:     CampaignSound
-  isPlaying: boolean
-  onPlay:    () => void
-  onRename:  (name: string) => void
-  onVolume:  (v: number) => void
-  onDelete:  () => void
-}
-
-function SfxEditRow({ sound, isPlaying, onPlay, onRename, onVolume, onDelete }: SfxEditRowProps) {
-  const [draftName, setDraftName] = useState(sound.name)
-  const [confirming, setConfirming] = useState(false)
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Keep input in sync if the sound is renamed elsewhere (e.g. realtime).
-  useEffect(() => { setDraftName(sound.name) }, [sound.name])
-
-  useEffect(() => () => {
-    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
-  }, [])
-
-  function commitName() {
-    const trimmed = draftName.trim()
-    if (!trimmed) { setDraftName(sound.name); return }
-    if (trimmed !== sound.name) onRename(trimmed)
-  }
-
-  function armDelete() {
-    setConfirming(true)
-    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
-    confirmTimerRef.current = setTimeout(() => setConfirming(false), 4000)
-  }
-
-  function cancelDelete() {
-    setConfirming(false)
-    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
-  }
-
-  const vol = sound.volume ?? 1
-
-  return (
-    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-      {/* Top row: play, name, delete */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button
-          onClick={onPlay}
-          title={isPlaying ? 'Stop' : 'Preview'}
-          style={{
-            width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px',
-            border: `1px solid ${isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
-            background: isPlaying ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.05)',
-            color: isPlaying ? 'var(--accent)' : 'rgba(255,255,255,0.7)',
-            fontSize: '11px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            touchAction: 'manipulation',
-          }}
-        >{isPlaying ? '⏹' : '▶'}</button>
-        <input
-          type="text"
-          value={draftName}
-          onChange={e => setDraftName(e.target.value)}
-          onBlur={commitName}
-          onKeyDown={e => {
-            if (e.key === 'Enter') { e.currentTarget.blur() }
-            else if (e.key === 'Escape') { setDraftName(sound.name); e.currentTarget.blur() }
-          }}
-          spellCheck={false}
-          style={{ flex: 1, minWidth: 0, height: '32px', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0 10px', color: 'rgba(255,255,255,0.9)', fontSize: '12px', fontFamily: 'inherit', outline: 'none' }}
-        />
-        {!confirming ? (
-          <button
-            onClick={armDelete}
-            title="Delete"
-            style={{ width: '32px', height: '32px', flexShrink: 0, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.55)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >✕</button>
-        ) : (
-          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-            <button
-              onClick={cancelDelete}
-              title="Cancel"
-              style={{ height: '32px', padding: '0 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
-            >Cancel</button>
-            <button
-              onClick={() => { cancelDelete(); onDelete() }}
-              title="Confirm delete"
-              style={{ height: '32px', padding: '0 10px', borderRadius: '6px', border: '1px solid rgba(229,53,53,0.5)', background: 'rgba(229,53,53,0.18)', color: '#ff7a7a', fontSize: '10px', fontWeight: 700, letterSpacing: '0.4px', cursor: 'pointer' }}
-            >Delete</button>
-          </div>
-        )}
-      </div>
-      {/* Bottom row: volume slider */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '4px' }}>
-        <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '36px', flexShrink: 0 }}>Vol</span>
-        <input
-          type="range" min={0} max={1} step={0.01} value={vol}
-          onChange={e => onVolume(Number(e.target.value))}
-          onClick={e => e.stopPropagation()}
-          onTouchStart={e => e.stopPropagation()}
-          style={{ flex: 1, accentColor: 'var(--accent)', cursor: 'pointer', height: '20px', touchAction: 'none' }}
-        />
-        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', width: '32px', textAlign: 'right', flexShrink: 0 }}>{Math.round(vol * 100)}%</span>
-      </div>
-    </div>
-  )
-}
 
 interface MiniTrackRowProps {
   t:          Track
