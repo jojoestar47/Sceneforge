@@ -1,3 +1,5 @@
+import Modal, { ModalPanel } from './Modal'
+
 interface ShareLiveModalProps {
   joinCode:  string
   viewerUrl: string
@@ -12,12 +14,8 @@ export default function ShareLiveModal({
   joinCode, viewerUrl, qrUrl, copied, onCopy, onClose, onStop,
 }: ShareLiveModalProps) {
   return (
-    <>
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '12px', width: '460px', maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.9)', overflow: 'hidden' }}>
+    <Modal onClose={onClose} zIndex={300}>
+      <ModalPanel width={460} style={{ overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -73,22 +71,21 @@ export default function ShareLiveModal({
             ⏹ Stop Presenting
           </button>
         </div>
-      </div>
-    </div>
-    <style>{`
-      .slm-body {
-        padding: 22px 24px;
-        display: flex;
-        gap: 20px;
-        align-items: flex-start;
-      }
-      @media (max-width: 440px) {
+      </ModalPanel>
+      <style>{`
         .slm-body {
-          flex-direction: column;
-          align-items: center;
+          padding: 22px 24px;
+          display: flex;
+          gap: 20px;
+          align-items: flex-start;
         }
-      }
-    `}</style>
-    </>
+        @media (max-width: 440px) {
+          .slm-body {
+            flex-direction: column;
+            align-items: center;
+          }
+        }
+      `}</style>
+    </Modal>
   )
 }

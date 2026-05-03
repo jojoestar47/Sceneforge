@@ -45,6 +45,7 @@ The DM writes, the viewer subscribes. No WebSocket of our own.
 | Supabase storage URL stamping + uploads | `lib/supabase/storage.ts` |
 | Date formatter / media URL resolver / character image URL | `lib/format.ts`, `lib/media.ts` |
 | Touch-device detection (one-shot) | `lib/useIsTouchDevice.ts` |
+| Shared modal shell (backdrop, ESC, focus restore) | `components/Modal.tsx` (`<Modal>` + `<ModalPanel>`) |
 | Spotify type surface | `lib/spotify.ts` |
 | Campaign Library button (DM toolbar + viewer corner) | `components/Stage.tsx` (DM) + `app/view/[joinCode]/page.tsx` (viewer) |
 | Spotify token / search API routes | `app/api/spotify/{token,search}/route.ts` |
