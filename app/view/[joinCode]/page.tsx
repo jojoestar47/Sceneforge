@@ -26,8 +26,6 @@ type Status = 'loading' | 'waiting' | 'live' | 'ended'
 
 const MIXER_BG       = 'rgba(13,14,22,0.96)'
 const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
-const CROSSFADE_DEFAULT = 1500
-const CROSSFADE_MAX     = 5000
 
 // AudioContext unlock for Android/iOS
 let _audioCtx: AudioContext | null = null
@@ -96,12 +94,6 @@ export default function ViewerPage() {
   type Handlers = { play: () => void; pause: () => void }
   const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
   const audioHandlers         = useRef<Record<string, Handlers>>({})
-  // Outgoing scene's elements during a crossfade
-  const outgoingRefs          = useRef<Record<string, HTMLAudioElement>>({})
-  const outgoingHandlers      = useRef<Record<string, Handlers>>({})
-  const outgoingDisposeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Active volume ramps
-  const rampClearersRef       = useRef<Map<HTMLAudioElement, () => void>>(new Map())
   // SFX one-shot playbacks (keyed by unique event id). Each entry carries
   // the soundId so a "stop" event from the DM can pause every in-flight
   // playback for that sound.
@@ -115,16 +107,9 @@ export default function ViewerPage() {
   const [mixerOpen, setMixerOpen] = useState(false)
   const [needsTap,  setNeedsTap]  = useState(false)
   const [mixerPos, setMixerPos] = useState<'top-left' | 'top-right'>('top-left')
-  // Crossfade duration (ms) — read from localStorage. Viewer shares the
-  // same setting key as DM so a single device can drive both side's behaviour.
-  const [crossfadeMs, setCrossfadeMs] = useState(CROSSFADE_DEFAULT)
-  const crossfadeMsRef = useRef(CROSSFADE_DEFAULT)
-  useEffect(() => { crossfadeMsRef.current = crossfadeMs }, [crossfadeMs])
   useEffect(() => {
     const saved = localStorage.getItem('sf_mixer_pos') as 'top-left' | 'top-right' | null
     if (saved) setMixerPos(saved)
-    const xf = Number(localStorage.getItem('sf_crossfade_ms'))
-    if (Number.isFinite(xf) && xf >= 0 && xf <= CROSSFADE_MAX) setCrossfadeMs(xf)
   }, [])
   const prevSceneIdForVolRef = useRef<string | null>(null)
 
@@ -141,33 +126,8 @@ export default function ViewerPage() {
   const [libraryOpen,      setLibraryOpen]      = useState(false)
   const [libraryHandout,   setLibraryHandout]   = useState<Handout | null>(null)
 
-  // ── Volume ramp helpers ───────────────────────────────────────
-  const cancelRamp = useCallback((a: HTMLAudioElement) => {
-    const c = rampClearersRef.current.get(a)
-    if (c) { c(); rampClearersRef.current.delete(a) }
-  }, [])
-
-  const rampVolume = useCallback((a: HTMLAudioElement, target: number, durMs: number, onDone?: () => void) => {
-    cancelRamp(a)
-    const clamped = Math.max(0, Math.min(1, target))
-    if (durMs <= 0) { a.volume = clamped; onDone?.(); return }
-    const start = a.volume
-    const startTime = performance.now()
-    const id = window.setInterval(() => {
-      const t = Math.min(1, (performance.now() - startTime) / durMs)
-      a.volume = Math.max(0, Math.min(1, start + (clamped - start) * t))
-      if (t >= 1) {
-        window.clearInterval(id)
-        rampClearersRef.current.delete(a)
-        onDone?.()
-      }
-    }, 30)
-    rampClearersRef.current.set(a, () => window.clearInterval(id))
-  }, [cancelRamp])
-
   const disposeRefs = useCallback((refs: Record<string, HTMLAudioElement>, handlers: Record<string, Handlers>) => {
     Object.entries(refs).forEach(([id, a]) => {
-      cancelRamp(a)
       const h = handlers[id]
       if (h) {
         a.removeEventListener('play',  h.play)
@@ -175,23 +135,16 @@ export default function ViewerPage() {
       }
       a.pause(); a.src = ''
     })
-  }, [cancelRamp])
+  }, [])
 
   // Pause and discard all active <audio> elements when the viewer unmounts
   // (e.g. the user navigates away). Without this the browser keeps the audio
   // objects alive and the sounds continue playing in the background.
   useEffect(() => {
     return () => {
-      if (outgoingDisposeTimerRef.current) {
-        clearTimeout(outgoingDisposeTimerRef.current)
-        outgoingDisposeTimerRef.current = null
-      }
       disposeRefs(audioRefs.current, audioHandlers.current)
-      disposeRefs(outgoingRefs.current, outgoingHandlers.current)
       audioRefs.current    = {}
       audioHandlers.current = {}
-      outgoingRefs.current = {}
-      outgoingHandlers.current = {}
       Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
       sfxAudioRef.current = {}
     }
@@ -322,7 +275,6 @@ export default function ViewerPage() {
   function setVol(t: Track, val: number) {
     if (t.spotify_uri) { spotify.setVolume(t, val); return }
     const a = getOrCreate(t)
-    cancelRamp(a)         // user override beats any in-flight fade
     a.volume = val
     setVolumes(v => ({ ...v, [t.id]: val }))
     if (scene?.id) {
@@ -335,8 +287,7 @@ export default function ViewerPage() {
     }
   }
   function stopAll() {
-    Object.values(audioRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
-    Object.values(outgoingRefs.current).forEach(a => { cancelRamp(a); a.pause(); a.currentTime = 0 })
+    Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
     Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
     sfxAudioRef.current = {}
     spotify.stopAll()
@@ -344,7 +295,6 @@ export default function ViewerPage() {
   function toggleMute() {
     const next = !muted; setMuted(next)
     Object.values(audioRefs.current).forEach(a => (a.muted = next))
-    Object.values(outgoingRefs.current).forEach(a => (a.muted = next))
     Object.values(sfxAudioRef.current).forEach(({ audio }) => (audio.muted = next))
     spotify.mute(next)
   }
@@ -352,9 +302,9 @@ export default function ViewerPage() {
   function trackPlaying(t: Track) { return t.spotify_uri ? (spotify.states[t.id]?.playing ?? false) : (playing[t.id] ?? false) }
   function trackVolume(t: Track)  { return t.spotify_uri ? (spotify.states[t.id]?.volume  ?? t.volume) : (volumes[t.id] ?? t.volume) }
 
-  // ── Scene change → crossfade outgoing → incoming ───────────────
+  // ── Scene change → swap tracks ──────────────────────────────────
   useEffect(() => {
-    // Save outgoing scene's *target* volumes (pre-fade)
+    // Save outgoing scene's volumes so they restore correctly on revisit.
     if (prevSceneIdForVolRef.current && Object.keys(audioRefs.current).length > 0) {
       const savedVols: Record<string, number> = {}
       Object.entries(audioRefs.current).forEach(([id, a]) => {
@@ -364,35 +314,9 @@ export default function ViewerPage() {
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
-    const xfade = crossfadeMsRef.current
-
-    if (outgoingDisposeTimerRef.current) {
-      clearTimeout(outgoingDisposeTimerRef.current)
-      outgoingDisposeTimerRef.current = null
-    }
-    disposeRefs(outgoingRefs.current, outgoingHandlers.current)
-    outgoingRefs.current = {}
-    outgoingHandlers.current = {}
-
-    const hadCurrent = Object.keys(audioRefs.current).length > 0
-    if (hadCurrent && xfade > 0) {
-      outgoingRefs.current = audioRefs.current
-      outgoingHandlers.current = audioHandlers.current
-      const cleanupRefs     = outgoingRefs.current
-      const cleanupHandlers = outgoingHandlers.current
-      Object.values(cleanupRefs).forEach(a => rampVolume(a, 0, xfade))
-      outgoingDisposeTimerRef.current = setTimeout(() => {
-        outgoingDisposeTimerRef.current = null
-        if (outgoingRefs.current === cleanupRefs) {
-          disposeRefs(cleanupRefs, cleanupHandlers)
-          outgoingRefs.current = {}
-          outgoingHandlers.current = {}
-        }
-      }, xfade + 50)
-    } else if (hadCurrent) {
+    if (Object.keys(audioRefs.current).length > 0) {
       disposeRefs(audioRefs.current, audioHandlers.current)
     }
-
     audioRefs.current = {}; audioHandlers.current = {}; setVolumes({}); setPlaying({})
 
     if (!scene?.tracks?.length) return
@@ -405,31 +329,24 @@ export default function ViewerPage() {
     const tracksToPlay = [...(musicToStart ? [musicToStart] : []), ...alwaysOn]
     if (!tracksToPlay.length) return
 
-    const fadeInIfPaused = (a: HTMLAudioElement) => {
-      const target = a.volume
-      a.volume = 0
-      a.play().catch(() => {})
-      rampVolume(a, target, xfade)
-    }
-
     if (hasInteracted.current) {
       tracksToPlay.forEach(t => {
         const a = getOrCreate(t)
-        if (a.paused) fadeInIfPaused(a)
+        if (a.paused) a.play().catch(() => {})
       })
       return
     }
     // First-tap path: needs sync user gesture to unlock
     const first = getOrCreate(tracksToPlay[0])
-    const firstTarget = first.volume
-    first.volume = 0
     first.play()
       .then(() => {
-        rampVolume(first, firstTarget, xfade)
         hasInteracted.current = true; setNeedsTap(false)
-        tracksToPlay.slice(1).forEach(t => fadeInIfPaused(getOrCreate(t)))
+        tracksToPlay.slice(1).forEach(t => {
+          const a = getOrCreate(t)
+          if (a.paused) a.play().catch(() => {})
+        })
       })
-      .catch(() => { first.volume = firstTarget; setNeedsTap(true) })
+      .catch(() => { setNeedsTap(true) })
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Switch music track when DM changes it ─────────────────────
@@ -438,39 +355,22 @@ export default function ViewerPage() {
     const allMusic = (scene.tracks || []).filter(t => t.kind === 'music')
     const targetTrack = allMusic.find(t => t.id === activeMusicTrackId)
     if (!targetTrack) return
-    const xfade = crossfadeMsRef.current
 
-    // Crossfade out every currently-playing file music track
     allMusic.forEach(t => {
       if (!t.spotify_uri && t.id !== activeMusicTrackId) {
         const a = audioRefs.current[t.id]
-        if (a && !a.paused) {
-          if (xfade > 0) {
-            rampVolume(a, 0, xfade, () => { a.pause(); a.currentTime = 0 })
-          } else {
-            cancelRamp(a); a.pause(); a.currentTime = 0
-          }
-        }
+        if (a && !a.paused) { a.pause(); a.currentTime = 0 }
       }
     })
 
-    // Start the DM's chosen track
     if (targetTrack.spotify_uri) {
       // stopAll() resets activeTrackRef inside the hook so toggle always calls playTrack
       spotify.stopAll()
       spotify.toggle(targetTrack)
     } else if (hasInteracted.current) {
-      // File — fade in after browser audio is unlocked
       const a = getOrCreate(targetTrack)
-      const target = volumes[targetTrack.id] ?? a.volume
-      if (xfade > 0) {
-        a.volume = 0
-        a.play().catch(() => {})
-        rampVolume(a, target, xfade)
-      } else if (a.paused) {
-        a.volume = target
-        a.play().catch(() => {})
-      }
+      a.volume = volumes[targetTrack.id] ?? a.volume
+      if (a.paused) a.play().catch(() => {})
     }
   }, [activeMusicTrackId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -480,21 +380,14 @@ export default function ViewerPage() {
     const allMusic    = (scene?.tracks || []).filter(t => t.kind === 'music')
     const alwaysOn    = (scene?.tracks || []).filter(t => (t.kind === 'ml2' || t.kind === 'ml3' || t.kind === 'ambience') && !t.spotify_uri)
     const target      = activeMusicTrackId ? allMusic.find(t => t.id === activeMusicTrackId) : null
-    const xfade       = crossfadeMsRef.current
-    const fadeIn = (a: HTMLAudioElement) => {
-      const targetVol = a.volume
-      a.volume = 0
-      a.play().catch(() => {})
-      rampVolume(a, targetVol, xfade)
-    }
     if (target?.spotify_uri) {
       if (!spotify.states[target.id]?.playing) spotify.toggle(target)
     } else {
       const fileMusicToStart = (target ?? allMusic.filter(t => !t.spotify_uri)[0])
-      if (fileMusicToStart) { const a = getOrCreate(fileMusicToStart); if (a.paused) fadeIn(a) }
+      if (fileMusicToStart) { const a = getOrCreate(fileMusicToStart); if (a.paused) a.play().catch(() => {}) }
       if (!target) spotify.autoPlay() // no specific track set — let Spotify auto-pick
     }
-    alwaysOn.forEach(t => { const a = getOrCreate(t); if (a.paused) fadeIn(a) })
+    alwaysOn.forEach(t => { const a = getOrCreate(t); if (a.paused) a.play().catch(() => {}) })
   }
 
   // ── Load scene ────────────────────────────────────────────────
