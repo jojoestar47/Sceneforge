@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/format'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import AppIcon from '@/components/AppIcon'
 import ImagePositioner from '@/components/ImagePositioner'
+import Modal, { ModalPanel } from '@/components/Modal'
 
 interface Props {
   campaigns:           Campaign[]
@@ -347,25 +348,10 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
 
       {/* Settings modal */}
       {settingsCamp && (
-        <div
-          onClick={closeSettings}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 200,
-            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-panel)', border: '1px solid var(--border)',
-              borderRadius: '16px',
-              width: 'min(360px, calc(100vw - 24px))',
-              maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
-              padding: 'clamp(18px, 4vw, 28px)',
-              boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
-              display: 'flex', flexDirection: 'column', gap: '18px',
-            }}
+        <Modal onClose={closeSettings} zIndex={200}>
+          <ModalPanel
+            width="min(360px, calc(100vw - 24px))"
+            style={{ padding: 'clamp(18px, 4vw, 28px)', gap: '18px' }}
           >
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -393,7 +379,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                   style={{
                     flex: 1, background: 'var(--bg-raised)', border: '1px solid var(--border)',
                     borderRadius: '8px', padding: '8px 11px', color: 'var(--text)',
-                    fontFamily: 'Inter, sans-serif', fontSize: '13px', outline: 'none',
+                    fontSize: '13px', outline: 'none',
                   }}
                 />
                 <button
@@ -419,7 +405,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 style={{
                   background: 'var(--bg-raised)', border: '1px solid var(--border)',
                   borderRadius: '8px', padding: '8px 11px', color: 'var(--text)',
-                  fontFamily: 'Inter, sans-serif', fontSize: '13px', outline: 'none',
+                  fontSize: '13px', outline: 'none',
                   resize: 'vertical', lineHeight: 1.5,
                 }}
               />
@@ -538,8 +524,8 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 </div>
               </div>
             )}
-          </div>
-        </div>
+          </ModalPanel>
+        </Modal>
       )}
 
       <style>{`

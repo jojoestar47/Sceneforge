@@ -12,6 +12,7 @@ import { uploadMedia, deleteMediaBatch } from '@/lib/supabase/storage'
 import SceneTab     from './SceneTab'
 import HandoutsTab  from './HandoutsTab'
 import OverlaysTab  from './OverlaysTab'
+import Modal        from '@/components/Modal'
 import { blankDraft, type Draft, type TabKey } from './types'
 
 interface Props {
@@ -244,7 +245,7 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,18,.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}>
+    <Modal onClose={onClose} zIndex={200}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', maxHeight: '90vh' }}>
         <div style={{ width: '680px', maxWidth: '95vw', background: 'var(--editor-bg)', border: '1px solid var(--border-lt)', borderRadius: '10px', display: 'flex', flexDirection: 'column', maxHeight: '90vh', boxShadow: '0 32px 80px rgba(0,0,0,.9)', overflow: 'hidden' }}>
 
@@ -303,6 +304,6 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
