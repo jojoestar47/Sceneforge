@@ -1017,7 +1017,7 @@ export default function Stage({
                       onClick={() => { setLibraryHandout(h); setLibraryOpen(false) }}
                       style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '4px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
                     >
-                      <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: 'var(--r-sm)', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {imgUrl
                           ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           : <span style={{ fontSize: '16px', opacity: 0.5 }}>📖</span>
@@ -1111,7 +1111,7 @@ export default function Stage({
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: 'var(--r-sm)', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {imgUrl
                         ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         : <span style={{ fontSize: '16px', opacity: 0.5 }}>🗺</span>
@@ -1478,7 +1478,7 @@ export default function Stage({
               <span style={{ flex: 1, fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{char.name}</span>
               <button
                 onClick={() => { setPanelMode('pick'); pickerOpenTimeRef.current = Date.now() }}
-                style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '.8px', padding: '5px 10px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', touchAction: 'manipulation', flexShrink: 0 }}
+                style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '.8px', padding: '5px 10px', borderRadius: 'var(--r-sm)', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', touchAction: 'manipulation', flexShrink: 0 }}
               >Change</button>
               <button onClick={() => setActiveSlot(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px', flexShrink: 0, touchAction: 'manipulation' }}>✕</button>
             </div>
@@ -1525,7 +1525,7 @@ export default function Stage({
                 <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Flip</span>
                 <button onClick={() => fire(scale, { ...display, flipped: !display.flipped })}
                   style={{
-                    fontSize: '10px', minHeight: '36px', padding: '0 14px', borderRadius: '5px', cursor: 'pointer', touchAction: 'manipulation',
+                    fontSize: '10px', minHeight: '36px', padding: '0 14px', borderRadius: 'var(--r-sm)', cursor: 'pointer', touchAction: 'manipulation',
                     background: display.flipped ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
                     border: `1px solid ${display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
                     color: display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.4)',
@@ -1543,7 +1543,7 @@ export default function Stage({
                     savedConfirmTimerRef.current = setTimeout(() => setSavedConfirm(false), 1800)
                   }}
                   style={{
-                    width: '100%', minHeight: '40px', borderRadius: '7px', cursor: 'pointer',
+                    width: '100%', minHeight: '40px', borderRadius: 'var(--r-sm)', cursor: 'pointer',
                     touchAction: 'manipulation', fontWeight: 700, fontSize: '11px',
                     letterSpacing: '1px', textTransform: 'uppercase', border: 'none',
                     background: savedConfirm ? 'rgba(201,168,76,0.2)' : 'var(--accent)',

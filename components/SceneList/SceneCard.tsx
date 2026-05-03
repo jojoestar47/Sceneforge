@@ -237,7 +237,7 @@ export default function SceneCard({
           title="Edit scene"
           style={{
             width: isTouchDevice ? '36px' : '26px', height: isTouchDevice ? '36px' : '26px',
-            borderRadius: '7px', background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-sm)', background: 'var(--bg-panel)', border: '1px solid var(--border)',
             color: 'var(--text-2)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.12s ease', flexShrink: 0, touchAction: 'manipulation',
@@ -255,7 +255,7 @@ export default function SceneCard({
           title="Delete scene"
           style={{
             width: isTouchDevice ? '36px' : '26px', height: isTouchDevice ? '36px' : '26px',
-            borderRadius: '7px', background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 'var(--r-sm)', background: 'var(--bg-panel)', border: '1px solid var(--border)',
             color: 'var(--text-3)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.12s ease', flexShrink: 0, touchAction: 'manipulation',
