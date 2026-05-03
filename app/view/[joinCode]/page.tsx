@@ -11,6 +11,7 @@ import AppIcon from '@/components/AppIcon'
 import HandoutLightbox from '@/components/HandoutLightbox'
 import OverlayStack from '@/components/OverlayStack'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
+import { isIosWebkit } from '@/lib/platform'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -270,6 +271,9 @@ export default function ViewerPage() {
   // ── Fullscreen ────────────────────────────────────────────────
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [isFs, setIsFs] = useState(false)
+  // iOS Safari has no Fullscreen API. Hide the button instead of leaving a
+  // dead control on screen.
+  const supportsFullscreen = !isIosWebkit()
 
   useEffect(() => {
     function onChange() { setIsFs(!!(document.fullscreenElement || (document as any).webkitFullscreenElement)) }
@@ -855,13 +859,13 @@ export default function ViewerPage() {
       )}
 
       {/* Fullscreen + Library — opposite corner from mixer */}
-      <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'right' : 'left']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'right' : 'left'}))`, zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'right' : 'left']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'right' : 'left'}))`, zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px', maxWidth: 'calc(100vw - 28px - var(--stage-mixer-w) - 16px)' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: mixerPos === 'top-left' ? 'flex-end' : 'flex-start' }}>
           {campaignHandouts.length > 0 && (
             <button
               onClick={() => setLibraryOpen(o => !o)}
               title="Campaign Library"
-              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${libraryOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.12)'}`, background: libraryOpen ? 'rgba(201,168,76,0.12)' : MIXER_BG, color: libraryOpen ? 'var(--accent)' : 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: `1px solid ${libraryOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.12)'}`, background: libraryOpen ? 'rgba(201,168,76,0.12)' : MIXER_BG, color: libraryOpen ? 'var(--accent)' : 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2.5 3.2c0-.3.2-.5.5-.5h3.6c.6 0 1.1.5 1.1 1.1v9.5c0-.6-.5-1.1-1.1-1.1H3c-.3 0-.5-.2-.5-.5V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -869,9 +873,11 @@ export default function ViewerPage() {
               </svg>
             </button>
           )}
-          <button onClick={toggleFs} style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {isFs ? '✕' : '⛶'}
-          </button>
+          {supportsFullscreen && (
+            <button onClick={toggleFs} style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: MIXER_BG, color: 'rgba(255,255,255,0.6)', fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {isFs ? '✕' : '⛶'}
+            </button>
+          )}
         </div>
 
         {libraryOpen && campaignHandouts.length > 0 && (
@@ -955,7 +961,7 @@ export default function ViewerPage() {
 
       {/* Audio Mixer */}
       {allTracks.length > 0 && (
-        <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'left' : 'right']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'left' : 'right'}))`, zIndex: 20, width: 'min(240px, calc(100vw - 28px))' }}>
+        <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'left' : 'right']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'left' : 'right'}))`, zIndex: 20, width: 'var(--stage-mixer-w)' }}>
           <div onClick={() => setMixerOpen(o => !o)} style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: mixerOpen ? '10px 10px 0 0' : '10px', height: '44px', padding: '0 10px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>
               {[1,0.6,0.85,0.45,0.7].map((h,i) => <div key={i} style={{ width: '3px', borderRadius: '1px', background: playingCount > 0 ? '#c9a84c' : 'rgba(255,255,255,0.2)', height: `${Math.round(h*16)}px`, animation: playingCount > 0 ? `audioBar${i} ${0.6+i*0.15}s ease-in-out infinite alternate` : 'none' }} />)}

@@ -11,6 +11,7 @@ import HandoutLightbox from '@/components/HandoutLightbox'
 import OverlayStack from '@/components/OverlayStack'
 import UploadZone from '@/components/UploadZone'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
+import { isIosWebkit } from '@/lib/platform'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -384,6 +385,11 @@ export default function Stage({
 
   // ── Fullscreen ───────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false)
+  // iOS Safari (and all iOS browsers, since they're WebKit shells) doesn't
+  // implement the Fullscreen API. Hide the button entirely instead of leaving
+  // a dead control on screen — users on iPad should "Add to Home Screen" or
+  // hide Safari's toolbar via the aA menu for a fullscreen-like experience.
+  const supportsFullscreen = !isIosWebkit()
 
   const enterFullscreen = useCallback(() => {
     const el = wrapperRef.current
@@ -1015,14 +1021,14 @@ export default function Stage({
       )}
 
       {/* ── Top corner: Edit + Handouts + Fullscreen (opposite corner from mixer) ── */}
-      <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'right' : 'left']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'right' : 'left'}))`, zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px' }}>
-        {/* Button row */}
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'right' : 'left']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'right' : 'left'}))`, zIndex: 20, display: 'flex', flexDirection: 'column', alignItems: mixerPos === 'top-left' ? 'flex-end' : 'flex-start', gap: '8px', maxWidth: 'calc(100vw - 28px - var(--stage-mixer-w) - 16px)' }}>
+        {/* Button row — wraps on narrow screens so the 6-icon cluster doesn't overflow into the mixer */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: mixerPos === 'top-left' ? 'flex-end' : 'flex-start' }}>
           {handouts.length > 0 && (
             <button
               onClick={() => { setHandoutsOpen(o => !o); setOverlaysOpen(false); setLibraryOpen(false); setSoundboardOpen(false) }}
               title="Handouts"
-              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: handoutsOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: handoutsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: `1px solid ${handoutsOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: handoutsOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: handoutsOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -1034,7 +1040,7 @@ export default function Stage({
             <button
               onClick={() => { setLibraryOpen(o => !o); setHandoutsOpen(false); setOverlaysOpen(false); setSoundboardOpen(false) }}
               title="Campaign Library"
-              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${libraryOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: libraryOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: libraryOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: `1px solid ${libraryOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: libraryOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: libraryOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2.5 3.2c0-.3.2-.5.5-.5h3.6c.6 0 1.1.5 1.1 1.1v9.5c0-.6-.5-1.1-1.1-1.1H3c-.3 0-.5-.2-.5-.5V3.2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -1046,7 +1052,7 @@ export default function Stage({
             <button
               onClick={() => { setOverlaysOpen(o => !o); setHandoutsOpen(false); setLibraryOpen(false); setSoundboardOpen(false) }}
               title="Overlays"
-              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${overlaysOpen ? 'rgba(201,168,76,0.5)' : activeOverlayCount > 0 ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.14)'}`, background: overlaysOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: overlaysOpen || activeOverlayCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+              style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: `1px solid ${overlaysOpen ? 'rgba(201,168,76,0.5)' : activeOverlayCount > 0 ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.14)'}`, background: overlaysOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: overlaysOpen || activeOverlayCount > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <ellipse cx="7.5" cy="8" rx="5.5" ry="3.5" stroke="currentColor" strokeWidth="1.2" opacity="0.5"/>
@@ -1062,7 +1068,7 @@ export default function Stage({
             <button
               onClick={() => { setSoundboardOpen(o => !o); setHandoutsOpen(false); setOverlaysOpen(false); setLibraryOpen(false) }}
               title="Soundboard"
-              style={{ width: '44px', height: '44px', borderRadius: '8px', border: `1px solid ${soundboardOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: soundboardOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: soundboardOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: `1px solid ${soundboardOpen ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.14)'}`, background: soundboardOpen ? 'rgba(201,168,76,0.12)' : 'rgba(13,14,22,0.82)', color: soundboardOpen ? 'var(--accent)' : 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="1.5" y="1.5" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
@@ -1075,20 +1081,22 @@ export default function Stage({
           <button
             onClick={onEdit}
             title="Edit Scene"
-            style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M9.5 1.5L12.5 4.5L4.5 12.5H1.5V9.5L9.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
               <path d="M8 3L11 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
           </button>
-          <button
-            onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            style={{ width: '44px', height: '44px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            {isFullscreen ? '✕' : '⛶'}
-          </button>
+          {supportsFullscreen && (
+            <button
+              onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              style={{ width: 'var(--stage-btn-size)', height: 'var(--stage-btn-size)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(13,14,22,0.82)', color: 'rgba(255,255,255,0.75)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              {isFullscreen ? '✕' : '⛶'}
+            </button>
+          )}
         </div>
 
         {/* Campaign Library dropdown panel — DM CRUD inline; handouts shown
@@ -1764,7 +1772,7 @@ export default function Stage({
 
       {/* ── Audio Mixer ── */}
       {hasTracks && (
-        <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'left' : 'right']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'left' : 'right'}))`, zIndex: 20, width: '240px' }}>
+        <div style={{ position: 'absolute', top: 'calc(14px + env(safe-area-inset-top))', [mixerPos === 'top-left' ? 'left' : 'right']: `calc(14px + env(safe-area-inset-${mixerPos === 'top-left' ? 'left' : 'right'}))`, zIndex: 20, width: 'var(--stage-mixer-w)' }}>
           <div onClick={() => setExpanded(e => !e)}
             style={{ background: MIXER_BG, border: '1px solid rgba(255,255,255,0.14)', borderRadius: expanded ? '10px 10px 0 0' : '10px', padding: '0 10px', height: '44px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px', flexShrink: 0 }}>

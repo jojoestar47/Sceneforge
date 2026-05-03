@@ -17,6 +17,20 @@
   --editor-bg:   #22253a;
   --editor-row:  #2a2d40;
   --editor-card: #2f3349;
+
+  /* Stage / viewer corner-button + mixer sizing.
+     Used inline via var(...) so a single media query can tighten the whole
+     row on phones without us editing 10+ inline-styled buttons. */
+  --stage-btn-size: 44px;
+  --stage-mixer-w:  240px;
+}
+
+/* Phones: shrink corner buttons, narrow the mixer so it can't overflow. */
+@media (max-width: 480px) {
+  :root {
+    --stage-btn-size: 38px;
+    --stage-mixer-w:  min(220px, calc(100vw - 28px));
+  }
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
