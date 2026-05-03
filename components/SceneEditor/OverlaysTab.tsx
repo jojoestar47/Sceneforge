@@ -147,7 +147,7 @@ export default function OverlaysTab({ draft, setDraft }: Props) {
                       <button
                         onClick={() => patch(idx, { enabled_default: !o.enabled_default })}
                         style={{
-                          fontSize: '10px', padding: '5px 12px', borderRadius: '5px', cursor: 'pointer',
+                          fontSize: '10px', padding: '5px 12px', borderRadius: 'var(--r-sm)', cursor: 'pointer',
                           border: `1px solid ${o.enabled_default ? 'var(--accent)' : 'var(--border)'}`,
                           background: o.enabled_default ? 'var(--accent-bg)' : 'none',
                           color: o.enabled_default ? 'var(--accent)' : 'var(--text-2)',

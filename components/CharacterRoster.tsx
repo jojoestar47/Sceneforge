@@ -437,14 +437,14 @@ const CharacterCard = memo(function CharacterCard({
               {!isConfirm ? (
                 <button
                   onClick={() => onSetConfirm(c.id)}
-                  style={{ width: '100%', padding: '6px', background: 'rgba(229,53,53,0.07)', border: '1px solid rgba(229,53,53,0.25)', borderRadius: '7px', cursor: 'pointer', color: '#e53535', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', transition: 'all 0.15s' }}
+                  style={{ width: '100%', padding: '6px', background: 'rgba(229,53,53,0.07)', border: '1px solid rgba(229,53,53,0.25)', borderRadius: 'var(--r-sm)', cursor: 'pointer', color: 'var(--danger)', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', transition: 'all 0.15s' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(229,53,53,0.16)'; e.currentTarget.style.borderColor = 'rgba(229,53,53,0.5)' }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'rgba(229,53,53,0.07)'; e.currentTarget.style.borderColor = 'rgba(229,53,53,0.25)' }}
                 >Delete</button>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ fontSize: '9px', color: 'var(--text-2)', textAlign: 'center', lineHeight: 1.4 }}>Remove from all scenes?</div>
-                  <button onClick={e => onDelete(c.id, e)} disabled={isDeleting} style={{ padding: '5px', width: '100%', background: 'rgba(229,53,53,0.15)', border: '1px solid rgba(229,53,53,0.45)', borderRadius: '6px', cursor: isDeleting ? 'wait' : 'pointer', color: '#e53535', fontSize: '10px', fontWeight: 700 }}>
+                  <button onClick={e => onDelete(c.id, e)} disabled={isDeleting} style={{ padding: '5px', width: '100%', background: 'rgba(229,53,53,0.15)', border: '1px solid rgba(229,53,53,0.45)', borderRadius: '6px', cursor: isDeleting ? 'wait' : 'pointer', color: 'var(--danger)', fontSize: '10px', fontWeight: 700 }}>
                     {isDeleting ? '…' : 'Confirm'}
                   </button>
                   <button onClick={() => onSetConfirm(null)} style={{ padding: '4px', width: '100%', background: 'transparent', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-3)', fontSize: '10px' }}>Cancel</button>

@@ -704,7 +704,7 @@ export default function AppPage() {
 
       {/* ── TOP BAR ── */}
       <div style={{ height: '46px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', flexShrink: 0, position: 'relative', zIndex: 10 }}>
-        <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}><AppIcon size={20} /></div>
+        <div onClick={() => setActiveCampId('')} style={{ width: '28px', height: '28px', borderRadius: 'var(--r-sm)', background: 'var(--bg-raised)', border: '1px solid var(--border-lt)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}><AppIcon size={20} /></div>
         <div onClick={() => setActiveCampId('')} className="topbar-title">
           {activeCampaign ? activeCampaign.name.toUpperCase() : 'REVERIE'}
         </div>
@@ -717,11 +717,11 @@ export default function AppPage() {
           )}
           {activeCampId && isLive && (
             <>
-              <button onClick={() => setShareModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(229,53,53,0.1)', border: '1px solid rgba(229,53,53,0.4)', borderRadius: '6px', padding: '4px 9px', cursor: 'pointer', color: '#e53535', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
-                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#e53535', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
+              <button onClick={() => setShareModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--danger-bg)', border: '1px solid var(--danger-border)', borderRadius: '6px', padding: '4px 9px', cursor: 'pointer', color: 'var(--danger)', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--danger)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
                 LIVE<span className="topbar-label"> · {joinCode}</span>
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={stopPresenting} title="Stop presenting" style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.4)', flexShrink: 0 }}>⏹</button>
+              <button className="btn btn-ghost btn-sm" onClick={stopPresenting} title="Stop presenting" style={{ color: 'var(--danger)', borderColor: 'var(--danger-border)', flexShrink: 0 }}>⏹</button>
             </>
           )}
           <SpotifyConnect />
@@ -865,7 +865,7 @@ export default function AppPage() {
                             style={{
                               position: 'absolute', right: 0, top: '30px', zIndex: 200,
                               background: 'var(--bg-card, var(--bg-raised))', border: '1px solid var(--border)',
-                              borderRadius: '9px', padding: '4px', minWidth: '160px',
+                              borderRadius: 'var(--r-lg)', padding: '4px', minWidth: '160px',
                               boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
                               animation: 'scenePickerIn 0.12s ease both',
                             }}
@@ -1051,7 +1051,7 @@ export default function AppPage() {
           ))}
           {toasts.map(t => (
             <div key={t.id} style={{
-              background: 'rgba(180,40,40,0.18)', border: '1px solid rgba(229,53,53,0.4)',
+              background: 'rgba(180,40,40,0.18)', border: '1px solid var(--danger-border)',
               borderRadius: '8px', padding: '10px 14px',
               display: 'flex', alignItems: 'center', gap: '10px',
               color: 'var(--text)', fontSize: '12px',
@@ -1059,7 +1059,7 @@ export default function AppPage() {
               pointerEvents: 'all',
               animation: 'scenePickerIn 0.18s ease both',
             }}>
-              <span style={{ color: '#e53535', fontSize: '13px', flexShrink: 0 }}>✕</span>
+              <span style={{ color: 'var(--danger)', fontSize: '13px', flexShrink: 0 }}>✕</span>
               <span style={{ color: 'var(--text-2)' }}>{t.message}</span>
               <button
                 onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}

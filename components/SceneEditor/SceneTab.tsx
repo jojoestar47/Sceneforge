@@ -406,7 +406,7 @@ function TrackAdder({ kind, onAdd }: { kind: Kind; onAdd: (t: Omit<TrackDraft, '
       <div style={{ display: 'flex', gap: '6px' }}>
         {availableTabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
-            style={{ padding: '5px 12px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', border: `1px solid ${tab === t ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '5px', background: tab === t ? 'var(--accent-bg)' : 'none', color: tab === t ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer' }}>
+            style={{ padding: '5px 12px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', border: `1px solid ${tab === t ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 'var(--r-sm)', background: tab === t ? 'var(--accent-bg)' : 'none', color: tab === t ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer' }}>
             {t === 'spotify' ? '🎧 Spotify' : '📁 File / URL'}
           </button>
         ))}

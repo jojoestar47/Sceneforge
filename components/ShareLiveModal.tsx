@@ -20,7 +20,7 @@ export default function ShareLiveModal({
         {/* Header */}
         <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#e53535', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger)', animation: 'livePulse 1.5s ease-in-out infinite', display: 'inline-block', flexShrink: 0 }} />
             <span style={{ fontWeight: 600, fontSize: '14px' }}>Session Live</span>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '16px', cursor: 'pointer' }}>✕</button>
@@ -67,7 +67,7 @@ export default function ShareLiveModal({
 
         {/* Footer */}
         <div style={{ padding: '12px 24px 16px', display: 'flex', justifyContent: 'center', borderTop: '1px solid var(--border)' }}>
-          <button className="btn btn-ghost btn-sm" style={{ color: '#e53535', borderColor: 'rgba(229,53,53,0.3)' }} onClick={onStop}>
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', borderColor: 'rgba(229,53,53,0.3)' }} onClick={onStop}>
             ⏹ Stop Presenting
           </button>
         </div>

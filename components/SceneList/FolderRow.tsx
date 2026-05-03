@@ -272,7 +272,7 @@ export default function FolderRow({
             data-folder-menu="true"
             onClick={e => { e.stopPropagation(); setMenuOpenFolderId(menuOpen ? null : folder.id) }}
             style={{
-              width: '22px', height: '22px', borderRadius: '5px', flexShrink: 0,
+              width: '22px', height: '22px', borderRadius: 'var(--r-sm)', flexShrink: 0,
               background: menuOpen ? 'var(--bg-hover)' : 'transparent',
               border: `1px solid ${menuOpen ? 'var(--border-lt)' : 'transparent'}`,
               color: 'var(--text-3)', cursor: 'pointer',
@@ -293,7 +293,7 @@ export default function FolderRow({
           style={{
             position: 'absolute', right: '8px', top: '36px', zIndex: 100,
             background: 'var(--bg-card, var(--bg-raised))', border: '1px solid var(--border)',
-            borderRadius: '9px', padding: '4px',
+            borderRadius: 'var(--r-lg)', padding: '4px',
             boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
             minWidth: '160px',
             animation: 'sceneIn 0.12s ease both',
@@ -367,7 +367,7 @@ export default function FolderRow({
                 background: 'transparent', color: 'rgba(229,53,53,0.8)', cursor: 'pointer', fontSize: '11px',
                 textAlign: 'left', transition: 'background 0.1s',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(229,53,53,0.08)'; e.currentTarget.style.color = '#e53535' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(229,53,53,0.08)'; e.currentTarget.style.color = 'var(--danger)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(229,53,53,0.8)' }}
             >
               <svg width="9" height="9" viewBox="0 0 9 9" fill="none" style={{ flexShrink: 0 }}>

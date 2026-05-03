@@ -793,7 +793,7 @@ export default function ViewerPage() {
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <div style={{ width: '40px', height: '40px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: 'var(--r-sm)', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {imgUrl
                         ? <img src={imgUrl} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         : <span style={{ fontSize: '16px', opacity: 0.5 }}>📖</span>
@@ -819,7 +819,7 @@ export default function ViewerPage() {
           ) : (
             <>
               <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>This scene has Spotify music</span>
-              <a href="/auth/spotify" style={{ fontSize: '11px', fontWeight: 700, color: '#1ed760', textDecoration: 'none', border: '1px solid rgba(30,215,96,0.5)', borderRadius: '5px', padding: '4px 10px' }}>Connect Spotify</a>
+              <a href="/auth/spotify" style={{ fontSize: '11px', fontWeight: 700, color: '#1ed760', textDecoration: 'none', border: '1px solid rgba(30,215,96,0.5)', borderRadius: 'var(--r-sm)', padding: '4px 10px' }}>Connect Spotify</a>
             </>
           )}
         </div>

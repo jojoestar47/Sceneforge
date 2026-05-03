@@ -80,7 +80,7 @@ export function ModalPanel({ children, width = 400, style }: ModalPanelProps) {
       style={{
         background: 'var(--bg-panel)',
         border: '1px solid var(--border)',
-        borderRadius: '10px',
+        borderRadius: 'var(--r-lg)',
         width,
         maxWidth: '94vw',
         maxHeight: 'calc(100vh - 32px)',

@@ -77,7 +77,7 @@ const CampaignCard = memo(function CampaignCard({
         title="Campaign settings"
         style={{
           position: 'absolute', top: '8px', right: '8px', zIndex: 3,
-          width: '28px', height: '28px', borderRadius: '7px',
+          width: '28px', height: '28px', borderRadius: 'var(--r-sm)',
           background: 'rgba(0,0,0,0.52)', border: '1px solid rgba(255,255,255,0.14)',
           color: 'rgba(255,255,255,0.65)', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -493,7 +493,7 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                 style={{
                   background: 'rgba(229,53,53,0.08)', border: '1px solid rgba(229,53,53,0.3)',
                   borderRadius: '8px', padding: '9px', cursor: 'pointer',
-                  color: '#e53535', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px',
+                  color: 'var(--danger)', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px',
                 }}
               >
                 Delete Campaign
@@ -515,8 +515,8 @@ export default function CampaignHome({ campaigns, onSelect, onNew, onUpdateCover
                     onClick={handleDelete}
                     style={{
                       flex: 1, background: 'rgba(229,53,53,0.15)', border: '1px solid rgba(229,53,53,0.5)',
-                      borderRadius: '7px', padding: '7px', cursor: 'pointer',
-                      color: '#e53535', fontSize: '12px', fontWeight: 700,
+                      borderRadius: 'var(--r-sm)', padding: '7px', cursor: 'pointer',
+                      color: 'var(--danger)', fontSize: '12px', fontWeight: 700,
                     }}
                   >
                     Confirm Delete
