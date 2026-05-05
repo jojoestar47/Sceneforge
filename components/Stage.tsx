@@ -856,11 +856,6 @@ export default function Stage({
         })()}
       </div>
 
-      {/* ── Overlay stack (z-index 1 — above bg, below characters) ── */}
-      {sceneOverlays.length > 0 && (
-        <OverlayStack overlays={sceneOverlays} liveStates={liveOverlays} />
-      )}
-
       {/* ── Characters ── */}
       {characters?.left && (
         <CharacterDisplay
@@ -897,6 +892,15 @@ export default function Stage({
           imgPanY={slotDisplayProps?.right.panY}
           flipped={slotDisplayProps?.right.flipped}
         />
+      )}
+
+      {/* ── Overlay stack — renders AFTER characters so blend modes wash
+          over them too (fog, godrays, dust feel like real atmosphere
+          instead of a backdrop the cast stands in front of). DOM order
+          drives the stacking; OverlayStack must stay z-index auto so its
+          mix-blend-mode reads bg+characters as backdrop. ── */}
+      {sceneOverlays.length > 0 && (
+        <OverlayStack overlays={sceneOverlays} liveStates={liveOverlays} />
       )}
 
       {/* ── Scene name ── */}

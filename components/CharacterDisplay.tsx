@@ -37,7 +37,9 @@ export default function CharacterDisplay({
         width: '22%',
         minWidth: '120px',
         maxWidth: '280px',
-        zIndex: 4,
+        // No zIndex: characters paint at auto (above bg by DOM order) but
+        // *below* OverlayStack, which renders after them. That lets overlay
+        // blend modes wash over characters as part of the scene atmosphere.
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',

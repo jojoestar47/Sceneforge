@@ -694,11 +694,6 @@ export default function ViewerPage() {
         })()}
       </div>
 
-      {/* ── Overlay stack (z-index 1 — above bg, below characters) ── */}
-      {(scene?.overlays?.length ?? 0) > 0 && (
-        <OverlayStack overlays={scene!.overlays!} liveStates={activeOverlays} />
-      )}
-
       {/* ── Characters ── */}
       {characters.left && (
         <CharacterDisplay
@@ -735,6 +730,12 @@ export default function ViewerPage() {
           imgPanY={viewerDisplay.right.panY}
           flipped={viewerDisplay.right.flipped}
         />
+      )}
+
+      {/* ── Overlay stack — renders AFTER characters so blend modes wash
+          over them too (atmosphere over the cast, not just behind them). ── */}
+      {(scene?.overlays?.length ?? 0) > 0 && (
+        <OverlayStack overlays={scene!.overlays!} liveStates={activeOverlays} />
       )}
 
       {/* Scene name */}

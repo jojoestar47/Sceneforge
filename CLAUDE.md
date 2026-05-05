@@ -148,7 +148,16 @@ synchronously — no API roundtrip, no token expiry.
 7. **`scene-media` is public** — RLS doesn't gate file access. RLS gates the
    metadata rows. If you need privacy-sensitive media, that's a separate bucket.
 
-8. **Worktrees often have no `node_modules`.** If `npm run lint` / `tsc` fails
+8. **`OverlayStack` must stay z-index `auto`** — no z-index, no `isolation`,
+   no `overflow: hidden` on its wrapper, or any ancestor between it and the
+   Stage root. Any of those creates a stacking context that traps
+   `mix-blend-mode` against an empty backdrop instead of the bg layers.
+   `Stage`'s root carries `isolation: isolate` to scope the blend; the
+   `OverlayStack`'s position above characters comes from DOM order
+   (rendered after `<CharacterDisplay>`), not z-index. If you need to
+   reorder, change DOM order and don't add z-index to the stack wrapper.
+
+9. **Worktrees often have no `node_modules`.** If `npm run lint` / `tsc` fails
    immediately, run `npm install` in the worktree first. CI/Vercel installs
    automatically.
 
