@@ -26,10 +26,11 @@ interface SlotScales {
 }
 
 interface SlotDisplay {
-  zoom?:    number   // 1.0 – 3.0
-  panX?:    number   // 0–100
-  panY?:    number   // 0–100
-  flipped?: boolean
+  zoom?:         number   // 1.0 – 3.0
+  panX?:         number   // 0–100
+  panY?:         number   // 0–100
+  flipped?:      boolean
+  aboveOverlay?: boolean  // when true, character renders in front of OverlayStack
 }
 
 interface SlotDisplayProps {
@@ -73,7 +74,7 @@ interface Props {
 
 const SFX_DEFAULT_VOL    = 1
 
-const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false }
+const DEFAULT_CHAR_DISPLAY: SlotDisplay = { zoom: 1, panX: 50, panY: 100, flipped: false, aboveOverlay: false }
 
 interface BgLayer { scene: Scene | null; opacity: number }
 
@@ -856,52 +857,53 @@ export default function Stage({
         })()}
       </div>
 
-      {/* ── Characters ── */}
-      {characters?.left && (
-        <CharacterDisplay
-          character={characters.left}
-          position="left"
-          imageUrl={characterImageUrl(characters.left)}
-          scale={slotScales?.left ?? 1}
-          imgZoom={slotDisplayProps?.left.zoom}
-          imgPanX={slotDisplayProps?.left.panX}
-          imgPanY={slotDisplayProps?.left.panY}
-          flipped={slotDisplayProps?.left.flipped}
-        />
-      )}
-      {characters?.center && (
-        <CharacterDisplay
-          character={characters.center}
-          position="center"
-          imageUrl={characterImageUrl(characters.center)}
-          scale={slotScales?.center ?? 1}
-          imgZoom={slotDisplayProps?.center.zoom}
-          imgPanX={slotDisplayProps?.center.panX}
-          imgPanY={slotDisplayProps?.center.panY}
-          flipped={slotDisplayProps?.center.flipped}
-        />
-      )}
-      {characters?.right && (
-        <CharacterDisplay
-          character={characters.right}
-          position="right"
-          imageUrl={characterImageUrl(characters.right)}
-          scale={slotScales?.right ?? 1}
-          imgZoom={slotDisplayProps?.right.zoom}
-          imgPanX={slotDisplayProps?.right.panX}
-          imgPanY={slotDisplayProps?.right.panY}
-          flipped={slotDisplayProps?.right.flipped}
-        />
-      )}
+      {/* ── Characters (below overlay — atmosphere washes over them) ── */}
+      {(['left', 'center', 'right'] as const).map(slot => {
+        const char = characters?.[slot]
+        if (!char) return null
+        if (slotDisplayProps?.[slot].aboveOverlay) return null
+        return (
+          <CharacterDisplay
+            key={slot}
+            character={char}
+            position={slot}
+            imageUrl={characterImageUrl(char)}
+            scale={slotScales?.[slot] ?? 1}
+            imgZoom={slotDisplayProps?.[slot].zoom}
+            imgPanX={slotDisplayProps?.[slot].panX}
+            imgPanY={slotDisplayProps?.[slot].panY}
+            flipped={slotDisplayProps?.[slot].flipped}
+          />
+        )
+      })}
 
-      {/* ── Overlay stack — renders AFTER characters so blend modes wash
-          over them too (fog, godrays, dust feel like real atmosphere
-          instead of a backdrop the cast stands in front of). DOM order
-          drives the stacking; OverlayStack must stay z-index auto so its
-          mix-blend-mode reads bg+characters as backdrop. ── */}
+      {/* ── Overlay stack — renders between the two character layers. The
+          "below" group above is washed by blend modes; the "above" group
+          below punches through. OverlayStack must stay z-index auto so its
+          mix-blend-mode reads bg+below-characters as backdrop. ── */}
       {sceneOverlays.length > 0 && (
         <OverlayStack overlays={sceneOverlays} liveStates={liveOverlays} />
       )}
+
+      {/* ── Characters (above overlay — punch through atmospheric FX) ── */}
+      {(['left', 'center', 'right'] as const).map(slot => {
+        const char = characters?.[slot]
+        if (!char) return null
+        if (!slotDisplayProps?.[slot].aboveOverlay) return null
+        return (
+          <CharacterDisplay
+            key={slot}
+            character={char}
+            position={slot}
+            imageUrl={characterImageUrl(char)}
+            scale={slotScales?.[slot] ?? 1}
+            imgZoom={slotDisplayProps?.[slot].zoom}
+            imgPanX={slotDisplayProps?.[slot].panX}
+            imgPanY={slotDisplayProps?.[slot].panY}
+            flipped={slotDisplayProps?.[slot].flipped}
+          />
+        )
+      })}
 
       {/* ── Scene name ── */}
       <div key={scene.id} style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center', padding: 'calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 14px calc(14px + env(safe-area-inset-left))', fontFamily: "'Cinzel',serif", fontSize: '14px', letterSpacing: '5px', fontWeight: 500, color: 'rgba(255,255,255,.75)', textShadow: '0 1px 12px rgba(0,0,0,.9)', pointerEvents: 'none', zIndex: 5, animation: 'sceneFadeIn 1s ease forwards' }}>
@@ -1525,7 +1527,7 @@ export default function Stage({
               ))}
 
               {/* Flip row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
                 <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Flip</span>
                 <button onClick={() => fire(scale, { ...display, flipped: !display.flipped })}
                   style={{
@@ -1535,6 +1537,20 @@ export default function Stage({
                     color: display.flipped ? 'var(--accent)' : 'rgba(255,255,255,0.4)',
                   }}
                 >↔ Mirror</button>
+              </div>
+
+              {/* Layer row — when on, character renders in front of scene
+                  overlays (fog/godrays/dust pass behind them instead of over). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', width: '34px', flexShrink: 0 }}>Layer</span>
+                <button onClick={() => fire(scale, { ...display, aboveOverlay: !display.aboveOverlay })}
+                  style={{
+                    fontSize: '10px', minHeight: '36px', padding: '0 14px', borderRadius: 'var(--r-sm)', cursor: 'pointer', touchAction: 'manipulation',
+                    background: display.aboveOverlay ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${display.aboveOverlay ? 'var(--accent)' : 'rgba(255,255,255,0.1)'}`,
+                    color: display.aboveOverlay ? 'var(--accent)' : 'rgba(255,255,255,0.4)',
+                  }}
+                >⬆ Above FX</button>
               </div>
 
               {/* Save button */}

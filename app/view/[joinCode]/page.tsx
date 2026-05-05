@@ -54,13 +54,13 @@ export default function ViewerPage() {
   const [characters,       setCharacters]       = useState<{ left: Character | null; center: Character | null; right: Character | null }>({ left: null, center: null, right: null })
   const [viewerScales,     setViewerScales]     = useState<{ left: number; center: number; right: number }>({ left: 1, center: 1, right: 1 })
   const [viewerDisplay,    setViewerDisplay]    = useState<{
-    left:   { zoom: number; panX: number; panY: number; flipped: boolean }
-    center: { zoom: number; panX: number; panY: number; flipped: boolean }
-    right:  { zoom: number; panX: number; panY: number; flipped: boolean }
+    left:   { zoom: number; panX: number; panY: number; flipped: boolean; aboveOverlay: boolean }
+    center: { zoom: number; panX: number; panY: number; flipped: boolean; aboveOverlay: boolean }
+    right:  { zoom: number; panX: number; panY: number; flipped: boolean; aboveOverlay: boolean }
   }>({
-    left:   { zoom: 1, panX: 50, panY: 100, flipped: false },
-    center: { zoom: 1, panX: 50, panY: 100, flipped: false },
-    right:  { zoom: 1, panX: 50, panY: 100, flipped: false },
+    left:   { zoom: 1, panX: 50, panY: 100, flipped: false, aboveOverlay: false },
+    center: { zoom: 1, panX: 50, panY: 100, flipped: false, aboveOverlay: false },
+    right:  { zoom: 1, panX: 50, panY: 100, flipped: false, aboveOverlay: false },
   })
 
   const loadCharactersFromState = useCallback(async (state: CharacterState | null) => {
@@ -84,9 +84,9 @@ export default function ViewerPage() {
       right:  state.rightScale  ?? 1,
     })
     setViewerDisplay({
-      left:   { zoom: state.leftZoom   ?? 1, panX: state.leftPanX   ?? 50, panY: state.leftPanY   ?? 100, flipped: state.leftFlipped   ?? false },
-      center: { zoom: state.centerZoom ?? 1, panX: state.centerPanX ?? 50, panY: state.centerPanY ?? 100, flipped: state.centerFlipped ?? false },
-      right:  { zoom: state.rightZoom  ?? 1, panX: state.rightPanX  ?? 50, panY: state.rightPanY  ?? 100, flipped: state.rightFlipped  ?? false },
+      left:   { zoom: state.leftZoom   ?? 1, panX: state.leftPanX   ?? 50, panY: state.leftPanY   ?? 100, flipped: state.leftFlipped   ?? false, aboveOverlay: state.leftAboveOverlay   ?? false },
+      center: { zoom: state.centerZoom ?? 1, panX: state.centerPanX ?? 50, panY: state.centerPanY ?? 100, flipped: state.centerFlipped ?? false, aboveOverlay: state.centerAboveOverlay ?? false },
+      right:  { zoom: state.rightZoom  ?? 1, panX: state.rightPanX  ?? 50, panY: state.rightPanY  ?? 100, flipped: state.rightFlipped  ?? false, aboveOverlay: state.rightAboveOverlay  ?? false },
     })
   }, [supabase])
 
@@ -694,49 +694,50 @@ export default function ViewerPage() {
         })()}
       </div>
 
-      {/* ── Characters ── */}
-      {characters.left && (
-        <CharacterDisplay
-          character={characters.left}
-          position="left"
-          imageUrl={characterImageUrl(characters.left)}
-          scale={viewerScales.left}
-          imgZoom={viewerDisplay.left.zoom}
-          imgPanX={viewerDisplay.left.panX}
-          imgPanY={viewerDisplay.left.panY}
-          flipped={viewerDisplay.left.flipped}
-        />
-      )}
-      {characters.center && (
-        <CharacterDisplay
-          character={characters.center}
-          position="center"
-          imageUrl={characterImageUrl(characters.center)}
-          scale={viewerScales.center}
-          imgZoom={viewerDisplay.center.zoom}
-          imgPanX={viewerDisplay.center.panX}
-          imgPanY={viewerDisplay.center.panY}
-          flipped={viewerDisplay.center.flipped}
-        />
-      )}
-      {characters.right && (
-        <CharacterDisplay
-          character={characters.right}
-          position="right"
-          imageUrl={characterImageUrl(characters.right)}
-          scale={viewerScales.right}
-          imgZoom={viewerDisplay.right.zoom}
-          imgPanX={viewerDisplay.right.panX}
-          imgPanY={viewerDisplay.right.panY}
-          flipped={viewerDisplay.right.flipped}
-        />
-      )}
+      {/* ── Characters (below overlay — atmosphere washes over them) ── */}
+      {(['left', 'center', 'right'] as const).map(slot => {
+        const char = characters[slot]
+        if (!char) return null
+        if (viewerDisplay[slot].aboveOverlay) return null
+        return (
+          <CharacterDisplay
+            key={slot}
+            character={char}
+            position={slot}
+            imageUrl={characterImageUrl(char)}
+            scale={viewerScales[slot]}
+            imgZoom={viewerDisplay[slot].zoom}
+            imgPanX={viewerDisplay[slot].panX}
+            imgPanY={viewerDisplay[slot].panY}
+            flipped={viewerDisplay[slot].flipped}
+          />
+        )
+      })}
 
-      {/* ── Overlay stack — renders AFTER characters so blend modes wash
-          over them too (atmosphere over the cast, not just behind them). ── */}
+      {/* ── Overlay stack — renders between the two character layers. ── */}
       {(scene?.overlays?.length ?? 0) > 0 && (
         <OverlayStack overlays={scene!.overlays!} liveStates={activeOverlays} />
       )}
+
+      {/* ── Characters (above overlay — punch through atmospheric FX) ── */}
+      {(['left', 'center', 'right'] as const).map(slot => {
+        const char = characters[slot]
+        if (!char) return null
+        if (!viewerDisplay[slot].aboveOverlay) return null
+        return (
+          <CharacterDisplay
+            key={slot}
+            character={char}
+            position={slot}
+            imageUrl={characterImageUrl(char)}
+            scale={viewerScales[slot]}
+            imgZoom={viewerDisplay[slot].zoom}
+            imgPanX={viewerDisplay[slot].panX}
+            imgPanY={viewerDisplay[slot].panY}
+            flipped={viewerDisplay[slot].flipped}
+          />
+        )
+      })}
 
       {/* Scene name */}
       {scene && !scene.hide_title && (

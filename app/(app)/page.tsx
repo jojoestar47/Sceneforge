@@ -25,7 +25,7 @@ function makeJoinCode(): string {
   return Array.from(bytes).map(b => chars[b % chars.length]).join('')
 }
 
-const DEFAULT_SLOT_DISPLAY = { zoom: 1, panX: 50, panY: 100, flipped: false }
+const DEFAULT_SLOT_DISPLAY = { zoom: 1, panX: 50, panY: 100, flipped: false, aboveOverlay: false }
 
 interface ActiveCharacters {
   left:   Character | null
@@ -183,6 +183,7 @@ export default function AppPage() {
       leftPanX: slotDisplayProps.left.panX, centerPanX: slotDisplayProps.center.panX, rightPanX: slotDisplayProps.right.panX,
       leftPanY: slotDisplayProps.left.panY, centerPanY: slotDisplayProps.center.panY, rightPanY: slotDisplayProps.right.panY,
       leftFlipped: slotDisplayProps.left.flipped, centerFlipped: slotDisplayProps.center.flipped, rightFlipped: slotDisplayProps.right.flipped,
+      leftAboveOverlay: slotDisplayProps.left.aboveOverlay, centerAboveOverlay: slotDisplayProps.center.aboveOverlay, rightAboveOverlay: slotDisplayProps.right.aboveOverlay,
     }
     const { data } = await supabase.from('sessions').upsert({
       campaign_id: activeCampId, join_code: code,
@@ -255,6 +256,7 @@ export default function AppPage() {
         leftPanX: 50, centerPanX: 50, rightPanX: 50,
         leftPanY: 100, centerPanY: 100, rightPanY: 100,
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
+        leftAboveOverlay: false, centerAboveOverlay: false, rightAboveOverlay: false,
       }
       await supabase.from('sessions').update({ active_scene_id: id, character_state: cs, active_music_track_id: null, active_handout_id: null, active_overlays: null }).eq('id', sessionId)
     }
@@ -283,6 +285,7 @@ export default function AppPage() {
         leftPanX: newDisplay.left.panX, centerPanX: newDisplay.center.panX, rightPanX: newDisplay.right.panX,
         leftPanY: newDisplay.left.panY, centerPanY: newDisplay.center.panY, rightPanY: newDisplay.right.panY,
         leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
+        leftAboveOverlay: newDisplay.left.aboveOverlay, centerAboveOverlay: newDisplay.center.aboveOverlay, rightAboveOverlay: newDisplay.right.aboveOverlay,
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
@@ -291,7 +294,7 @@ export default function AppPage() {
   async function handleSlotDisplayChange(
     slot: 'left' | 'center' | 'right',
     scale: number,
-    display: { zoom?: number; panX?: number; panY?: number; flipped?: boolean }
+    display: { zoom?: number; panX?: number; panY?: number; flipped?: boolean; aboveOverlay?: boolean }
   ) {
     const newScales  = { ...slotScales,       [slot]: scale   }
     const newDisplay = { ...slotDisplayProps, [slot]: display }
@@ -305,6 +308,7 @@ export default function AppPage() {
         leftPanX: newDisplay.left.panX, centerPanX: newDisplay.center.panX, rightPanX: newDisplay.right.panX,
         leftPanY: newDisplay.left.panY, centerPanY: newDisplay.center.panY, rightPanY: newDisplay.right.panY,
         leftFlipped: newDisplay.left.flipped, centerFlipped: newDisplay.center.flipped, rightFlipped: newDisplay.right.flipped,
+        leftAboveOverlay: newDisplay.left.aboveOverlay, centerAboveOverlay: newDisplay.center.aboveOverlay, rightAboveOverlay: newDisplay.right.aboveOverlay,
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', sessionId)
     }
@@ -319,17 +323,18 @@ export default function AppPage() {
     // Stage placement is always manual — only the framing (scale/zoom/pan/flip) is saved.
     await supabase.from('scene_characters')
       .upsert({
-        scene_id:    activeSceneId,
-        character_id: char.id,
+        scene_id:      activeSceneId,
+        character_id:  char.id,
         scale,
-        zoom:    display.zoom    ?? 1,
-        pan_x:   display.panX   ?? 50,
-        pan_y:   display.panY   ?? 100,
-        flipped: display.flipped ?? false,
+        zoom:          display.zoom         ?? 1,
+        pan_x:         display.panX         ?? 50,
+        pan_y:         display.panY         ?? 100,
+        flipped:       display.flipped      ?? false,
+        above_overlay: display.aboveOverlay ?? false,
       }, { onConflict: 'scene_id,character_id' })
     setCharacterDisplayDefaults(prev => ({
       ...prev,
-      [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false },
+      [char.id]: { zoom: display.zoom ?? 1, panX: display.panX ?? 50, panY: display.panY ?? 100, flipped: display.flipped ?? false, aboveOverlay: display.aboveOverlay ?? false },
     }))
     setCharacterScales(prev => ({ ...prev, [char.id]: scale }))
   }

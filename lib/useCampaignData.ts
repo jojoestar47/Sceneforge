@@ -42,14 +42,17 @@ interface ActiveCharacters {
 }
 
 interface SceneCharacterRow {
-  character_id: string | null
-  scale?:       number  | null
-  zoom?:        number  | null
-  pan_x?:       number  | null
-  pan_y?:       number  | null
-  flipped?:     boolean | null
-  character?:   Character | null
+  character_id:    string | null
+  scale?:          number  | null
+  zoom?:           number  | null
+  pan_x?:          number  | null
+  pan_y?:          number  | null
+  flipped?:        boolean | null
+  above_overlay?:  boolean | null
+  character?:      Character | null
 }
+
+type SlotDisplayDefault = { zoom: number; panX: number; panY: number; flipped: boolean; aboveOverlay: boolean }
 
 interface SceneRow extends Scene {
   // The Postgres `scene_overlays` join column comes back under that key but
@@ -77,7 +80,7 @@ export interface UseCampaignData {
   // ── Per-scene roster (loaded by loadSceneRoster) ──
   sceneRosterChars:         Character[]
   characterScales:          Record<string, number>
-  characterDisplayDefaults: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }>
+  characterDisplayDefaults: Record<string, SlotDisplayDefault>
 
   // ── Setters (page CRUD pushes results through these) ──
   setCampaigns:                React.Dispatch<React.SetStateAction<Campaign[]>>
@@ -93,7 +96,7 @@ export interface UseCampaignData {
   setActiveCharacters:         React.Dispatch<React.SetStateAction<ActiveCharacters>>
   setSceneRosterChars:         React.Dispatch<React.SetStateAction<Character[]>>
   setCharacterScales:          React.Dispatch<React.SetStateAction<Record<string, number>>>
-  setCharacterDisplayDefaults: React.Dispatch<React.SetStateAction<Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }>>>
+  setCharacterDisplayDefaults: React.Dispatch<React.SetStateAction<Record<string, SlotDisplayDefault>>>
 
   // ── Imperative refresh helpers ──
   loadScenes:        (campId: string) => Promise<void>
@@ -139,7 +142,7 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
   // ── Per-scene roster ──
   const [sceneRosterChars,         setSceneRosterChars]         = useState<Character[]>([])
   const [characterScales,          setCharacterScales]          = useState<Record<string, number>>({})
-  const [characterDisplayDefaults, setCharacterDisplayDefaults] = useState<Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }>>({})
+  const [characterDisplayDefaults, setCharacterDisplayDefaults] = useState<Record<string, SlotDisplayDefault>>({})
 
   // Ref so the Realtime callback always reads the current roster without
   // needing campaignCharacters in the effect's dependency array (which would
@@ -251,11 +254,11 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
     setSceneRosterChars(rows.map(r => r.character).filter((c): c is Character => !!c))
 
     const scales:      Record<string, number> = {}
-    const displayDefs: Record<string, { zoom: number; panX: number; panY: number; flipped: boolean }> = {}
+    const displayDefs: Record<string, SlotDisplayDefault> = {}
     rows.forEach(r => {
       if (!r.character_id) return
       scales[r.character_id]      = r.scale ?? 1
-      displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false }
+      displayDefs[r.character_id] = { zoom: r.zoom ?? 1, panX: r.pan_x ?? 50, panY: r.pan_y ?? 100, flipped: r.flipped ?? false, aboveOverlay: r.above_overlay ?? false }
     })
     setCharacterScales(scales)
     setCharacterDisplayDefaults(displayDefs)
@@ -282,6 +285,7 @@ export function useCampaignData(activeCampId: string, opts: Options = {}): UseCa
         leftPanX: 50, centerPanX: 50, rightPanX: 50,
         leftPanY: 100, centerPanY: 100, rightPanY: 100,
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
+        leftAboveOverlay: false, centerAboveOverlay: false, rightAboveOverlay: false,
       }
       await supabase.from('sessions').update({ character_state: cs }).eq('id', data.id)
     } else {
