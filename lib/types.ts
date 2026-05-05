@@ -180,6 +180,11 @@ export interface CharacterState {
   leftFlipped?:   boolean
   centerFlipped?: boolean
   rightFlipped?:  boolean
+  // When true, the character renders in front of scene overlays
+  // (atmospheric FX wash behind them, not over them).
+  leftAboveOverlay?:   boolean
+  centerAboveOverlay?: boolean
+  rightAboveOverlay?:  boolean
 }
 
 // ── Editor draft types ────────────────────────────────────────
