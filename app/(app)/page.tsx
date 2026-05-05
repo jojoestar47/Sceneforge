@@ -538,10 +538,12 @@ export default function AppPage() {
     copy.splice(toIdx, 0, item)
     const updated  = copy.map((s, i) => ({ ...s, order_index: i }))
     setScenes(updated)
-    await supabase.from('scenes').upsert(
-      updated.map(s => ({ id: s.id, order_index: s.order_index })),
-      { onConflict: 'id' }
-    )
+    // Per-row UPDATE rather than upsert: scenes.campaign_id is NOT NULL,
+    // and Postgres validates NOT NULL on the INSERT before ON CONFLICT
+    // routing, so a partial-row upsert always errors out silently.
+    await Promise.all(updated.map(s =>
+      supabase.from('scenes').update({ order_index: s.order_index }).eq('id', s.id)
+    ))
   }
 
   // ── Folder CRUD ───────────────────────────────────────────────
@@ -554,10 +556,10 @@ export default function AppPage() {
     copy.splice(toIdx, 0, item)
     const updated = copy.map((f, i) => ({ ...f, order_index: i }))
     setFolders(updated)
-    await supabase.from('scene_folders').upsert(
-      updated.map(f => ({ id: f.id, order_index: f.order_index })),
-      { onConflict: 'id' }
-    )
+    // See note in handleReorder — scene_folders.campaign_id is also NOT NULL.
+    await Promise.all(updated.map(f =>
+      supabase.from('scene_folders').update({ order_index: f.order_index }).eq('id', f.id)
+    ))
   }
 
   async function createFolder(name: string) {

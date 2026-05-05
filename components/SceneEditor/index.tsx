@@ -114,13 +114,23 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
         bg = { type: draft._bgFile.type.startsWith('video') ? 'video' : 'image', storage_path: path, file_name: draft._bgFile.name }
       }
 
+      // For new scenes, append at the end of the campaign's scene list.
+      // Editing an existing scene preserves its order_index.
+      let nextOrderIndex = scene?.order_index ?? 0
+      if (!scene?.id) {
+        const { data: maxRow } = await supabase.from('scenes')
+          .select('order_index').eq('campaign_id', campaignId)
+          .order('order_index', { ascending: false }).limit(1).maybeSingle()
+        nextOrderIndex = (maxRow?.order_index ?? -1) + 1
+      }
+
       const scenePayload = {
         campaign_id: campaignId, name: draft.name || 'Untitled Scene',
         location: draft.location || null,
         hide_title: draft.hide_title,
         dynamic_music: false,
         bg: bg ? { type: bg.type, url: bg.url, storage_path: bg.storage_path, file_name: bg.file_name } : null,
-        order_index: scene?.order_index ?? 0,
+        order_index: nextOrderIndex,
       }
 
       let sceneId = scene?.id
