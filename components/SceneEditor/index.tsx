@@ -135,9 +135,11 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
 
       let sceneId = scene?.id
       if (sceneId) {
-        await supabase.from('scenes').update(scenePayload).eq('id', sceneId)
+        const { error } = await supabase.from('scenes').update(scenePayload).eq('id', sceneId)
+        if (error) throw error
       } else {
-        const { data } = await supabase.from('scenes').insert(scenePayload).select('id').single()
+        const { data, error } = await supabase.from('scenes').insert(scenePayload).select('id').single()
+        if (error) throw error
         sceneId = data!.id
       }
 
@@ -147,7 +149,10 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
         const { data: existingTracks } = await supabase.from('tracks').select('id, storage_path').eq('scene_id', sceneId!)
         const tracksToDelete = (existingTracks ?? []).filter(t => !draftTrackIds.has(t.id))
         const orphanedPaths  = tracksToDelete.map(t => t.storage_path).filter((p): p is string => !!p)
-        if (tracksToDelete.length) await supabase.from('tracks').delete().in('id', tracksToDelete.map(t => t.id))
+        if (tracksToDelete.length) {
+          const { error } = await supabase.from('tracks').delete().in('id', tracksToDelete.map(t => t.id))
+          if (error) throw error
+        }
         await deleteMediaBatch(supabase, orphanedPaths)
       }
       const allTrackRows = (await Promise.all(draft.tracks.map(async (t, i) => {
@@ -159,8 +164,14 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
       }))).filter((t): t is NonNullable<typeof t> => t !== null)
       const tracksToUpsert = allTrackRows.filter(t => t.id).map(t => ({ ...t, id: t.id! }))
       const tracksToInsert = allTrackRows.filter(t => !t.id).map(({ id: _id, ...rest }) => rest)
-      if (tracksToUpsert.length) await supabase.from('tracks').upsert(tracksToUpsert, { onConflict: 'id' })
-      if (tracksToInsert.length) await supabase.from('tracks').insert(tracksToInsert)
+      if (tracksToUpsert.length) {
+        const { error } = await supabase.from('tracks').upsert(tracksToUpsert, { onConflict: 'id' })
+        if (error) throw error
+      }
+      if (tracksToInsert.length) {
+        const { error } = await supabase.from('tracks').insert(tracksToInsert)
+        if (error) throw error
+      }
 
       // Scene characters — selective delete + upsert so transient failures
       // never wipe the whole pool. The table has UNIQUE(scene_id, character_id)
@@ -171,13 +182,17 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
           .from('scene_characters').select('id, character_id').eq('scene_id', sceneId!)
         const charIdsToRemove = (existingChars ?? [])
           .filter(c => !draftCharIds.has(c.character_id)).map(c => c.id)
-        if (charIdsToRemove.length)
-          await supabase.from('scene_characters').delete().in('id', charIdsToRemove)
+        if (charIdsToRemove.length) {
+          const { error } = await supabase.from('scene_characters').delete().in('id', charIdsToRemove)
+          if (error) throw error
+        }
         const charUpserts = draft.characterPool.map(e => ({
           scene_id: sceneId!, character_id: e.character.id, scale: e.scale,
         }))
-        if (charUpserts.length)
-          await supabase.from('scene_characters').upsert(charUpserts, { onConflict: 'scene_id,character_id' })
+        if (charUpserts.length) {
+          const { error } = await supabase.from('scene_characters').upsert(charUpserts, { onConflict: 'scene_id,character_id' })
+          if (error) throw error
+        }
       }
 
       // Handouts — preserve IDs so active_handout_id in sessions stays valid
@@ -188,7 +203,10 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
         const orphanedHandoutPaths = handoutsToDelete
           .map((h: { media?: { storage_path?: string } | null }) => h.media?.storage_path)
           .filter((p): p is string => !!p)
-        if (handoutsToDelete.length) await supabase.from('handouts').delete().in('id', handoutsToDelete.map(h => h.id))
+        if (handoutsToDelete.length) {
+          const { error } = await supabase.from('handouts').delete().in('id', handoutsToDelete.map(h => h.id))
+          if (error) throw error
+        }
         await deleteMediaBatch(supabase, orphanedHandoutPaths)
       }
       const allHandoutRows = await Promise.all(draft.handouts.map(async (h, i) => {
@@ -205,10 +223,13 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
       }))
       const handoutsToUpsert = allHandoutRows.filter(h => h.id).map(h => ({ ...h, id: h.id! }))
       const handoutsToInsert = allHandoutRows.filter(h => !h.id).map(({ id: _id, ...rest }) => rest)
-      if (handoutsToUpsert.length) await supabase.from('handouts').upsert(handoutsToUpsert, { onConflict: 'id' })
+      if (handoutsToUpsert.length) {
+        const { error } = await supabase.from('handouts').upsert(handoutsToUpsert, { onConflict: 'id' })
+        if (error) throw error
+      }
       if (handoutsToInsert.length) {
-        const { error: handoutInsertError } = await supabase.from('handouts').insert(handoutsToInsert)
-        if (handoutInsertError) throw handoutInsertError
+        const { error } = await supabase.from('handouts').insert(handoutsToInsert)
+        if (error) throw error
       }
 
       // Overlays — preserve IDs so active_overlays in sessions stays valid
@@ -219,7 +240,10 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
         const orphanedOverlayPaths = overlaysToDelete
           .map((o: { storage_path?: string | null }) => o.storage_path)
           .filter((p): p is string => !!p)
-        if (overlaysToDelete.length) await supabase.from('scene_overlays').delete().in('id', overlaysToDelete.map(o => o.id))
+        if (overlaysToDelete.length) {
+          const { error } = await supabase.from('scene_overlays').delete().in('id', overlaysToDelete.map(o => o.id))
+          if (error) throw error
+        }
         await deleteMediaBatch(supabase, orphanedOverlayPaths)
       }
       const allOverlayRows = (await Promise.all(draft.overlays.map(async (o, i) => {
@@ -237,10 +261,17 @@ export default function SceneEditor({ scene, campaignId, userId, campaignTags, o
       }))).filter((o): o is NonNullable<typeof o> => o !== null)
       const overlaysToUpsert = allOverlayRows.filter(o => o.id).map(o => ({ ...o, id: o.id! }))
       const overlaysToInsert = allOverlayRows.filter(o => !o.id).map(({ id: _id, ...rest }) => rest)
-      if (overlaysToUpsert.length) await supabase.from('scene_overlays').upsert(overlaysToUpsert, { onConflict: 'id' })
-      if (overlaysToInsert.length) await supabase.from('scene_overlays').insert(overlaysToInsert)
+      if (overlaysToUpsert.length) {
+        const { error } = await supabase.from('scene_overlays').upsert(overlaysToUpsert, { onConflict: 'id' })
+        if (error) throw error
+      }
+      if (overlaysToInsert.length) {
+        const { error } = await supabase.from('scene_overlays').insert(overlaysToInsert)
+        if (error) throw error
+      }
 
-      const { data: savedScene } = await supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('id', sceneId!).single()
+      const { data: savedScene, error: savedSceneError } = await supabase.from('scenes').select('*, tracks(*), handouts(*), scene_overlays(*)').eq('id', sceneId!).single()
+      if (savedSceneError) throw savedSceneError
       const savedSceneTyped = savedScene as Scene & { scene_overlays?: SceneOverlay[] }
       onSave({ ...savedSceneTyped, overlays: savedSceneTyped.scene_overlays ?? [] }, createdCharsRef.current)
       createdCharsRef.current = []

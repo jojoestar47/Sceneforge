@@ -742,8 +742,10 @@ export default function Stage({
       if (!current.spotify_uri) {
         const a = audioRefs.current[current.id]
         if (a) { a.pause(); a.currentTime = 0 }
-      } else if (!isLive && spotify.states[current.id]?.playing) {
-        // When live the viewer is the audio master — don't touch Spotify on DM side
+      } else if (spotify.states[current.id]?.playing) {
+        // Always pause the outgoing Spotify track on a manual switch — even
+        // when live. The disableAutoPlay guard exists for auto-start only;
+        // an explicit user switch must clean up audio it can hear locally.
         spotify.toggle(current)
       }
     }
