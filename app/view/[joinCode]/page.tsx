@@ -447,20 +447,6 @@ export default function ViewerPage() {
     return () => clearInterval(t)
   }, [status, loadSession])
 
-  // Re-sync when the tab comes back to focus or the network reconnects —
-  // covers cases where the Realtime channel silently drops without firing
-  // a status callback (mobile screen sleep is the most common).
-  useEffect(() => {
-    if (status === 'ended') return
-    const onVisible = () => { if (document.visibilityState === 'visible') loadSession() }
-    document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('online', loadSession)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('online', loadSession)
-    }
-  }, [status, loadSession])
-
   // ── Realtime: session updates ─────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel('viewer-' + joinCode)
@@ -492,19 +478,9 @@ export default function ViewerPage() {
           playSfxEvent(ev, campaignSoundsRef.current)
         }
       })
-      .subscribe((subStatus) => {
-        // Recover from dropped Realtime on real network problems. CLOSED is
-        // intentionally NOT handled here — it fires on every cleanup (which
-        // happens each render because `createClient()` produces a fresh
-        // supabase instance, destabilizing every useCallback that depends on
-        // it) and would loop loadSession indefinitely. The visibilitychange +
-        // online listeners above are the reliable reconnect path.
-        if (subStatus === 'CHANNEL_ERROR' || subStatus === 'TIMED_OUT') {
-          loadSession()
-        }
-      })
+      .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [joinCode, loadScene, loadCharactersFromState, playSfxEvent, loadSession])
+  }, [joinCode, loadScene, loadCharactersFromState, playSfxEvent])
 
   // Realtime: campaign_sounds inserts/updates/deletes so newly added sounds
   // are immediately available without a session reload.
