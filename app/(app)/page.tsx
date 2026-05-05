@@ -96,6 +96,15 @@ export default function AppPage() {
     toastTimersRef.current.push(t)
   }
 
+  // Wraps a Supabase write so a failing call surfaces a toast instead of
+  // silently letting optimistic local state diverge from the database.
+  // Returns true on success — callers that need to roll back can branch on it.
+  async function reportDbError(promise: PromiseLike<{ error: unknown }>, message: string): Promise<boolean> {
+    const { error } = await promise
+    if (error) { showError(message); return false }
+    return true
+  }
+
   // ── Auth ──────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -195,18 +204,27 @@ export default function AppPage() {
 
   async function stopPresenting() {
     if (!sessionId) return
-    await supabase.from('sessions').update({ is_live: false }).eq('id', sessionId)
+    await reportDbError(
+      supabase.from('sessions').update({ is_live: false }).eq('id', sessionId),
+      'Failed to end live session.',
+    )
     setIsLive(false); setSessionId(null); setJoinCode(null)
   }
 
   async function handleHandoutShow(handoutId: string | null) {
     if (!sessionId || !isLive) return
-    await supabase.from('sessions').update({ active_handout_id: handoutId }).eq('id', sessionId)
+    await reportDbError(
+      supabase.from('sessions').update({ active_handout_id: handoutId }).eq('id', sessionId),
+      'Failed to update handout for viewers.',
+    )
   }
 
   async function handleMusicTrackChange(trackId: string | null) {
     if (!sessionId || !isLive) return
-    await supabase.from('sessions').update({ active_music_track_id: trackId }).eq('id', sessionId)
+    await reportDbError(
+      supabase.from('sessions').update({ active_music_track_id: trackId }).eq('id', sessionId),
+      'Failed to update music track for viewers.',
+    )
   }
 
   async function handlePlaySfx(sound: CampaignSound) {
@@ -217,7 +235,10 @@ export default function AppPage() {
       played_at: Date.now(),
       volume: sound.volume,
     }
-    await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
+    await reportDbError(
+      supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId),
+      'Failed to trigger sound for viewers.',
+    )
   }
 
   async function handleStopSfx(soundId: string) {
@@ -228,7 +249,10 @@ export default function AppPage() {
       played_at: Date.now(),
       stop: true,
     }
-    await supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId)
+    await reportDbError(
+      supabase.from('sessions').update({ active_sfx_event: ev }).eq('id', sessionId),
+      'Failed to stop sound for viewers.',
+    )
   }
 
   function handleOverlayStateChange(id: string, state: OverlayLiveState) {
@@ -238,8 +262,11 @@ export default function AppPage() {
     // Debounce the DB write — slider drags can fire 60×/sec and each write
     // triggers a realtime event on the viewer. Local state updates immediately.
     if (overlayDbTimerRef.current) clearTimeout(overlayDbTimerRef.current)
-    overlayDbTimerRef.current = setTimeout(async () => {
-      await supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId)
+    overlayDbTimerRef.current = setTimeout(() => {
+      void reportDbError(
+        supabase.from('sessions').update({ active_overlays: next }).eq('id', sessionId),
+        'Failed to update overlays for viewers.',
+      )
     }, 150)
   }
 
@@ -247,6 +274,10 @@ export default function AppPage() {
   async function handleSelectScene(id: string) {
     setActiveSceneId(id)
     if (isLive && sessionId) {
+      // Cancel any pending debounced overlay write — its `next` was computed
+      // for the OLD scene and would clobber the active_overlays:null we're
+      // about to write for the NEW scene.
+      if (overlayDbTimerRef.current) { clearTimeout(overlayDbTimerRef.current); overlayDbTimerRef.current = null }
       // Clear character state when switching scenes — DM places characters
       // manually on the stage rather than auto-loading saved assignments.
       const cs: CharacterState = {
@@ -258,7 +289,8 @@ export default function AppPage() {
         leftFlipped: false, centerFlipped: false, rightFlipped: false,
         leftAboveOverlay: false, centerAboveOverlay: false, rightAboveOverlay: false,
       }
-      await supabase.from('sessions').update({ active_scene_id: id, character_state: cs, active_music_track_id: null, active_handout_id: null, active_overlays: null }).eq('id', sessionId)
+      const { error } = await supabase.from('sessions').update({ active_scene_id: id, character_state: cs, active_music_track_id: null, active_handout_id: null, active_overlays: null }).eq('id', sessionId)
+      if (error) showError('Failed to switch scene for viewers.')
     }
   }
 
@@ -346,7 +378,8 @@ export default function AppPage() {
     try {
       if (camp.cover_path) await deleteMedia(supabase, camp.cover_path).catch(() => {})
       const path = await uploadMedia(supabase, userId, file)
-      await supabase.from('campaigns').update({ cover_path: path, cover_file_name: file.name }).eq('id', campId)
+      const { error } = await supabase.from('campaigns').update({ cover_path: path, cover_file_name: file.name }).eq('id', campId)
+      if (error) throw error
       setCampaigns(prev => prev.map(c => c.id === campId
         ? { ...c, cover_path: path, cover_file_name: file.name, cover_signed_url: publicStorageUrl(path) }
         : c
@@ -371,10 +404,19 @@ export default function AppPage() {
       const { data: campScenes } = await supabase.from('scenes').select('id, bg, overlay').eq('campaign_id', campId)
       const sceneIds = (campScenes ?? []).map(s => s.id)
 
-      const [{ data: allTracks }, { data: allChars }, { data: allSounds }] = await Promise.all([
+      // Collect handouts (both scene-scoped and campaign-scoped) BEFORE the
+      // FK-CASCADE wipes them — otherwise their storage paths leak into the
+      // bucket forever.
+      type HandoutMediaRow = { media: { storage_path?: string | null } | null }
+      const handoutsQuery = sceneIds.length
+        ? supabase.from('handouts').select('media').or(`campaign_id.eq.${campId},scene_id.in.(${sceneIds.join(',')})`)
+        : supabase.from('handouts').select('media').eq('campaign_id', campId)
+      const [{ data: allTracks }, { data: allChars }, { data: allSounds }, { data: allHandouts }, { data: allOverlays }] = await Promise.all([
         sceneIds.length ? supabase.from('tracks').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
         supabase.from('characters').select('storage_path').eq('campaign_id', campId),
         supabase.from('campaign_sounds').select('storage_path').eq('campaign_id', campId),
+        handoutsQuery,
+        sceneIds.length ? supabase.from('scene_overlays').select('storage_path').in('scene_id', sceneIds) : Promise.resolve({ data: [] }),
       ])
 
       // Delete DB rows first — orphan storage is cheaper than dangling rows
@@ -396,6 +438,8 @@ export default function AppPage() {
         ...(allTracks ?? []).map((t: { storage_path?: string | null }) => t.storage_path),
         ...(allChars ?? []).map((c: { storage_path?: string | null }) => c.storage_path),
         ...(allSounds ?? []).map((s: { storage_path?: string | null }) => s.storage_path),
+        ...((allHandouts ?? []) as HandoutMediaRow[]).map(h => h.media?.storage_path),
+        ...((allOverlays ?? []) as { storage_path?: string | null }[]).map(o => o.storage_path),
       ].filter((p): p is string => !!p)
       await deleteMediaBatch(supabase, storagePaths).catch(() => {})
 
@@ -459,7 +503,8 @@ export default function AppPage() {
 
   async function createCampaignTag(name: string, color: string) {
     if (!activeCampId) return
-    const { data } = await supabase.from('campaign_tags').insert({ campaign_id: activeCampId, name, color }).select('*').single()
+    const { data, error } = await supabase.from('campaign_tags').insert({ campaign_id: activeCampId, name, color }).select('*').single()
+    if (error) { showError('Failed to create tag.'); return }
     if (data) setCampaignTags(prev => [...prev, data as CampaignTag].sort((a, b) => a.name.localeCompare(b.name)))
   }
 
@@ -467,23 +512,39 @@ export default function AppPage() {
     const affected = campaignCharacters.filter(c => c.tags?.includes(tagId))
     // Batch-update all affected characters in one round-trip via upsert
     if (affected.length) {
-      await supabase.from('characters').upsert(
-        affected.map(c => ({ id: c.id, tags: c.tags.filter(t => t !== tagId) })),
-        { onConflict: 'id' }
+      const ok = await reportDbError(
+        supabase.from('characters').upsert(
+          affected.map(c => ({ id: c.id, tags: c.tags.filter(t => t !== tagId) })),
+          { onConflict: 'id' }
+        ),
+        'Failed to remove tag from characters.',
       )
+      if (!ok) return
     }
-    await supabase.from('campaign_tags').delete().eq('id', tagId)
+    const ok = await reportDbError(
+      supabase.from('campaign_tags').delete().eq('id', tagId),
+      'Failed to delete tag.',
+    )
+    if (!ok) return
     setCampaignTags(prev => prev.filter(t => t.id !== tagId))
     setCampaignCharacters(prev => prev.map(c => ({ ...c, tags: (c.tags ?? []).filter(t => t !== tagId) })))
   }
 
   async function updateCharacterTags(charId: string, tags: string[]) {
-    await supabase.from('characters').update({ tags }).eq('id', charId)
+    const ok = await reportDbError(
+      supabase.from('characters').update({ tags }).eq('id', charId),
+      'Failed to update character tags.',
+    )
+    if (!ok) return
     setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, tags } : c))
   }
 
   async function updateCharacterName(charId: string, name: string) {
-    await supabase.from('characters').update({ name }).eq('id', charId)
+    const ok = await reportDbError(
+      supabase.from('characters').update({ name }).eq('id', charId),
+      'Failed to rename character.',
+    )
+    if (!ok) return
     setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, name } : c))
     setActiveCharacters(prev => ({
       left:   prev.left?.id   === charId ? { ...prev.left,   name } : prev.left,
@@ -493,7 +554,11 @@ export default function AppPage() {
   }
 
   async function updateCharacterImagePosition(charId: string, x: number, y: number) {
-    await supabase.from('characters').update({ image_x: x, image_y: y }).eq('id', charId)
+    const ok = await reportDbError(
+      supabase.from('characters').update({ image_x: x, image_y: y }).eq('id', charId),
+      'Failed to save character framing.',
+    )
+    if (!ok) return
     setCampaignCharacters(prev => prev.map(c => c.id === charId ? { ...c, image_x: x, image_y: y } : c))
   }
 
@@ -501,8 +566,16 @@ export default function AppPage() {
     const char = campaignCharacters.find(c => c.id === charId)
     if (!char) return
     if (char.storage_path) await deleteMedia(supabase, char.storage_path).catch(() => {})
-    await supabase.from('scene_characters').delete().eq('character_id', charId)
-    await supabase.from('characters').delete().eq('id', charId)
+    const okJoin = await reportDbError(
+      supabase.from('scene_characters').delete().eq('character_id', charId),
+      'Failed to detach character from scenes.',
+    )
+    if (!okJoin) return
+    const ok = await reportDbError(
+      supabase.from('characters').delete().eq('id', charId),
+      'Failed to delete character.',
+    )
+    if (!ok) return
     setCampaignCharacters(prev => prev.filter(c => c.id !== charId))
     // Clear character from any active stage slot
     setActiveCharacters(prev => ({
@@ -513,17 +586,29 @@ export default function AppPage() {
   }
 
   async function updateCampaignName(campId: string, name: string) {
-    await supabase.from('campaigns').update({ name }).eq('id', campId)
+    const ok = await reportDbError(
+      supabase.from('campaigns').update({ name }).eq('id', campId),
+      'Failed to rename campaign.',
+    )
+    if (!ok) return
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, name } : c))
   }
 
   async function updateCampaignDescription(campId: string, description: string) {
-    await supabase.from('campaigns').update({ description }).eq('id', campId)
+    const ok = await reportDbError(
+      supabase.from('campaigns').update({ description }).eq('id', campId),
+      'Failed to update campaign description.',
+    )
+    if (!ok) return
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, description } : c))
   }
 
   async function updateCampaignCoverPosition(campId: string, x: number, y: number) {
-    await supabase.from('campaigns').update({ cover_x: x, cover_y: y }).eq('id', campId)
+    const ok = await reportDbError(
+      supabase.from('campaigns').update({ cover_x: x, cover_y: y }).eq('id', campId),
+      'Failed to save cover position.',
+    )
+    if (!ok) return
     setCampaigns(prev => prev.map(c => c.id === campId ? { ...c, cover_x: x, cover_y: y } : c))
   }
 
@@ -565,20 +650,28 @@ export default function AppPage() {
   async function createFolder(name: string) {
     if (!activeCampId) return
     const order_index = folders.length
-    const { data } = await supabase.from('scene_folders')
+    const { data, error } = await supabase.from('scene_folders')
       .insert({ campaign_id: activeCampId, name, order_index })
       .select().single()
+    if (error) { showError('Failed to create folder.'); return }
     if (data) setFolders(prev => [...prev, data as SceneFolder])
   }
 
   async function renameFolder(id: string, name: string) {
-    await supabase.from('scene_folders').update({ name }).eq('id', id)
+    const ok = await reportDbError(
+      supabase.from('scene_folders').update({ name }).eq('id', id),
+      'Failed to rename folder.',
+    )
+    if (!ok) return
     setFolders(prev => prev.map(f => f.id === id ? { ...f, name } : f))
   }
 
   async function updateFolderColor(id: string, color: string) {
     setFolders(prev => prev.map(f => f.id === id ? { ...f, color } : f))
-    await supabase.from('scene_folders').update({ color }).eq('id', id)
+    await reportDbError(
+      supabase.from('scene_folders').update({ color }).eq('id', id),
+      'Failed to update folder color.',
+    )
   }
 
   function deleteFolder(id: string) {
@@ -598,7 +691,11 @@ export default function AppPage() {
   }
 
   async function moveSceneToFolder(sceneId: string, folderId: string | null) {
-    await supabase.from('scenes').update({ folder_id: folderId }).eq('id', sceneId)
+    const ok = await reportDbError(
+      supabase.from('scenes').update({ folder_id: folderId }).eq('id', sceneId),
+      'Failed to move scene.',
+    )
+    if (!ok) return
     setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, folder_id: folderId } : s))
   }
 
