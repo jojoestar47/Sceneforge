@@ -203,11 +203,25 @@ export default function AppPage() {
       leftFlipped: slotDisplayProps.left.flipped, centerFlipped: slotDisplayProps.center.flipped, rightFlipped: slotDisplayProps.right.flipped,
       leftAboveOverlay: slotDisplayProps.left.aboveOverlay, centerAboveOverlay: slotDisplayProps.center.aboveOverlay, rightAboveOverlay: slotDisplayProps.right.aboveOverlay,
     }
-    const { data } = await supabase.from('sessions').upsert({
+    // Explicitly null out every "live state" column the DM hasn't touched yet
+    // so a fresh presentation never inherits stale state from a previous run
+    // (overlays toggled on, a handout left up, an old SFX event re-firing).
+    // The sessions row is unique per campaign, so ending and restarting always
+    // reuses the same row and these would otherwise carry over.
+    const { data, error } = await supabase.from('sessions').upsert({
       campaign_id: activeCampId, join_code: code,
       active_scene_id: activeSceneId || null, is_live: true,
       created_by: userId, character_state: cs,
+      active_handout_id:     null,
+      active_music_track_id: null,
+      active_overlays:       null,
+      active_sfx_event:      null,
     }, { onConflict: 'campaign_id' }).select('id, join_code').single()
+    if (error) {
+      console.error('[startPresenting] upsert failed:', error)
+      showError('Failed to start presentation. Try again.')
+      return
+    }
     if (data) { setSessionId(data.id); setJoinCode(data.join_code); setIsLive(true); setShareModalOpen(true) }
   }
 
