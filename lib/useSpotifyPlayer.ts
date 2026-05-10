@@ -510,22 +510,33 @@ export function useSpotifyPlayer(
 
   async function fadeTo(t: Track, durationMs = 350) {
     if (!t.spotify_uri || !playerRef.current) return
+    // Capture the scene generation up-front. If the user navigates away
+    // (back to home, different campaign) mid-fade, prevSceneIdRef changes
+    // and we abort + force-pause so the new URI doesn't keep playing on
+    // the SDK's virtual device with nothing telling it to stop.
+    const sceneIdAtStart = prevSceneIdRef.current
     const targetVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
 
-    // If something's currently playing, ramp it down before swapping URIs.
-    // The half-duration on each side keeps total switch time bounded.
     if (activeTrackRef.current && activeTrackRef.current.id !== t.id) {
       const prevId = activeTrackRef.current.id
       const startVol = mutedRef.current ? 0 : (volumeRef.current[prevId] ?? targetVol)
       await rampVolume(startVol, 0, Math.round(durationMs / 2))
-      // Reflect the swap in mixer state immediately so the UI doesn't show
-      // two tracks playing for the duration of the API roundtrip.
+      if (prevSceneIdRef.current !== sceneIdAtStart) return
       setStates(prev => ({ ...prev, [prevId]: { ...prev[prevId], playing: false } }))
     }
 
-    // Start the new track silenced, then ramp up. playTrack's internal
-    // setVolume is overridden via initialVolume so it doesn't clobber the fade.
     await playTrack(t, { initialVolume: 0 })
+    // The /me/player/play fetch inside playTrack is the danger window — if
+    // the scene changed while it was in flight, Spotify is now playing the
+    // new URI on the device but the per-scene effect's player.pause() was
+    // racing with our request. Force-pause here so audio doesn't bleed
+    // through onto the next view.
+    if (prevSceneIdRef.current !== sceneIdAtStart) {
+      await playerRef.current.pause().catch(() => {})
+      activeTrackRef.current = null
+      setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
+      return
+    }
     await rampVolume(0, targetVol, Math.round(durationMs / 2))
   }
 

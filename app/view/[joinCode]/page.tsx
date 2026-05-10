@@ -239,11 +239,16 @@ export default function ViewerPage() {
     if (t.spotify_uri) return new Audio() // Spotify tracks handled by SDK
     if (!audioRefs.current[t.id]) {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
-      const a   = new Audio(src)
-      // Eagerly buffer the file. Browsers default to 'metadata' which means
-      // the new track has to download when the DM switches to it — that's
-      // the stutter we're avoiding by preloading every music track up-front.
+      // preload MUST be set before src — browsers honor preload at load-start.
+      // If we did `new Audio(src)` first, loading would have already begun at
+      // the default 'metadata' level (only enough to know duration), and the
+      // file wouldn't actually pre-download. A subsequent `a.preload = 'auto'`
+      // is too late to upgrade the in-flight load, so when the DM switches to
+      // this track its buffer underruns and the listener hears the audio
+      // play→stall→play→stall ("pauses and unpauses multiple times").
+      const a   = new Audio()
       a.preload = 'auto'
+      a.src     = src
       a.loop = t.loop; a.muted = mutedRef.current
       let vol = t.volume
       if (scene?.id) {

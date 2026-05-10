@@ -186,6 +186,20 @@ export default function AppPage() {
   // connect() calls, breaking auto-play on every visit after the first.
   // disableAutoPlay: while live the viewer device is the sole playback master.
   const spotify = useSpotifyPlayer(activeScene, { disableAutoPlay: isLive })
+
+  // Belt-and-suspenders: hard-stop Spotify when the user navigates back to
+  // the home view. The hook's per-scene effect already pauses on scene
+  // change, but its `player.pause()` can race with an in-flight playTrack
+  // fetch (started from a fadeTo right before the navigation), leaving the
+  // SDK's virtual device playing the new URI on the home page. stopAll
+  // resets activeTrackRef too, so a later resume can't accidentally bring
+  // playback back.
+  const spotifyRef = useRef(spotify)
+  useEffect(() => { spotifyRef.current = spotify })
+  useEffect(() => {
+    if (!activeCampId) spotifyRef.current.stopAll()
+  }, [activeCampId])
+
   const viewerUrl      = typeof window !== 'undefined' && joinCode ? `${window.location.origin}/view/${joinCode}` : null
   const qrUrl          = viewerUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}&margin=12` : null
 
