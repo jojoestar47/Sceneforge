@@ -267,27 +267,6 @@ export default function ViewerPage() {
       a.addEventListener('play',  playHandler)
       a.addEventListener('pause', pauseHandler)
 
-      // Diagnostic logging — temporary, tagged so it's easy to grep/remove.
-      // The "plays for a second and restarts" symptom can come from many
-      // places (premature 'ended' from bad metadata, buffer stalls, network
-      // errors triggering auto-recovery), and without logging we're guessing.
-      const dbg = (event: string, extra?: Record<string, unknown>) => {
-        // eslint-disable-next-line no-console
-        console.log(`[audio:${t.kind}:${t.id.slice(0, 6)}] ${event}`, {
-          currentTime: a.currentTime.toFixed(2),
-          duration: a.duration.toFixed(2),
-          readyState: a.readyState,
-          paused: a.paused,
-          ...extra,
-        })
-      }
-      a.addEventListener('error',   () => dbg('error', { code: a.error?.code, message: a.error?.message }))
-      a.addEventListener('waiting', () => dbg('waiting (buffer underrun)'))
-      a.addEventListener('stalled', () => dbg('stalled (network)'))
-      a.addEventListener('ended',   () => dbg('ended'))
-      a.addEventListener('seeking', () => dbg('seeking'))
-      a.addEventListener('emptied', () => dbg('emptied (src reset)'))
-
       // Auto-advance for non-loop music tracks. Without this, when a music
       // track finishes during a live presentation it just stops — the DM
       // can't intervene because their audio is paused (viewer is the audio
@@ -305,10 +284,7 @@ export default function ViewerPage() {
       let endedHandler: (() => void) | undefined
       if (t.kind === 'music' && !t.loop) {
         endedHandler = () => {
-          if (a.duration > 0 && a.currentTime < a.duration - 1) {
-            dbg('ended ignored (premature, possibly bad metadata)')
-            return
-          }
+          if (a.duration > 0 && a.currentTime < a.duration - 1) return
           const allMusic = (sceneRef.current?.tracks ?? []).filter(x => x.kind === 'music')
           if (allMusic.length <= 1) return
           const currentIdx = allMusic.findIndex(x => x.id === t.id)

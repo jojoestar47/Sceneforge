@@ -162,6 +162,34 @@ synchronously — no API roundtrip, no token expiry.
    immediately, run `npm install` in the worktree first. CI/Vercel installs
    automatically.
 
+## Debugging audio / realtime / Spotify issues
+
+If a user-visible runtime bug isn't yielding to two or three rounds of
+code-reading + speculation, **stop guessing and add diagnostic logging**.
+The cheap fix is almost never the right one for these — a 30-second
+look at the actual events firing in the browser console beats another
+hour of code archaeology. Specifically:
+
+- **Audio playback issues** (stutter, restart, no sound): attach
+  `console.log` to `error`, `waiting`, `stalled`, `ended`, `seeking`,
+  `emptied` on the `HTMLAudioElement`. Tag with the track id so it's
+  greppable. If no `[audio:...]` lines appear, the user's tracks are
+  Spotify and the bug is in `useSpotifyPlayer`, not file audio — that
+  alone narrows the search by half.
+- **Realtime sync issues**: log payload + timestamp inside the
+  `postgres_changes` callback. Multiple fires for one DB write usually
+  means there are two subscriptions to the same channel.
+- **Spotify SDK issues**: the SDK already exposes
+  `playback_error` / `authentication_error` / `account_error` events,
+  and `useSpotifyPlayer` wires them to console. Have the user share that
+  output before guessing.
+
+Ask the user to open DevTools → Console, repro the bug, and paste the
+relevant lines. Once the actual root cause is identified and fixed,
+remove the diagnostic logs in the same commit so they don't pollute
+production. (See git history for `[audio:` for an example of this
+pattern landing and being removed.)
+
 ## Commands
 
 ```bash
