@@ -46,6 +46,15 @@ export interface SpotifyPlayerApi {
   mute:       (muted: boolean) => void
   autoPlay:   () => void   // call after user interaction (viewer tap-to-start)
   skip:       (direction: 'next' | 'previous') => void
+  /**
+   * Smooth track-switch: fade the currently-active Spotify track down to 0,
+   * start the new one at 0, then ramp up to its target volume. Hides the
+   * inevitable network-roundtrip gap when /me/player/play swaps the URI.
+   */
+  fadeTo:     (t: Track, durationMs?: number) => Promise<void>
+  /** Ramp Spotify volume to 0 then pause — used when crossfading from a
+   *  Spotify track to a file track. */
+  fadeOut:    (durationMs?: number) => Promise<void>
   // Manual reconnect — re-runs player.connect() which usually re-fires the
   // 'ready' event without a full re-auth. Falls back to no-op if the SDK
   // never loaded.
@@ -352,7 +361,7 @@ export function useSpotifyPlayer(
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Playback helpers ──────────────────────────────────────────
-  async function playTrack(t: Track) {
+  async function playTrack(t: Track, opts?: { initialVolume?: number }) {
     if (!t.spotify_uri) return
     // Device not ready yet — queue the track and return. The 'ready' listener
     // will flush it once the virtual device has a device_id.
@@ -397,10 +406,25 @@ export function useSpotifyPlayer(
     activeTrackRef.current = t
     setProgress(0)
 
-    const vol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+    // initialVolume lets fadeTo() start the track silenced and ramp it up
+    // manually instead of getting clobbered by this final setVolume.
+    const vol = opts?.initialVolume ?? (mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume))
     await playerRef.current.setVolume(vol).catch(() => {})
 
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: true } }))
+  }
+
+  // ── Volume ramp helper ────────────────────────────────────────
+  // SDK has no native fade API. Step the volume in small intervals so the
+  // listener perceives a smooth transition instead of a hard cut.
+  async function rampVolume(from: number, to: number, durationMs: number) {
+    if (!playerRef.current) return
+    const STEPS = Math.max(4, Math.round(durationMs / 30))
+    for (let i = 1; i <= STEPS; i++) {
+      const v = from + (to - from) * (i / STEPS)
+      await playerRef.current.setVolume(Math.max(0, Math.min(1, v))).catch(() => {})
+      await new Promise(r => setTimeout(r, durationMs / STEPS))
+    }
   }
 
   // ── Public API ────────────────────────────────────────────────
@@ -484,5 +508,40 @@ export function useSpotifyPlayer(
     playerRef.current.connect()
   }
 
-  return { states, connected, unsupported, lastError, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip, reconnect }
+  async function fadeTo(t: Track, durationMs = 350) {
+    if (!t.spotify_uri || !playerRef.current) return
+    const targetVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+
+    // If something's currently playing, ramp it down before swapping URIs.
+    // The half-duration on each side keeps total switch time bounded.
+    if (activeTrackRef.current && activeTrackRef.current.id !== t.id) {
+      const prevId = activeTrackRef.current.id
+      const startVol = mutedRef.current ? 0 : (volumeRef.current[prevId] ?? targetVol)
+      await rampVolume(startVol, 0, Math.round(durationMs / 2))
+      // Reflect the swap in mixer state immediately so the UI doesn't show
+      // two tracks playing for the duration of the API roundtrip.
+      setStates(prev => ({ ...prev, [prevId]: { ...prev[prevId], playing: false } }))
+    }
+
+    // Start the new track silenced, then ramp up. playTrack's internal
+    // setVolume is overridden via initialVolume so it doesn't clobber the fade.
+    await playTrack(t, { initialVolume: 0 })
+    await rampVolume(0, targetVol, Math.round(durationMs / 2))
+  }
+
+  async function fadeOut(durationMs = 350) {
+    if (!playerRef.current || !activeTrackRef.current) return
+    const t = activeTrackRef.current
+    const startVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+    await rampVolume(startVol, 0, durationMs)
+    await playerRef.current.pause().catch(() => {})
+    activeTrackRef.current = null
+    setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
+    // Restore the SDK volume so the next playTrack starts at the right level.
+    // (playTrack will setVolume itself, but if a manual play() is invoked
+    // somehow, we want sane defaults.)
+    await playerRef.current.setVolume(startVol).catch(() => {})
+  }
+
+  return { states, connected, unsupported, lastError, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip, reconnect, fadeTo, fadeOut }
 }

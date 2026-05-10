@@ -42,6 +42,7 @@ The DM writes, the viewer subscribes. No WebSocket of our own.
 | Campaign list / new campaign / settings | `components/CampaignHome.tsx` |
 | Campaign-data loading + Realtime subscription | `lib/useCampaignData.ts` |
 | Spotify Web Playback SDK integration | `lib/useSpotifyPlayer.ts` |
+| Music-track crossfade helper | `lib/audioFade.ts` |
 | Supabase storage URL stamping + uploads | `lib/supabase/storage.ts` |
 | Date formatter / media URL resolver / character image URL | `lib/format.ts`, `lib/media.ts` |
 | Touch-device detection (one-shot) | `lib/useIsTouchDevice.ts` |

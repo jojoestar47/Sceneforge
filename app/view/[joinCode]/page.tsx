@@ -12,6 +12,7 @@ import HandoutLightbox from '@/components/HandoutLightbox'
 import OverlayStack from '@/components/OverlayStack'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 import { isIosWebkit } from '@/lib/platform'
+import { crossfadeAudio, type FadeHandle } from '@/lib/audioFade'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -88,6 +89,9 @@ export default function ViewerPage() {
   type Handlers = { play: () => void; pause: () => void }
   const audioRefs             = useRef<Record<string, HTMLAudioElement>>({})
   const audioHandlers         = useRef<Record<string, Handlers>>({})
+  // Tracks the in-flight music-track crossfade so a rapid second switch
+  // cancels the first instead of stacking ramps on the same elements.
+  const musicFadeRef          = useRef<FadeHandle | null>(null)
   // SFX one-shot playbacks (keyed by unique event id). Each entry carries
   // the soundId so a "stop" event from the DM can pause every in-flight
   // playback for that sound.
@@ -137,6 +141,8 @@ export default function ViewerPage() {
   // objects alive and the sounds continue playing in the background.
   useEffect(() => {
     return () => {
+      musicFadeRef.current?.cancel()
+      musicFadeRef.current = null
       disposeRefs(audioRefs.current, audioHandlers.current)
       audioRefs.current    = {}
       audioHandlers.current = {}
@@ -234,6 +240,10 @@ export default function ViewerPage() {
     if (!audioRefs.current[t.id]) {
       const src = pubUrl({ url: t.url || undefined, storage_path: t.storage_path || undefined }) || ''
       const a   = new Audio(src)
+      // Eagerly buffer the file. Browsers default to 'metadata' which means
+      // the new track has to download when the DM switches to it — that's
+      // the stutter we're avoiding by preloading every music track up-front.
+      a.preload = 'auto'
       a.loop = t.loop; a.muted = mutedRef.current
       let vol = t.volume
       if (scene?.id) {
@@ -274,6 +284,8 @@ export default function ViewerPage() {
     }
   }
   function stopAll() {
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
     Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
     sfxAudioRef.current = {}
@@ -301,6 +313,10 @@ export default function ViewerPage() {
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
+    // Any in-flight track-switch crossfade points at audio elements we're
+    // about to dispose — cancel before tearing them down.
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     if (Object.keys(audioRefs.current).length > 0) {
       disposeRefs(audioRefs.current, audioHandlers.current)
     }
@@ -321,30 +337,66 @@ export default function ViewerPage() {
       const a = getOrCreate(t)
       if (a.paused) a.play().catch(() => {})
     })
+    // Preload every other music track (kind==='music') so when the DM
+    // switches the active track via the mixer, the audio is already buffered
+    // and the crossfade has nothing to wait on.
+    musicTracks.forEach(t => {
+      if (t === musicToStart) return
+      getOrCreate(t)
+    })
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Switch music track when DM changes it ─────────────────────
+  // Crossfade between the outgoing and incoming track so the swap doesn't
+  // sound like a stutter. The Spotify case ramps SDK volume around the
+  // /me/player/play roundtrip; the file case crossfades two HTMLAudioElements.
   useEffect(() => {
     if (!activeMusicTrackId || !scene) return
     const allMusic = (scene.tracks || []).filter(t => t.kind === 'music')
     const targetTrack = allMusic.find(t => t.id === activeMusicTrackId)
     if (!targetTrack) return
 
+    // Cancel any in-flight crossfade so a rapid second switch doesn't stack
+    // ramps on the same elements.
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
+
+    // The currently-playing file music track (only one plays at a time).
+    const currentFile = allMusic.find(t =>
+      !t.spotify_uri && audioRefs.current[t.id] && !audioRefs.current[t.id].paused
+    )
+    // Any non-target file music tracks that aren't the outgoing one — pause
+    // them immediately. The outgoing track is faded out by crossfadeAudio.
     allMusic.forEach(t => {
-      if (!t.spotify_uri && t.id !== activeMusicTrackId) {
-        const a = audioRefs.current[t.id]
-        if (a && !a.paused) { a.pause(); a.currentTime = 0 }
-      }
+      if (t.spotify_uri || t.id === activeMusicTrackId || t.id === currentFile?.id) return
+      const a = audioRefs.current[t.id]
+      if (a && !a.paused) { a.pause(); a.currentTime = 0 }
     })
 
     if (targetTrack.spotify_uri) {
-      // stopAll() resets activeTrackRef inside the hook so toggle always calls playTrack
-      spotify.stopAll()
-      spotify.toggle(targetTrack)
+      // Switching to a Spotify track: fade any active file source out, then
+      // hand off to the SDK's volume-ramped track switch.
+      if (currentFile) {
+        const a = audioRefs.current[currentFile.id]
+        if (a) musicFadeRef.current = crossfadeAudio(a, null, 0)
+      }
+      spotify.fadeTo(targetTrack).catch(() => {})
     } else {
-      const a = getOrCreate(targetTrack)
-      a.volume = volumes[targetTrack.id] ?? a.volume
-      if (a.paused) a.play().catch(() => {})
+      // Switching to a file track: if Spotify is currently the music master,
+      // fade it down before bringing the file in. Otherwise just crossfade
+      // file → file.
+      const spotifyActive = allMusic.find(t => t.spotify_uri && spotify.states[t.id]?.playing)
+      if (spotifyActive) spotify.fadeOut().catch(() => {})
+
+      const targetAudio = getOrCreate(targetTrack)
+      const targetVol = volumes[targetTrack.id] ?? targetAudio.volume
+      const fromAudio = currentFile ? audioRefs.current[currentFile.id] : null
+      // Same audio element on both sides (e.g. scene change where the starter
+      // track was already activeMusicTrackId) — skip the no-op crossfade,
+      // which would otherwise pause the track at the end of its ramp.
+      if (fromAudio !== targetAudio) {
+        musicFadeRef.current = crossfadeAudio(fromAudio, targetAudio, targetVol)
+      }
     }
   }, [activeMusicTrackId]) // eslint-disable-line react-hooks/exhaustive-deps
 

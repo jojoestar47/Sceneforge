@@ -12,6 +12,7 @@ import OverlayStack from '@/components/OverlayStack'
 import UploadZone from '@/components/UploadZone'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 import { isIosWebkit } from '@/lib/platform'
+import { crossfadeAudio, type FadeHandle } from '@/lib/audioFade'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -135,6 +136,9 @@ export default function Stage({
   type Handlers = { play: () => void; pause: () => void; ended?: () => void }
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
   const audioHandlers          = useRef<Record<string, Handlers>>({})
+  // Tracks the in-flight DM-side music crossfade so a rapid second switch
+  // cancels the first instead of stacking ramps.
+  const musicFadeRef           = useRef<FadeHandle | null>(null)
   const [volumes, setVolumes]  = useState<Record<string, number>>({})
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
@@ -455,6 +459,10 @@ export default function Stage({
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
+    // Any in-flight track-switch crossfade points at audio elements we're
+    // about to dispose — cancel before tearing them down.
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     if (Object.keys(audioRefs.current).length > 0) {
       disposeRefs(audioRefs.current, audioHandlers.current)
     }
@@ -489,6 +497,11 @@ export default function Stage({
       amb.forEach(t => {
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
+    } else {
+      // Live: viewer is the audio master, DM stays silent. Still preload all
+      // music tracks so when the DM exits live mode and starts switching
+      // tracks locally the crossfade has buffered audio to work with.
+      baseMusic.forEach(t => { if (t.signed_url || t.url) getOrCreate(t) })
     }
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -510,6 +523,8 @@ export default function Stage({
       return
     }
     // Going live: pause every file track (music, layers, ambience).
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     Object.values(audioRefs.current).forEach(a => {
       if (!a.paused) { a.pause(); a.currentTime = 0 }
     })
@@ -527,6 +542,8 @@ export default function Stage({
   // Stop all audio when Stage unmounts (e.g. navigating back to campaign home)
   useEffect(() => {
     return () => {
+      musicFadeRef.current?.cancel()
+      musicFadeRef.current = null
       disposeRefs(audioRefs.current, audioHandlers.current)
       audioRefs.current   = {}
       audioHandlers.current = {}
@@ -543,6 +560,9 @@ export default function Stage({
     if (t.spotify_uri) return new Audio() // never used — Spotify tracks go through SDK
     if (!audioRefs.current[t.id]) {
       const a = new Audio(t.signed_url || t.url || '')
+      // Buffer the file fully so DM-side music switches don't stall waiting
+      // on the network. Default 'metadata' would defer the load until play().
+      a.preload = 'auto'
       a.loop = t.loop; a.muted = muted
       let vol = t.volume
       if (scene?.id) {
@@ -615,6 +635,8 @@ export default function Stage({
     }
   }
   function stopAll() {
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
     Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
     sfxAudioRef.current = {}
@@ -757,21 +779,36 @@ export default function Stage({
     // skip every local play/pause — going live already silenced the DM, and
     // local play would re-steal the Spotify device from the viewer.
     if (!isLive) {
-      if (current) {
-        if (!current.spotify_uri) {
-          const a = audioRefs.current[current.id]
-          if (a) { a.pause(); a.currentTime = 0 }
-        } else if (spotify.states[current.id]?.playing) {
-          spotify.toggle(current)
+      // Cancel any in-flight crossfade so a rapid second switch doesn't stack
+      // ramps on the same elements.
+      musicFadeRef.current?.cancel()
+      musicFadeRef.current = null
+
+      const fileToFile = current && next && !current.spotify_uri && !next.spotify_uri
+      if (fileToFile) {
+        const fromAudio = audioRefs.current[current.id] ?? null
+        const toAudio   = getOrCreate(next)
+        const toVol     = volumes[next.id] ?? toAudio.volume
+        musicFadeRef.current = crossfadeAudio(fromAudio, toAudio, toVol)
+      } else {
+        // Mixed file/Spotify or one-sided — fade out the outgoing source and
+        // fade in the incoming one independently.
+        if (current) {
+          if (!current.spotify_uri) {
+            const a = audioRefs.current[current.id]
+            if (a) musicFadeRef.current = crossfadeAudio(a, null, 0)
+          } else if (spotify.states[current.id]?.playing) {
+            spotify.fadeOut().catch(() => {})
+          }
         }
-      }
-      if (next) {
-        if (!next.spotify_uri) {
-          const a = getOrCreate(next)
-          a.volume = volumes[next.id] ?? a.volume
-          a.play().catch(() => {})
-        } else if (!spotify.states[next.id]?.playing) {
-          spotify.toggle(next)
+        if (next) {
+          if (!next.spotify_uri) {
+            const toAudio = getOrCreate(next)
+            const toVol   = volumes[next.id] ?? toAudio.volume
+            musicFadeRef.current = crossfadeAudio(null, toAudio, toVol)
+          } else if (!spotify.states[next.id]?.playing) {
+            spotify.fadeTo(next).catch(() => {})
+          }
         }
       }
     }
