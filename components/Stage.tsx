@@ -12,6 +12,7 @@ import OverlayStack from '@/components/OverlayStack'
 import UploadZone from '@/components/UploadZone'
 import type { SpotifyPlayerApi } from '@/lib/useSpotifyPlayer'
 import { isIosWebkit } from '@/lib/platform'
+import { crossfadeAudio, type FadeHandle } from '@/lib/audioFade'
 
 interface ActiveCharacters {
   left:   Character | null
@@ -56,6 +57,14 @@ interface Props {
   onSaveSlotDisplay?: (slot: 'left'|'center'|'right') => Promise<void>
   onHandoutShow?: (handoutId: string | null) => void
   onMusicTrackChange?: (trackId: string | null) => void
+  /**
+   * sessions.active_music_track_id mirrored from the page. During live the
+   * mixer's "current track" derives from this rather than the local
+   * musicIdx — needed because (a) musicIdx resets to 0 on every scene
+   * change, but the viewer's actual track is whatever the session row says,
+   * and (b) cross-tab DM sessions need a shared source of truth.
+   */
+  activeMusicTrackId?: string | null
   isLive?: boolean
   // Overlay props (DM only — undefined on viewer)
   activeOverlays?: Record<string, OverlayLiveState>
@@ -84,7 +93,7 @@ const MIXER_BG_PANEL = 'rgba(18,20,30,0.98)'
 export default function Stage({
   scene, hasCampaign, onEdit, spotify,
   characters, slotScales, slotDisplayProps, campaignCharacters,
-  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, isLive,
+  onCharactersChange, onSlotDisplayChange, onSaveSlotDisplay, onHandoutShow, onMusicTrackChange, activeMusicTrackId, isLive,
   activeOverlays, onOverlayStateChange,
   sounds, campaignId, userId, onSoundsChange, onPlaySfx, onStopSfx,
   campaignHandouts, onCampaignHandoutsChange,
@@ -135,6 +144,9 @@ export default function Stage({
   type Handlers = { play: () => void; pause: () => void; ended?: () => void }
   const audioRefs              = useRef<Record<string, HTMLAudioElement>>({})
   const audioHandlers          = useRef<Record<string, Handlers>>({})
+  // Tracks the in-flight DM-side music crossfade so a rapid second switch
+  // cancels the first instead of stacking ramps.
+  const musicFadeRef           = useRef<FadeHandle | null>(null)
   const [volumes, setVolumes]  = useState<Record<string, number>>({})
   const [playing, setPlaying]  = useState<Record<string, boolean>>({})
   const [muted,   setMuted]    = useState(false)
@@ -149,9 +161,15 @@ export default function Stage({
   const [musicIdx, setMusicIdx] = useState(0)
   const musicIdxRef            = useRef(0)
   const sceneMusicRef          = useRef<Track[]>([])
-  // Stable ref so the endedHandler closure always calls the latest prop
+  // Stable refs so the endedHandler closure (created once when the audio
+  // element is built) always reads the latest props/state instead of the
+  // values captured at element-creation time.
   const onMusicTrackChangeRef  = useRef(onMusicTrackChange)
   useEffect(() => { onMusicTrackChangeRef.current = onMusicTrackChange }, [onMusicTrackChange])
+  const spotifyRef             = useRef(spotify)
+  useEffect(() => { spotifyRef.current = spotify })
+  const volumesRef             = useRef(volumes)
+  useEffect(() => { volumesRef.current = volumes }, [volumes])
 
   // Detach listeners + pause + clear src on a refs map
   const disposeRefs = useCallback((refs: Record<string, HTMLAudioElement>, handlers: Record<string, Handlers>) => {
@@ -455,6 +473,10 @@ export default function Stage({
     }
     prevSceneIdForVolRef.current = scene?.id ?? null
 
+    // Any in-flight track-switch crossfade points at audio elements we're
+    // about to dispose — cancel before tearing them down.
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     if (Object.keys(audioRefs.current).length > 0) {
       disposeRefs(audioRefs.current, audioHandlers.current)
     }
@@ -489,6 +511,11 @@ export default function Stage({
       amb.forEach(t => {
         if (t.signed_url || t.url) getOrCreate(t).play().catch(() => {})
       })
+    } else {
+      // Live: viewer is the audio master, DM stays silent. Still preload all
+      // music tracks so when the DM exits live mode and starts switching
+      // tracks locally the crossfade has buffered audio to work with.
+      baseMusic.forEach(t => { if (t.signed_url || t.url) getOrCreate(t) })
     }
   }, [scene?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -510,6 +537,8 @@ export default function Stage({
       return
     }
     // Going live: pause every file track (music, layers, ambience).
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     Object.values(audioRefs.current).forEach(a => {
       if (!a.paused) { a.pause(); a.currentTime = 0 }
     })
@@ -527,6 +556,8 @@ export default function Stage({
   // Stop all audio when Stage unmounts (e.g. navigating back to campaign home)
   useEffect(() => {
     return () => {
+      musicFadeRef.current?.cancel()
+      musicFadeRef.current = null
       disposeRefs(audioRefs.current, audioHandlers.current)
       audioRefs.current   = {}
       audioHandlers.current = {}
@@ -542,7 +573,14 @@ export default function Stage({
   function getOrCreate(t: Track): HTMLAudioElement {
     if (t.spotify_uri) return new Audio() // never used — Spotify tracks go through SDK
     if (!audioRefs.current[t.id]) {
-      const a = new Audio(t.signed_url || t.url || '')
+      // preload + explicit load() to actually buffer the file. See viewer's
+      // getOrCreate for the rationale: preload alone is just a hint browsers
+      // can ignore, and the default load level ('metadata') doesn't actually
+      // pre-download. Setting preload before src and calling load() forces it.
+      const a = new Audio()
+      a.preload = 'auto'
+      a.src = t.signed_url || t.url || ''
+      a.load()
       a.loop = t.loop; a.muted = muted
       let vol = t.volume
       if (scene?.id) {
@@ -557,7 +595,13 @@ export default function Stage({
       a.addEventListener('play',  playHandler)
       a.addEventListener('pause', pauseHandler)
 
-      // Base music tracks auto-advance to next when they end (if not looping).
+      // Base music tracks auto-advance to next when they end (loop tracks
+      // never fire `ended`, so this is multi-track-only by construction).
+      // The previous version did a hard play() without crossfade and skipped
+      // Spotify next-tracks entirely (it had `if (!next.spotify_uri)` and
+      // never called the SDK), so a [file → spotify] playlist would advance
+      // the index but produce silence. We fix both with crossfadeAudio +
+      // spotify.fadeTo, depending on the kind of next track.
       let endedHandler: (() => void) | undefined
       if (t.kind === 'music') {
         endedHandler = () => {
@@ -565,11 +609,19 @@ export default function Stage({
           if (tracks.length <= 1) return
           const nextIdx = (musicIdxRef.current + 1) % tracks.length
           const next = tracks[nextIdx]
-          if (next && !next.spotify_uri) {
-            const nextAudio = audioRefs.current[next.id]
-            if (nextAudio) {
-              nextAudio.currentTime = 0
-              nextAudio.play().catch(() => {})
+          if (next) {
+            if (next.spotify_uri) {
+              spotifyRef.current.fadeTo(next).catch(() => {})
+            } else {
+              const nextAudio = audioRefs.current[next.id]
+              if (nextAudio) {
+                const nextVol = volumesRef.current[next.id] ?? nextAudio.volume
+                // The just-ended audio is already paused at duration end —
+                // crossfadeAudio's fade-out is effectively instant, but the
+                // fade-in on the new track stays smooth.
+                musicFadeRef.current?.cancel()
+                musicFadeRef.current = crossfadeAudio(a, nextAudio, nextVol)
+              }
             }
           }
           setMusicIdx(nextIdx)
@@ -615,6 +667,8 @@ export default function Stage({
     }
   }
   function stopAll() {
+    musicFadeRef.current?.cancel()
+    musicFadeRef.current = null
     Object.values(audioRefs.current).forEach(a => { a.pause(); a.currentTime = 0 })
     Object.values(sfxAudioRef.current).forEach(({ audio }) => { try { audio.pause(); audio.src = '' } catch {} })
     sfxAudioRef.current = {}
@@ -750,28 +804,53 @@ export default function Stage({
 
   function switchMusicTrack(newIdx: number) {
     const baseTracks = (scene?.tracks || []).filter(t => t.kind === 'music')
-    if (newIdx < 0 || newIdx >= baseTracks.length || newIdx === musicIdx) return
-    const current = baseTracks[musicIdx]
+    if (newIdx < 0 || newIdx >= baseTracks.length) return
+    // During live, the source-of-truth current index comes from
+    // active_music_track_id (mirrored via prop). Comparing against local
+    // musicIdx for the no-op check would let stale Tab B clicks bail
+    // incorrectly when Tab A had already advanced. For not-live we keep
+    // musicIdx as the index since there's no session row to anchor to.
+    const liveIdx = isLive && activeMusicTrackId
+      ? baseTracks.findIndex(t => t.id === activeMusicTrackId)
+      : -1
+    const fromIdx = liveIdx >= 0 ? liveIdx : musicIdx
+    if (newIdx === fromIdx) return
+    const current = baseTracks[fromIdx]
     const next    = baseTracks[newIdx]
     // During live, the viewer drives playback. We just push the track ID and
     // skip every local play/pause — going live already silenced the DM, and
     // local play would re-steal the Spotify device from the viewer.
     if (!isLive) {
-      if (current) {
-        if (!current.spotify_uri) {
-          const a = audioRefs.current[current.id]
-          if (a) { a.pause(); a.currentTime = 0 }
-        } else if (spotify.states[current.id]?.playing) {
-          spotify.toggle(current)
+      // Cancel any in-flight crossfade so a rapid second switch doesn't stack
+      // ramps on the same elements.
+      musicFadeRef.current?.cancel()
+      musicFadeRef.current = null
+
+      const fileToFile = current && next && !current.spotify_uri && !next.spotify_uri
+      if (fileToFile) {
+        const fromAudio = audioRefs.current[current.id] ?? null
+        const toAudio   = getOrCreate(next)
+        const toVol     = volumes[next.id] ?? toAudio.volume
+        musicFadeRef.current = crossfadeAudio(fromAudio, toAudio, toVol)
+      } else {
+        // Mixed file/Spotify or one-sided — fade out the outgoing source and
+        // fade in the incoming one independently.
+        if (current) {
+          if (!current.spotify_uri) {
+            const a = audioRefs.current[current.id]
+            if (a) musicFadeRef.current = crossfadeAudio(a, null, 0)
+          } else if (spotify.states[current.id]?.playing) {
+            spotify.fadeOut().catch(() => {})
+          }
         }
-      }
-      if (next) {
-        if (!next.spotify_uri) {
-          const a = getOrCreate(next)
-          a.volume = volumes[next.id] ?? a.volume
-          a.play().catch(() => {})
-        } else if (!spotify.states[next.id]?.playing) {
-          spotify.toggle(next)
+        if (next) {
+          if (!next.spotify_uri) {
+            const toAudio = getOrCreate(next)
+            const toVol   = volumes[next.id] ?? toAudio.volume
+            musicFadeRef.current = crossfadeAudio(null, toAudio, toVol)
+          } else if (!spotify.states[next.id]?.playing) {
+            spotify.fadeTo(next).catch(() => {})
+          }
         }
       }
     }
@@ -809,7 +888,21 @@ export default function Stage({
   // Keep sceneMusicRef in sync with the current scene's music list so the
   // onended closure always advances to the correct next track
   sceneMusicRef.current = baseMusic
-  const clampedMusicIdx     = Math.min(musicIdx, Math.max(0, baseMusic.length - 1))
+  // During live, the source of truth for the current track is the session
+  // row (active_music_track_id) — it survives scene changes, multi-tab
+  // setups, and viewer-side auto-advance. The local musicIdx still drives
+  // not-live preview where there's no session to anchor to. If the session
+  // hasn't picked one yet (active_music_track_id is null right after a
+  // scene change), fall back to baseMusic[0] since that's what the viewer
+  // auto-plays in `useEffect` on scene load.
+  const liveActiveIdx       = isLive && activeMusicTrackId
+    ? baseMusic.findIndex(t => t.id === activeMusicTrackId)
+    : -1
+  const liveFallbackIdx     = isLive && baseMusic.length > 0 ? 0 : -1
+  const effectiveMusicIdx   = liveActiveIdx >= 0
+    ? liveActiveIdx
+    : (liveFallbackIdx >= 0 ? liveFallbackIdx : Math.min(musicIdx, Math.max(0, baseMusic.length - 1)))
+  const clampedMusicIdx     = effectiveMusicIdx
   const currentMusicTrack   = baseMusic[clampedMusicIdx] ?? null
   const spotifyPlayingCount = Object.values(spotify.states).filter(s => s.playing).length
   const playingCount = Object.values(playing).filter(Boolean).length + spotifyPlayingCount

@@ -46,6 +46,15 @@ export interface SpotifyPlayerApi {
   mute:       (muted: boolean) => void
   autoPlay:   () => void   // call after user interaction (viewer tap-to-start)
   skip:       (direction: 'next' | 'previous') => void
+  /**
+   * Smooth track-switch: fade the currently-active Spotify track down to 0,
+   * start the new one at 0, then ramp up to its target volume. Hides the
+   * inevitable network-roundtrip gap when /me/player/play swaps the URI.
+   */
+  fadeTo:     (t: Track, durationMs?: number) => Promise<void>
+  /** Ramp Spotify volume to 0 then pause — used when crossfading from a
+   *  Spotify track to a file track. */
+  fadeOut:    (durationMs?: number) => Promise<void>
   // Manual reconnect — re-runs player.connect() which usually re-fires the
   // 'ready' event without a full re-auth. Falls back to no-op if the SDK
   // never loaded.
@@ -207,18 +216,37 @@ export function useSpotifyPlayer(
   // device; if both auto-play on scene change they race — last write wins
   // and the wrong device may end up with audio. The DM can still manually
   // toggle tracks from the mixer.
-  // preferredTrackId lets callers (the viewer) specify the DM-selected track
-  // up-front so we don't briefly play music[0] then switch.
+  //
+  // preferredTrackId lets callers (the viewer) specify the DM-selected
+  // track up-front so on initial connect we play the right one. It's read
+  // through a ref so a *change* in preferredTrackId doesn't re-fire this
+  // effect — that was the bug behind "plays for a second and then
+  // restarts": each DM-initiated track switch updates preferredTrackId,
+  // which used to re-trigger this effect, which scheduled a duplicate
+  // playTrack() 350ms later. Spotify's /me/player/play with the same URI
+  // restarts the track from the beginning, so the listener heard the new
+  // track for ~350ms (until the timer fired) and then it restarted.
+  //
+  // The activeTrackRef guard inside the timer is a second line of defense:
+  // even if this effect somehow re-fires while a track is playing, we
+  // don't clobber it with another playTrack(). fadeTo()/toggle() set
+  // activeTrackRef when they kick off playback, so we can detect it.
+  const preferredTrackIdRef = useRef(preferredTrackId)
+  useEffect(() => { preferredTrackIdRef.current = preferredTrackId }, [preferredTrackId])
+
   useEffect(() => {
     if (disableAutoPlay || !connected || !scene?.id) return
     const music = spotifyTracks.filter(
       t => t.kind === 'music' || t.kind === 'ml2' || t.kind === 'ml3'
     )
     if (!music.length) return
-    const target = (preferredTrackId ? music.find(t => t.id === preferredTrackId) : null) ?? music[0]
-    const timer = setTimeout(() => { playTrack(target).catch(() => {}) }, 350)
+    const target = (preferredTrackIdRef.current ? music.find(t => t.id === preferredTrackIdRef.current) : null) ?? music[0]
+    const timer = setTimeout(() => {
+      if (activeTrackRef.current) return
+      playTrack(target).catch(() => {})
+    }, 350)
     return () => clearTimeout(timer)
-  }, [scene?.id, connected, disableAutoPlay, preferredTrackId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scene?.id, connected, disableAutoPlay]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Progress polling (500ms) ──────────────────────────────────
   // player_state_changed alone isn't frequent enough for a smooth bar.
@@ -352,7 +380,7 @@ export function useSpotifyPlayer(
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Playback helpers ──────────────────────────────────────────
-  async function playTrack(t: Track) {
+  async function playTrack(t: Track, opts?: { initialVolume?: number }) {
     if (!t.spotify_uri) return
     // Device not ready yet — queue the track and return. The 'ready' listener
     // will flush it once the virtual device has a device_id.
@@ -362,10 +390,21 @@ export function useSpotifyPlayer(
     }
 
     const sceneIdAtStart = prevSceneIdRef.current
+    // Claim the active-track slot up-front so concurrent calls (the
+    // auto-play timer racing with a user-initiated fadeTo, both targeting
+    // tracks in the same scene) check activeTrackRef and skip. Without
+    // this, both call /me/player/play in quick succession and Spotify
+    // restarts the second URI — that was the "starts for a second and
+    // then restarts" symptom. We restore the previous value if the network
+    // operation fails or the scene changes mid-flight.
+    const previousActive = activeTrackRef.current
+    activeTrackRef.current = t
 
     const token = await fetchToken()
-    if (!token) return
-    if (prevSceneIdRef.current !== sceneIdAtStart) return
+    if (!token || prevSceneIdRef.current !== sceneIdAtStart) {
+      activeTrackRef.current = previousActive
+      return
+    }
 
     const body = t.spotify_type === 'playlist'
       ? { context_uri: t.spotify_uri }
@@ -383,9 +422,10 @@ export function useSpotifyPlayer(
     // 204 = success, 202 = accepted (device waking up) — anything else is a
     // real failure. Don't update local state if Spotify rejected the request,
     // or we'd show the track as playing when nothing is audible.
-    if (!playRes.ok && playRes.status !== 202) return
-
-    if (prevSceneIdRef.current !== sceneIdAtStart) return
+    if ((!playRes.ok && playRes.status !== 202) || prevSceneIdRef.current !== sceneIdAtStart) {
+      activeTrackRef.current = previousActive
+      return
+    }
 
     await applyRepeatMode(
       loopRef.current[t.id] ?? false,
@@ -394,13 +434,27 @@ export function useSpotifyPlayer(
       token
     )
 
-    activeTrackRef.current = t
     setProgress(0)
 
-    const vol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+    // initialVolume lets fadeTo() start the track silenced and ramp it up
+    // manually instead of getting clobbered by this final setVolume.
+    const vol = opts?.initialVolume ?? (mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume))
     await playerRef.current.setVolume(vol).catch(() => {})
 
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: true } }))
+  }
+
+  // ── Volume ramp helper ────────────────────────────────────────
+  // SDK has no native fade API. Step the volume in small intervals so the
+  // listener perceives a smooth transition instead of a hard cut.
+  async function rampVolume(from: number, to: number, durationMs: number) {
+    if (!playerRef.current) return
+    const STEPS = Math.max(4, Math.round(durationMs / 30))
+    for (let i = 1; i <= STEPS; i++) {
+      const v = from + (to - from) * (i / STEPS)
+      await playerRef.current.setVolume(Math.max(0, Math.min(1, v))).catch(() => {})
+      await new Promise(r => setTimeout(r, durationMs / STEPS))
+    }
   }
 
   // ── Public API ────────────────────────────────────────────────
@@ -484,5 +538,51 @@ export function useSpotifyPlayer(
     playerRef.current.connect()
   }
 
-  return { states, connected, unsupported, lastError, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip, reconnect }
+  async function fadeTo(t: Track, durationMs = 350) {
+    if (!t.spotify_uri || !playerRef.current) return
+    // Capture the scene generation up-front. If the user navigates away
+    // (back to home, different campaign) mid-fade, prevSceneIdRef changes
+    // and we abort + force-pause so the new URI doesn't keep playing on
+    // the SDK's virtual device with nothing telling it to stop.
+    const sceneIdAtStart = prevSceneIdRef.current
+    const targetVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+
+    if (activeTrackRef.current && activeTrackRef.current.id !== t.id) {
+      const prevId = activeTrackRef.current.id
+      const startVol = mutedRef.current ? 0 : (volumeRef.current[prevId] ?? targetVol)
+      await rampVolume(startVol, 0, Math.round(durationMs / 2))
+      if (prevSceneIdRef.current !== sceneIdAtStart) return
+      setStates(prev => ({ ...prev, [prevId]: { ...prev[prevId], playing: false } }))
+    }
+
+    await playTrack(t, { initialVolume: 0 })
+    // The /me/player/play fetch inside playTrack is the danger window — if
+    // the scene changed while it was in flight, Spotify is now playing the
+    // new URI on the device but the per-scene effect's player.pause() was
+    // racing with our request. Force-pause here so audio doesn't bleed
+    // through onto the next view.
+    if (prevSceneIdRef.current !== sceneIdAtStart) {
+      await playerRef.current.pause().catch(() => {})
+      activeTrackRef.current = null
+      setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
+      return
+    }
+    await rampVolume(0, targetVol, Math.round(durationMs / 2))
+  }
+
+  async function fadeOut(durationMs = 350) {
+    if (!playerRef.current || !activeTrackRef.current) return
+    const t = activeTrackRef.current
+    const startVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
+    await rampVolume(startVol, 0, durationMs)
+    await playerRef.current.pause().catch(() => {})
+    activeTrackRef.current = null
+    setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
+    // Restore the SDK volume so the next playTrack starts at the right level.
+    // (playTrack will setVolume itself, but if a manual play() is invoked
+    // somehow, we want sane defaults.)
+    await playerRef.current.setVolume(startVol).catch(() => {})
+  }
+
+  return { states, connected, unsupported, lastError, nowPlaying, progress, duration, toggle, setVolume, setLoop, stopAll, mute, autoPlay, skip, reconnect, fadeTo, fadeOut }
 }
