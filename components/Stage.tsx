@@ -826,17 +826,30 @@ export default function Stage({
       musicFadeRef.current?.cancel()
       musicFadeRef.current = null
 
-      const fileToFile = current && next && !current.spotify_uri && !next.spotify_uri
+      const currentIsSpotify = !!current?.spotify_uri
+      const nextIsSpotify    = !!next?.spotify_uri
+      const fileToFile       = current && next && !currentIsSpotify && !nextIsSpotify
+
       if (fileToFile) {
         const fromAudio = audioRefs.current[current.id] ?? null
         const toAudio   = getOrCreate(next)
         const toVol     = volumes[next.id] ?? toAudio.volume
         musicFadeRef.current = crossfadeAudio(fromAudio, toAudio, toVol)
+      } else if (currentIsSpotify && nextIsSpotify) {
+        // Spotify → Spotify: fadeTo handles the entire transition (ramps the
+        // current track down, plays the new one, ramps up) using ONE active
+        // SDK player. Calling spotify.fadeOut() alongside fadeTo() races —
+        // both spawn parallel rampVolume loops that fight over the same
+        // player.setVolume(), and fadeOut's pause() can land mid-fadeTo and
+        // produce "Cannot perform operation; no list was loaded" because the
+        // SDK has already been told to swap URIs. Single call, no race.
+        spotify.fadeTo(next).catch(() => {})
       } else {
-        // Mixed file/Spotify or one-sided — fade out the outgoing source and
-        // fade in the incoming one independently.
+        // Mixed: file → Spotify or Spotify → file. The two media systems
+        // don't share state, so ramps on each side are safe to run in
+        // parallel. (Different from the all-Spotify case above.)
         if (current) {
-          if (!current.spotify_uri) {
+          if (!currentIsSpotify) {
             const a = audioRefs.current[current.id]
             if (a) musicFadeRef.current = crossfadeAudio(a, null, 0)
           } else if (spotify.states[current.id]?.playing) {
@@ -844,7 +857,7 @@ export default function Stage({
           }
         }
         if (next) {
-          if (!next.spotify_uri) {
+          if (!nextIsSpotify) {
             const toAudio = getOrCreate(next)
             const toVol   = volumes[next.id] ?? toAudio.volume
             musicFadeRef.current = crossfadeAudio(null, toAudio, toVol)

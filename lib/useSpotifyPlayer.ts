@@ -173,6 +173,15 @@ export function useSpotifyPlayer(
   // If play is requested before the device is ready, we queue the track here
   // and flush it as soon as the 'ready' event fires.
   const pendingPlayRef = useRef<Track | null>(null)
+  // Monotonic counter that newer fadeTo/fadeOut calls bump. In-flight calls
+  // capture their seq at start and bail at every await boundary if it
+  // doesn't match — so rapid prev/next clicks supersede each other instead
+  // of running parallel rampVolume + playTrack operations against the same
+  // SDK player. Without this, hammering the switch buttons leaves the
+  // mixer/audio out of sync ("shows wrong tracks") and triggers the SDK's
+  // "Cannot perform operation; no list was loaded" because pause() lands
+  // after a sibling fadeTo's playTrack has swapped URIs.
+  const fadeSeqRef     = useRef(0)
 
   const [connected,   setConnected]   = useState(false)
   const [lastError,   setLastError]   = useState<string | null>(null)
@@ -447,10 +456,19 @@ export function useSpotifyPlayer(
   // ── Volume ramp helper ────────────────────────────────────────
   // SDK has no native fade API. Step the volume in small intervals so the
   // listener perceives a smooth transition instead of a hard cut.
-  async function rampVolume(from: number, to: number, durationMs: number) {
+  // The optional isCancelled hook lets callers (fadeTo/fadeOut) abort if a
+  // newer call has superseded them — without that, rapid prev/next clicks
+  // produce overlapping setVolume loops that fight over the player.
+  async function rampVolume(
+    from: number,
+    to: number,
+    durationMs: number,
+    isCancelled?: () => boolean,
+  ) {
     if (!playerRef.current) return
     const STEPS = Math.max(4, Math.round(durationMs / 30))
     for (let i = 1; i <= STEPS; i++) {
+      if (isCancelled?.()) return
       const v = from + (to - from) * (i / STEPS)
       await playerRef.current.setVolume(Math.max(0, Math.min(1, v))).catch(() => {})
       await new Promise(r => setTimeout(r, durationMs / STEPS))
@@ -460,6 +478,11 @@ export function useSpotifyPlayer(
   // ── Public API ────────────────────────────────────────────────
   function toggle(t: Track) {
     if (!t.spotify_uri || !playerRef.current) return
+    // Bump the fade seq so any in-flight fadeTo/fadeOut bails — toggle is
+    // an immediate-state action and shouldn't be overlaid with a fade
+    // ramp's setVolume calls landing on the SDK after we've already
+    // changed playback state.
+    fadeSeqRef.current++
     const isActive  = activeTrackRef.current?.id === t.id
     const isPlaying = states[t.id]?.playing ?? false
     if (isActive && isPlaying) {
@@ -496,6 +519,9 @@ export function useSpotifyPlayer(
   }
 
   function stopAll() {
+    // Same reasoning as toggle — bump seq so in-flight fades abandon
+    // before their setVolume/playTrack lands on a stopped player.
+    fadeSeqRef.current++
     if (playerRef.current) playerRef.current.pause().catch(() => {})
     activeTrackRef.current = null
     setNowPlaying(null)
@@ -540,6 +566,11 @@ export function useSpotifyPlayer(
 
   async function fadeTo(t: Track, durationMs = 350) {
     if (!t.spotify_uri || !playerRef.current) return
+    // Bump the seq counter; capture our value. Any newer fadeTo/fadeOut
+    // call advances the counter past mySeq, and we bail at every await
+    // boundary instead of continuing to fight the newer call for the SDK.
+    const mySeq = ++fadeSeqRef.current
+    const cancelled = () => mySeq !== fadeSeqRef.current
     // Capture the scene generation up-front. If the user navigates away
     // (back to home, different campaign) mid-fade, prevSceneIdRef changes
     // and we abort + force-pause so the new URI doesn't keep playing on
@@ -550,8 +581,8 @@ export function useSpotifyPlayer(
     if (activeTrackRef.current && activeTrackRef.current.id !== t.id) {
       const prevId = activeTrackRef.current.id
       const startVol = mutedRef.current ? 0 : (volumeRef.current[prevId] ?? targetVol)
-      await rampVolume(startVol, 0, Math.round(durationMs / 2))
-      if (prevSceneIdRef.current !== sceneIdAtStart) return
+      await rampVolume(startVol, 0, Math.round(durationMs / 2), cancelled)
+      if (cancelled() || prevSceneIdRef.current !== sceneIdAtStart) return
       setStates(prev => ({ ...prev, [prevId]: { ...prev[prevId], playing: false } }))
     }
 
@@ -560,21 +591,26 @@ export function useSpotifyPlayer(
     // the scene changed while it was in flight, Spotify is now playing the
     // new URI on the device but the per-scene effect's player.pause() was
     // racing with our request. Force-pause here so audio doesn't bleed
-    // through onto the next view.
+    // through onto the next view. Same logic for cancellation: if a newer
+    // fadeTo took over, leave the SDK alone — it'll claim its own state.
+    if (cancelled()) return
     if (prevSceneIdRef.current !== sceneIdAtStart) {
       await playerRef.current.pause().catch(() => {})
       activeTrackRef.current = null
       setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
       return
     }
-    await rampVolume(0, targetVol, Math.round(durationMs / 2))
+    await rampVolume(0, targetVol, Math.round(durationMs / 2), cancelled)
   }
 
   async function fadeOut(durationMs = 350) {
     if (!playerRef.current || !activeTrackRef.current) return
+    const mySeq = ++fadeSeqRef.current
+    const cancelled = () => mySeq !== fadeSeqRef.current
     const t = activeTrackRef.current
     const startVol = mutedRef.current ? 0 : (volumeRef.current[t.id] ?? t.volume)
-    await rampVolume(startVol, 0, durationMs)
+    await rampVolume(startVol, 0, durationMs, cancelled)
+    if (cancelled()) return
     await playerRef.current.pause().catch(() => {})
     activeTrackRef.current = null
     setStates(prev => ({ ...prev, [t.id]: { ...prev[t.id], playing: false } }))
